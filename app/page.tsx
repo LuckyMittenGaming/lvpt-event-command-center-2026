@@ -1,6 +1,11 @@
-import { Dashboard } from '../components/dashboard';
-import { events } from '../data/events';
-
 export default function Home() {
-  return <Dashboard initialEvents={events} />;
+  return (
+    <main style={{ minHeight: '100vh', margin: 0, background: '#09090b' }}>
+      <iframe
+        src="/lvpt-event-command-center.html"
+        title="LVPT Event Command Center 2026"
+        style={{ width: '100%', minHeight: '100vh', border: 0, display: 'block' }}
+      />
+    </main>
+  );
 }

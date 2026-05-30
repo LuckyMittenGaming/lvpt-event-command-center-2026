@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LVPT Event Command Center 2026 V2</title>
+  <meta name="description" content="Las Vegas Poker Training editable 2026 event CRM, quote builder, staffing tracker, compliance tracker, localStorage dashboard, and partner report generator." />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero-card">
+      <div>
+        <p class="eyebrow">Las Vegas Poker Training</p>
+        <h1>2026 Event Command Center</h1>
+        <p class="hero-copy">Editable event CRM, quote builder, staffing board, compliance tracker, task manager, payment tracker, and partner report generator. Version 2 saves everything to browser localStorage first, with a future Supabase upgrade path.</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn primary" id="newEventTopBtn">+ New Event</button>
+        <button class="btn" id="exportCsvBtn">Export CSV</button>
+        <button class="btn" id="exportJsonBtn">Export JSON</button>
+        <button class="btn danger" id="resetDataBtn">Reset Demo Data</button>
+      </div>
+    </header>
+
+    <section class="metrics-grid" id="metricsGrid"></section>
+
+    <main class="layout-grid">
+      <aside class="panel event-sidebar">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow small">Pipeline</p>
+            <h2>Events</h2>
+          </div>
+          <button class="btn small primary" id="newEventSideBtn">Add</button>
+        </div>
+        <div class="filter-grid">
+          <input class="input" id="searchInput" placeholder="Search events, companies, cities..." />
+          <select class="input" id="statusFilter"><option value="All">All Statuses</option></select>
+        </div>
+        <div class="event-list" id="eventList"></div>
+      </aside>
+
+      <section class="workspace">
+        <section class="panel" id="eventEditorPanel"></section>
+
+        <section class="tab-panel">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="quote">Quote</button>
+            <button class="tab" data-tab="tasks">Tasks</button>
+            <button class="tab" data-tab="staff">Staff</button>
+            <button class="tab" data-tab="compliance">Compliance</button>
+            <button class="tab" data-tab="post">Post-Event</button>
+            <button class="tab" data-tab="reports">Reports</button>
+            <button class="tab" data-tab="roadmap">Supabase Roadmap</button>
+          </div>
+          <div class="tab-content" id="tabContent"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="newEventDialog" class="modal">
+    <form method="dialog" class="modal-card" id="newEventForm">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow small">New LVPT Event</p>
+          <h2>Create Event Record</h2>
+        </div>
+        <button class="icon-btn" type="button" id="closeNewEventBtn">×</button>
+      </div>
+      <div class="form-grid two-col">
+        <label>Event Name<input class="input" name="eventName" required value="New LVPT Poker Event" /></label>
+        <label>Company / Client<input class="input" name="company" required value="New Client" /></label>
+        <label>Contact Name<input class="input" name="contactName" value="" /></label>
+        <label>Contact Email<input class="input" name="contactEmail" type="email" value="" /></label>
+        <label>Contact Phone<input class="input" name="contactPhone" value="" /></label>
+        <label>Event Type<input class="input" name="eventType" value="Corporate Poker Training" /></label>
+        <label>Event Date<input class="input" name="eventDate" type="date" /></label>
+        <label>Status<select class="input" name="status" id="newStatusSelect"></select></label>
+        <label>City<input class="input" name="city" value="Las Vegas" /></label>
+        <label>State<input class="input" name="state" value="NV" /></label>
+        <label>Venue<input class="input" name="venue" value="TBD" /></label>
+        <label>Lead Source<input class="input" name="leadSource" value="Website / Manual Entry" /></label>
+        <label>Guest Count<input class="input" name="guestCount" type="number" min="0" value="10" /></label>
+        <label>Student Count<input class="input" name="studentCount" type="number" min="0" value="9" /></label>
+      </div>
+      <label>Next Action<textarea class="input" name="nextAction">Complete discovery and prepare quote.</textarea></label>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="cancelNewEventBtn">Cancel</button>
+        <button class="btn primary" type="submit">Create Event</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

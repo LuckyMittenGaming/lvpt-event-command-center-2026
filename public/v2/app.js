@@ -17,6 +17,7 @@
     'js/report-scroll-guard.js',
     'js/dashboard-upgrades.js',
     'js/report-scroll-ready.js',
+    'js/central-sync.js',
   ];
 
   modules.forEach((modulePath) => {

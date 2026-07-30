@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LVPT Event Command Center 2026 V2</title>
-  <meta name="description" content="Las Vegas Poker Training editable 2026 event CRM, quote builder, staffing tracker, compliance tracker, localStorage dashboard, and partner report generator." />
+  <title>LVPT Event Command Center 2026</title>
+  <meta name="description" content="Las Vegas Poker Training event intake, operations, staffing, finance, documents, reminders, and Gmail-assisted event management." />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -13,16 +13,22 @@
       <div>
         <p class="eyebrow">Las Vegas Poker Training</p>
         <h1>2026 Event Command Center</h1>
-        <p class="hero-copy">Editable event CRM, quote builder, staffing board, compliance tracker, task manager, payment tracker, and partner report generator. Version 2 saves everything to browser localStorage first, with a future Supabase upgrade path.</p>
+        <p class="hero-copy">Create every event through a guided discovery workflow, then manage pricing, staffing, compliance, documents, email activity, reminders, and post-event follow-up from one record.</p>
+        <div class="system-status-row">
+          <span class="status-pill" id="storageStatus">Browser storage active</span>
+          <span class="status-pill pending" id="gmailHeroStatus">Gmail not checked</span>
+          <span class="status-pill" id="documentStatus">Document vault ready</span>
+        </div>
       </div>
       <div class="hero-actions">
-        <button class="btn primary" id="newEventTopBtn">+ New Event</button>
+        <button class="btn primary" id="newEventTopBtn">+ Guided Event Setup</button>
         <button class="btn" id="exportCsvBtn">Export CSV</button>
         <button class="btn" id="exportJsonBtn">Export JSON</button>
         <button class="btn danger" id="resetDataBtn">Reset Demo Data</button>
       </div>
     </header>
 
+    <section class="attention-bar" id="attentionBar"></section>
     <section class="metrics-grid" id="metricsGrid"></section>
 
     <main class="layout-grid">
@@ -46,13 +52,16 @@
 
         <section class="tab-panel">
           <div class="tabs" role="tablist">
-            <button class="tab active" data-tab="quote">Quote</button>
+            <button class="tab active" data-tab="setup">Setup</button>
+            <button class="tab" data-tab="quote">Quote</button>
             <button class="tab" data-tab="tasks">Tasks</button>
             <button class="tab" data-tab="staff">Staff</button>
             <button class="tab" data-tab="compliance">Compliance</button>
+            <button class="tab" data-tab="documents">Documents</button>
+            <button class="tab" data-tab="inbox">Inbox & Reminders</button>
             <button class="tab" data-tab="post">Post-Event</button>
             <button class="tab" data-tab="reports">Reports</button>
-            <button class="tab" data-tab="roadmap">Supabase Roadmap</button>
+            <button class="tab" data-tab="system">System</button>
           </div>
           <div class="tab-content" id="tabContent"></div>
         </section>
@@ -60,39 +69,144 @@
     </main>
   </div>
 
-  <dialog id="newEventDialog" class="modal">
-    <form method="dialog" class="modal-card" id="newEventForm">
+  <dialog id="eventWizardDialog" class="modal wizard-modal">
+    <form method="dialog" class="modal-card" id="eventWizardForm">
       <div class="modal-head">
         <div>
-          <p class="eyebrow small">New LVPT Event</p>
-          <h2>Create Event Record</h2>
+          <p class="eyebrow small">Guided Event Discovery</p>
+          <h2 id="wizardTitle">Create Complete Event Record</h2>
+          <p class="muted compact">The answers generate the event profile, task schedule, staffing placeholders, compliance checklist, and reminder plan.</p>
         </div>
-        <button class="icon-btn" type="button" id="closeNewEventBtn">×</button>
+        <button class="icon-btn" type="button" id="closeWizardBtn" aria-label="Close">×</button>
       </div>
-      <div class="form-grid two-col">
-        <label>Event Name<input class="input" name="eventName" required value="New LVPT Poker Event" /></label>
-        <label>Company / Client<input class="input" name="company" required value="New Client" /></label>
-        <label>Contact Name<input class="input" name="contactName" value="" /></label>
-        <label>Contact Email<input class="input" name="contactEmail" type="email" value="" /></label>
-        <label>Contact Phone<input class="input" name="contactPhone" value="" /></label>
-        <label>Event Type<input class="input" name="eventType" value="Corporate Poker Training" /></label>
-        <label>Event Date<input class="input" name="eventDate" type="date" /></label>
-        <label>Status<select class="input" name="status" id="newStatusSelect"></select></label>
-        <label>City<input class="input" name="city" value="Las Vegas" /></label>
-        <label>State<input class="input" name="state" value="NV" /></label>
-        <label>Venue<input class="input" name="venue" value="TBD" /></label>
-        <label>Lead Source<input class="input" name="leadSource" value="Website / Manual Entry" /></label>
-        <label>Guest Count<input class="input" name="guestCount" type="number" min="0" value="10" /></label>
-        <label>Student Count<input class="input" name="studentCount" type="number" min="0" value="9" /></label>
-      </div>
-      <label>Next Action<textarea class="input" name="nextAction">Complete discovery and prepare quote.</textarea></label>
-      <div class="modal-actions">
-        <button class="btn" type="button" id="cancelNewEventBtn">Cancel</button>
-        <button class="btn primary" type="submit">Create Event</button>
+
+      <div class="wizard-progress" id="wizardProgress"></div>
+
+      <section class="wizard-step" data-step="0">
+        <div class="step-heading"><span>1</span><div><h3>Client & Lead</h3><p>Who is hiring LVPT and where did the opportunity originate?</p></div></div>
+        <div class="form-grid two-col">
+          <label>Event Name<input class="input" name="eventName" required placeholder="Company Poker Experience" /></label>
+          <label>Company / Organization<input class="input" name="company" required /></label>
+          <label>Primary Contact<input class="input" name="contactName" /></label>
+          <label>Contact Email<input class="input" name="contactEmail" type="email" /></label>
+          <label>Contact Phone<input class="input" name="contactPhone" /></label>
+          <label>Invoice / AP Email<input class="input" name="invoiceEmail" type="email" /></label>
+          <label>Lead Source<select class="input" name="leadSource"><option>Website</option><option>Repeat Client</option><option>Referral</option><option>Venue / Planner</option><option>Partner</option><option>Organic SEO</option><option>Manual Entry</option></select></label>
+          <label>Planning Stage<select class="input" name="planningStage"><option>Exploring Options</option><option>Needs Discovery</option><option>Ready for Custom Quote</option><option>Proposal Requested</option><option>Verbal Approval</option><option>Booked</option></select></label>
+          <label>Budget Range<select class="input" name="budgetRange"><option value="">Not Provided</option><option>Under $5,000</option><option>$5,000–$10,000</option><option>$10,000–$20,000</option><option>$20,000–$40,000</option><option>$40,000+</option></select></label>
+          <label>PO Required?<select class="input" name="poRequired"><option value="unknown">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></label>
+          <label>PO Number<input class="input" name="poNumber" /></label>
+          <label>Decision Makers / Stakeholders<textarea class="input" name="stakeholders" placeholder="Planner, executive sponsor, AP contact..."></textarea></label>
+        </div>
+      </section>
+
+      <section class="wizard-step" data-step="1" hidden>
+        <div class="step-heading"><span>2</span><div><h3>Date, Time & Venue</h3><p>Lock down the schedule, location, access, and travel realities.</p></div></div>
+        <div class="form-grid three-col">
+          <label>Event Date<input class="input" name="eventDate" type="date" /></label>
+          <label>Start Time<input class="input" name="startTime" type="time" /></label>
+          <label>End Time<input class="input" name="endTime" type="time" /></label>
+          <label>Time Zone<select class="input" name="timeZone"><option>America/Los_Angeles</option><option>America/Phoenix</option><option>America/Denver</option><option>America/Chicago</option><option>America/New_York</option></select></label>
+          <label>City<input class="input" name="city" value="Las Vegas" /></label>
+          <label>State<input class="input" name="state" value="NV" /></label>
+          <label>Venue<input class="input" name="venue" placeholder="Hotel, suite, office, private venue..." /></label>
+          <label>Venue Status<select class="input" name="venueStatus"><option>TBD</option><option>Client Confirmed</option><option>LVPT Sourcing</option><option>Contract Pending</option><option>Confirmed</option></select></label>
+          <label>Venue Contact<input class="input" name="venueContact" /></label>
+          <label>Venue Contact Email<input class="input" name="venueEmail" type="email" /></label>
+          <label>Setup Access Time<input class="input" name="setupTime" type="time" /></label>
+          <label>Strike Complete By<input class="input" name="strikeTime" type="time" /></label>
+        </div>
+        <div class="form-grid two-col top-gap">
+          <label>Loading / Parking Instructions<textarea class="input" name="parkingInstructions"></textarea></label>
+          <label>Travel / Lodging Needs<textarea class="input" name="travelNeeds" placeholder="Flights, hotel rooms, rental vehicles, per diem..."></textarea></label>
+        </div>
+      </section>
+
+      <section class="wizard-step" data-step="2" hidden>
+        <div class="step-heading"><span>3</span><div><h3>Experience Design</h3><p>Define exactly what guests should experience and what success looks like.</p></div></div>
+        <div class="form-grid two-col">
+          <label>Event Type<select class="input" name="eventType"><option>Corporate Poker Training</option><option>Corporate Training + Tournament</option><option>Poker Tournament</option><option>Casino Night</option><option>Private Poker Lesson</option><option>Executive Workshop</option><option>Brand Activation</option><option>Custom Experience</option></select></label>
+          <label>Primary Goal<select class="input" name="primaryGoal"><option>Corporate Team Building</option><option>Client Entertainment</option><option>Executive Development</option><option>Networking</option><option>Fundraising</option><option>Private Skill Development</option><option>Brand Engagement</option><option>Celebration</option></select></label>
+          <label>Estimated Guests<input class="input" name="guestCount" type="number" min="0" value="10" /></label>
+          <label>Training Participants<input class="input" name="studentCount" type="number" min="0" value="9" /></label>
+          <label>Skill Level<select class="input" name="skillLevel"><option>Mostly Beginners</option><option>Beginner to Intermediate</option><option>Mixed Audience</option><option>Intermediate</option><option>Advanced</option><option>Unknown</option></select></label>
+          <label>Desired Duration<input class="input" name="experienceDuration" placeholder="2 hours, 3.5 hours, full evening..." /></label>
+          <label>Training Format<select class="input" name="trainingFormat"><option>Hand Analysis at Tables</option><option>Classroom + Hand Analysis</option><option>Business-First Workshop</option><option>Private Lesson</option><option>No Training</option><option>Custom</option></select></label>
+          <label>Game Format<select class="input" name="gameFormat"><option>Texas Hold'em</option><option>Tournament</option><option>Cash-Game Style Free Play</option><option>Sit & Go</option><option>Mixed Casino Games</option><option>Custom</option></select></label>
+          <label>Competition Level<select class="input" name="competitionLevel"><option>Low / Social</option><option>Friendly Competition</option><option>Structured Tournament</option><option>High-Energy Championship</option></select></label>
+          <label>Food & Beverage Plan<input class="input" name="foodPlan" placeholder="Dinner, cocktails, passed apps, none..." /></label>
+          <label>Client Expectations<textarea class="input" name="clientExpectations" placeholder="What must feel premium, easy, exciting, educational, etc.?"></textarea></label>
+          <label>Event Goal / Success Metric<textarea class="input" name="eventGoal" placeholder="What does a successful event look like?"></textarea></label>
+          <label>Desired Add-ons<textarea class="input" name="addOns" placeholder="Custom cards, chips, trophies, branded felt, AV, photography..."></textarea></label>
+          <label>Known Risks / Red Flags<textarea class="input" name="knownRisks" placeholder="Budget, timing, venue rules, changing count, approvals..."></textarea></label>
+        </div>
+      </section>
+
+      <section class="wizard-step" data-step="3" hidden>
+        <div class="step-heading"><span>4</span><div><h3>Production & Logistics</h3><p>Capture every physical requirement before it becomes an event-week emergency.</p></div></div>
+        <div class="form-grid three-col">
+          <label>Poker Tables Needed<input class="input" name="tableCount" type="number" min="0" value="1" /></label>
+          <label>Dealers Needed<input class="input" name="dealerCount" type="number" min="0" value="1" /></label>
+          <label>Pros / Instructors Needed<input class="input" name="proCount" type="number" min="0" value="1" /></label>
+          <label>Lead Pro / MC Needed?<select class="input" name="leadProNeeded"><option value="yes">Yes</option><option value="no">No</option><option value="unknown">Unknown</option></select></label>
+          <label>Tournament Director Needed?<select class="input" name="tdNeeded"><option value="no">No</option><option value="yes">Yes</option><option value="unknown">Unknown</option></select></label>
+          <label>AV / Microphone Needed?<select class="input" name="avNeeded"><option value="unknown">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></label>
+          <label>Chips / Cards Source<select class="input" name="equipmentSource"><option>LVPT Provides Everything</option><option>Venue Provides Some</option><option>Client Provides Some</option><option>TBD</option></select></label>
+          <label>Branding Required?<select class="input" name="brandingRequired"><option value="no">No</option><option value="yes">Yes</option><option value="unknown">Unknown</option></select></label>
+          <label>Shipping Required?<select class="input" name="shippingRequired"><option value="no">No</option><option value="yes">Yes</option><option value="unknown">Unknown</option></select></label>
+          <label>Power / Internet Needs<input class="input" name="powerInternet" placeholder="Timer displays, TVs, livestream, Wi-Fi..." /></label>
+          <label>Dress Code<input class="input" name="dressCode" placeholder="Black button-downs, branded polos, formal..." /></label>
+          <label>Accessibility / Guest Needs<input class="input" name="accessibilityNeeds" /></label>
+        </div>
+        <div class="form-grid two-col top-gap">
+          <label>Room Layout / Floor Plan Notes<textarea class="input" name="layoutNotes"></textarea></label>
+          <label>Other Production Notes<textarea class="input" name="productionNotes"></textarea></label>
+        </div>
+      </section>
+
+      <section class="wizard-step" data-step="4" hidden>
+        <div class="step-heading"><span>5</span><div><h3>Financials & Compliance</h3><p>Set the commercial terms and identify documents the client or venue will require.</p></div></div>
+        <div class="form-grid three-col">
+          <label>Target Quote / Budget<input class="input" name="targetQuote" type="number" min="0" /></label>
+          <label>Deposit %<input class="input" name="depositPercent" type="number" min="0" max="100" value="50" /></label>
+          <label>Final Payment Due<select class="input" name="finalPaymentTiming"><option>10 Days Before Event</option><option>14 Days Before Event</option><option>30 Days Before Event</option><option>Day of Event</option><option>Net 15</option><option>Net 30</option><option>Custom</option></select></label>
+          <label>Sales Tax / Exemption<select class="input" name="taxStatus"><option>Not Reviewed</option><option>Taxable</option><option>Tax Exempt</option><option>Not Applicable</option></select></label>
+          <label>COI Required?<select class="input" name="coiRequired"><option value="unknown">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></label>
+          <label>W-9 Required?<select class="input" name="w9Required"><option value="unknown">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></label>
+          <label>Vendor Registration?<select class="input" name="vendorRegistration"><option value="unknown">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></label>
+          <label>Gaming / Business License?<select class="input" name="licenseRequired"><option value="unknown">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></label>
+          <label>Contract / Agreement Needed?<select class="input" name="contractRequired"><option value="yes">Yes</option><option value="no">No</option><option value="unknown">Unknown</option></select></label>
+        </div>
+        <div class="form-grid two-col top-gap">
+          <label>Payment / Procurement Notes<textarea class="input" name="paymentNotes" placeholder="PO language, payment portal, vendor onboarding, card fees..."></textarea></label>
+          <label>Venue Rules / Compliance Notes<textarea class="input" name="complianceNotes"></textarea></label>
+        </div>
+      </section>
+
+      <section class="wizard-step" data-step="5" hidden>
+        <div class="step-heading"><span>6</span><div><h3>Follow-Up & Automation</h3><p>Define the next move, reminder cadence, and Gmail matching criteria.</p></div></div>
+        <div class="form-grid two-col">
+          <label>Next Action<textarea class="input" name="nextAction">Complete discovery, prepare quote, and confirm missing logistics.</textarea></label>
+          <label>Next Action Due<input class="input" name="nextActionDue" type="date" /></label>
+          <label>Internal Owner<input class="input" name="internalOwner" value="Matt" /></label>
+          <label>Reminder Cadence<select class="input" name="reminderCadence"><option>Daily for overdue tasks</option><option>Every 3 days</option><option>Weekly</option><option>Manual only</option></select></label>
+          <label>Gmail Search Terms<input class="input" name="gmailKeywords" placeholder="Company, event name, PO number, venue..." /></label>
+          <label>Automatic Email Matching<select class="input" name="autoEmailMatch"><option value="yes">Yes</option><option value="no">No</option></select></label>
+          <label>Special Communication Notes<textarea class="input" name="communicationNotes" placeholder="Who should be copied, sensitivities, promised follow-ups..."></textarea></label>
+          <label>Miscellaneous Event Notes<textarea class="input" name="miscNotes"></textarea></label>
+        </div>
+        <div class="review-card" id="wizardReview"></div>
+      </section>
+
+      <div class="modal-actions wizard-actions">
+        <button class="btn" type="button" id="wizardBackBtn">Back</button>
+        <button class="btn" type="button" id="wizardNextBtn">Next</button>
+        <button class="btn primary" type="submit" id="wizardSubmitBtn">Create Event & Tasks</button>
       </div>
     </form>
   </dialog>
 
+  <input id="documentFileInput" type="file" hidden multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt,.eml" />
   <div id="toast" class="toast" aria-live="polite"></div>
   <script src="./app.js"></script>
 </body>

@@ -9,6 +9,10 @@
     'js/documents.js',
     'js/gmail.js',
     'js/reports.js',
+    'js/roster-lineaje.js',
+    'js/roster-neo.js',
+    'js/roster-nium.js',
+    'js/live-roster.js',
   ];
 
   modules.forEach((modulePath) => {

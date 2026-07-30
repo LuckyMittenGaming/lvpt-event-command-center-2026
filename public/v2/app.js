@@ -14,7 +14,9 @@
     'js/roster-nium.js',
     'js/roster-confirmed-updates.js',
     'js/live-roster.js',
+    'js/report-scroll-guard.js',
     'js/dashboard-upgrades.js',
+    'js/report-scroll-ready.js',
   ];
 
   modules.forEach((modulePath) => {

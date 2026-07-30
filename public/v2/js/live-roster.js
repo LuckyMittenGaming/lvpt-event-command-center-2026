@@ -18,3 +18,10 @@ resetDemoData=function(){
   render();
 };
 installLiveRoster();
+const originalResetButton=$('#resetDataBtn');
+if(originalResetButton){
+  const officialResetButton=originalResetButton.cloneNode(true);
+  officialResetButton.textContent='Restore Official Roster';
+  originalResetButton.replaceWith(officialResetButton);
+  officialResetButton.addEventListener('click',resetDemoData);
+}

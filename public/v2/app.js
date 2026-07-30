@@ -12,6 +12,7 @@
     'js/roster-lineaje.js',
     'js/roster-neo.js',
     'js/roster-nium.js',
+    'js/roster-confirmed-updates.js',
     'js/live-roster.js',
   ];
 

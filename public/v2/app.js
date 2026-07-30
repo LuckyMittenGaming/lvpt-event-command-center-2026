@@ -14,6 +14,7 @@
     'js/roster-nium.js',
     'js/roster-confirmed-updates.js',
     'js/live-roster.js',
+    'js/dashboard-upgrades.js',
   ];
 
   modules.forEach((modulePath) => {

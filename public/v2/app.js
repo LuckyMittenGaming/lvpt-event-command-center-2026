@@ -13,6 +13,7 @@
     'js/roster-neo.js',
     'js/roster-nium.js',
     'js/roster-confirmed-updates.js',
+    'js/nium-profit-lineaje-neo-update.js',
     'js/live-roster.js',
     'js/report-scroll-guard.js',
     'js/dashboard-upgrades.js',

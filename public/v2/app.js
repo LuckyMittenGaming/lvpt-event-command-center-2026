@@ -19,6 +19,7 @@
     'js/dashboard-upgrades.js',
     'js/report-scroll-ready.js',
     'js/central-sync.js',
+    'js/responsive-polish-loader.js',
   ];
 
   modules.forEach((modulePath) => {

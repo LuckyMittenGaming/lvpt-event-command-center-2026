@@ -1,4 +1,4 @@
-const LIVE_ROSTER_VERSION='2026-07-30-confirmed-details-v2';
+const LIVE_ROSTER_VERSION='2026-08-05-nium-profit-lineaje-closed-neo-proposal';
 const LIVE_ROSTER_KEY='lvptLiveRosterVersion';
 
 function cloneLiveRoster(){

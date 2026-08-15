@@ -19,6 +19,7 @@
     'js/dashboard-upgrades.js',
     'js/report-scroll-ready.js',
     'js/central-sync.js',
+    'js/lifecycle-command-center.js',
     'js/responsive-polish-loader.js',
   ];
 

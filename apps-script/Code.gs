@@ -19,6 +19,10 @@ function doPost(e) {
     if (action === 'uploadDocument') return lvptJson_(lvptUploadDocument_(payload));
     if (action === 'deleteDocument') return lvptJson_(lvptDeleteDocument_(payload));
     if (action === 'createBackup') return lvptJson_(lvptCreateBackup_());
+    if (action === 'automationStatus') return lvptJson_(lvptAutomationStatus_());
+    if (action === 'scanClientLifecycle') return lvptJson_(lvptRunClientLifecycleScan_({ notify: true, source: 'Command Center' }));
+    if (action === 'installClientLifecycleTriggers') return lvptJson_(lvptInstallClientLifecycleTriggers_());
+    if (action === 'reviewAutomationItem') return lvptJson_(lvptReviewAutomationItem_(payload));
     throw new Error('Unknown action: ' + action);
   } catch (error) {
     return lvptJson_({ ok: false, message: error && error.message ? error.message : String(error) });
@@ -130,7 +134,9 @@ function lvptListEvents_() {
     var documents = documentsByEvent[eventId] || [];
     var gmail = gmailByEvent[eventId] || [];
     var post = (postByEvent[eventId] || [])[0] || {};
-    return {
+    var stored = {};
+    try { stored = row.event_json ? JSON.parse(String(row.event_json)) : {}; } catch (ignored) {}
+    var event = {
       id: eventId, eventName: row.event_name || '', company: row.company || '', contactName: row.contact_name || '', contactEmail: row.contact_email || '', contactPhone: row.contact_phone || '', eventType: row.event_type || '', status: row.status || 'New Lead', eventDate: lvptDateString_(row.event_date), startTime: row.start_time || '', endTime: row.end_time || '', city: row.city || '', state: row.state || '', venue: row.venue || '', guestCount: lvptNumber_(row.guest_count), studentCount: lvptNumber_(row.training_participants), skillLevel: row.skill_level || '', leadSource: row.lead_source || '', probabilityToClose: lvptNumber_(row.close_probability), eventGoal: row.event_goal || '', eventFormat: row.event_format || '', clientExpectations: row.client_expectations || '', knownRisks: row.known_risks || '', nextAction: row.next_action || '', nextActionDue: lvptDateString_(row.next_action_due), proposalUrl: row.proposal_url || '',
       setup: { invoiceEmail: row.invoice_email || '', planningStage: row.planning_stage || '', budgetRange: row.budget_range || '', poRequired: row.po_required || 'unknown', poNumber: row.po_number || '', stakeholders: row.stakeholders || '', timeZone: row.time_zone || 'America/Los_Angeles', venueStatus: row.venue_status || 'TBD', venueContact: row.venue_contact || '', venueEmail: row.venue_email || '', setupTime: row.setup_access_time || '', strikeTime: row.strike_time || '', parkingInstructions: row.parking_instructions || '', travelNeeds: row.travel_lodging || '', primaryGoal: row.primary_goal || '', experienceDuration: row.experience_duration || '', trainingFormat: row.training_format || '', gameFormat: row.game_format || '', competitionLevel: row.competition_level || '', foodPlan: row.food_plan || '', addOns: row.add_ons || '', tableCount: lvptNumber_(row.table_count), dealerCount: lvptNumber_(row.dealer_count), proCount: lvptNumber_(row.pro_count), leadProNeeded: row.lead_pro_needed || 'unknown', tdNeeded: row.td_needed || 'unknown', avNeeded: row.av_needed || 'unknown', equipmentSource: row.equipment_source || 'TBD', brandingRequired: row.branding_required || 'unknown', shippingRequired: row.shipping_required || 'unknown', powerInternet: row.power_internet || '', dressCode: row.dress_code || '', accessibilityNeeds: row.accessibility_needs || '', layoutNotes: row.layout_notes || '', productionNotes: row.production_notes || '', targetQuote: lvptNumber_(row.target_quote), depositPercent: lvptNumber_(row.deposit_percent), finalPaymentTiming: row.final_payment_timing || '', taxStatus: row.tax_status || '', coiRequired: row.coi_required || 'unknown', w9Required: row.w9_required || 'unknown', vendorRegistration: row.vendor_registration || 'unknown', licenseRequired: row.license_required || 'unknown', contractRequired: row.contract_required || 'unknown', paymentNotes: row.payment_notes || '', complianceNotes: row.compliance_notes || '', internalOwner: row.internal_owner || 'Matt', reminderCadence: row.reminder_cadence || 'Daily for overdue tasks', gmailKeywords: row.gmail_keywords || '', autoEmailMatch: row.auto_email_match || 'yes', communicationNotes: row.communication_notes || '', miscNotes: row.misc_notes || '' },
       quote: quotes.map(function (item) { return { id: item.quote_item_id || Utilities.getUuid(), category: item.category || '', name: item.line_item || '', quantity: lvptNumber_(item.quantity), unitPrice: lvptNumber_(item.unit_price), internalCost: lvptNumber_(item.internal_unit_cost) }; }),
@@ -143,6 +149,16 @@ function lvptListEvents_() {
       postEvent: { clientFeedback: post.client_feedback || '', whatWentWell: post.what_went_well || '', painPoints: post.pain_points || '', changesForNextTime: post.changes_for_next_time || '', reviewRequested: lvptBool_(post.review_requested), reviewReceived: lvptBool_(post.review_received), rebookingLikelihood: post.rebooking_likelihood || 'Medium' },
       _serverVersion: lvptNumber_(row.record_version), _lastActor: row.last_actor || ''
     };
+    event.proposalId = stored.proposalId || '';
+    event.proposalStatus = stored.proposalStatus || '';
+    event.automationReview = Array.isArray(stored.automationReview) ? stored.automationReview : [];
+    event.automationMeta = stored.automationMeta || {};
+    event.createdAt = stored.createdAt || row.created_at || '';
+    event.postEvent.thankYouSent = lvptBool_(post.thank_you_sent) || Boolean(stored.postEvent && stored.postEvent.thankYouSent);
+    event.postEvent.followUpDate = lvptDateString_(post.follow_up_date) || (stored.postEvent && stored.postEvent.followUpDate) || '';
+    event.postEvent.reviewUrl = post.review_url || (stored.postEvent && stored.postEvent.reviewUrl) || '';
+    event.postEvent.notes = post.notes || (stored.postEvent && stored.postEvent.notes) || '';
+    return event;
   });
 }
 
@@ -215,3 +231,257 @@ function sendLvptDailyReminderSummary() {
 
 function installLvptDailyReminderTrigger() { ScriptApp.getProjectTriggers().forEach(function (trigger) { if (trigger.getHandlerFunction() === 'sendLvptDailyReminderSummary') ScriptApp.deleteTrigger(trigger); }); ScriptApp.newTrigger('sendLvptDailyReminderSummary').timeBased().everyDays(1).atHour(8).create(); }
 function createLvptBackupNow() { return lvptCreateBackup_(); }
+
+var LVPT_AUTOMATION_SHEET = 'Automation Inbox';
+var LVPT_AUTOMATION_HEADERS = ['review_id','status','message_id','thread_id','message_date','from_email','subject','snippet','suggested_company','event_id','event_name','category','suggested_action','detected_at','reviewed_at','reviewed_by'];
+
+function lvptAutomationSheet_() {
+  var spreadsheet = lvptSpreadsheet_();
+  var sheet = spreadsheet.getSheetByName(LVPT_AUTOMATION_SHEET);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(LVPT_AUTOMATION_SHEET);
+    sheet.getRange(1, 1, 1, LVPT_AUTOMATION_HEADERS.length).setValues([LVPT_AUTOMATION_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function lvptAutomationRows_() {
+  var sheet = lvptAutomationSheet_();
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+  var headers = values[0].map(function (value) { return String(value || ''); });
+  return values.slice(1).filter(function (row) { return row.some(function (value) { return value !== ''; }); }).map(function (row) {
+    var item = {};
+    headers.forEach(function (header, index) { item[header] = row[index]; });
+    return item;
+  });
+}
+
+function lvptAutomationStatus_() {
+  var properties = lvptProperties_();
+  var stats = {};
+  try { stats = JSON.parse(properties.getProperty('LVPT_LAST_AUTOMATION_STATS') || '{}'); } catch (ignored) {}
+  var items = lvptAutomationRows_().filter(function (item) { return String(item.status || 'Open') === 'Open'; }).slice(-250).reverse().map(function (item) {
+    return {
+      reviewId: String(item.review_id || ''), status: String(item.status || 'Open'), messageId: String(item.message_id || ''), threadId: String(item.thread_id || ''),
+      messageDate: item.message_date ? new Date(item.message_date).toISOString() : '', from: String(item.from_email || ''), subject: String(item.subject || ''),
+      snippet: String(item.snippet || ''), suggestedCompany: String(item.suggested_company || ''), eventId: String(item.event_id || ''), eventName: String(item.event_name || ''),
+      category: String(item.category || 'Client Email'), action: String(item.suggested_action || 'Review client email')
+    };
+  });
+  return {
+    ok: true, configured: true, lastScanAt: properties.getProperty('LVPT_LAST_CLIENT_SCAN_AT') || '',
+    nextMorning: 'Daily around 8:00 AM', nextEvening: 'Daily around 7:00 PM', items: items, stats: stats
+  };
+}
+
+function lvptEmailAddress_(value) {
+  var match = String(value || '').toLowerCase().match(/[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  return match ? match[0] : '';
+}
+
+function lvptMessageSummary_(message) {
+  var from = message.getFrom() || '';
+  var body = String(message.getPlainBody() || '').replace(/\s+/g, ' ').trim();
+  var subject = String(message.getSubject() || '').trim();
+  var sender = lvptEmailAddress_(from);
+  var booking = LVPT_BOOKING_EMAIL.toLowerCase();
+  return {
+    id: message.getId(), threadId: message.getThread().getId(), subject: subject, from: from,
+    to: message.getTo() || '', cc: message.getCc() || '', date: message.getDate().toISOString(),
+    snippet: body.slice(0, 420), gmailUrl: 'https://mail.google.com/mail/u/0/#all/' + message.getThread().getId(),
+    direction: sender === booking ? 'sent' : 'received', hasAttachments: message.getAttachments().length > 0
+  };
+}
+
+function lvptQuoteGmailTerm_(value) { return '"' + String(value || '').replace(/["{}]/g, ' ').trim().slice(0, 100) + '"'; }
+
+function lvptEventGmailQuery_(event) {
+  var email = lvptEmailAddress_(event.contactEmail || '');
+  if (email) return 'newer_than:18m in:anywhere -in:spam -in:trash {from:' + email + ' to:' + email + '}';
+  var terms = [event.company, event.eventName].concat(String((event.setup || {}).gmailKeywords || '').split(/[,;]+/)).filter(function (term) { return String(term || '').trim().length >= 4; }).slice(0, 4);
+  return 'newer_than:18m in:anywhere -in:spam -in:trash {' + terms.map(lvptQuoteGmailTerm_).join(' ') + '}';
+}
+
+function lvptClientCategory_(message) {
+  var text = (message.subject + ' ' + message.snippet).toLowerCase();
+  if (/cancel|cancellation|postpone|reschedul|cannot make|can.t make/.test(text)) return 'Schedule Risk';
+  if (/invoice|payment|deposit|ach|wire|purchase order|\bpo\b|accounts payable/.test(text)) return 'Payment / Procurement';
+  if (/contract|agreement|signature|signing|w-9|\bw9\b|coi|insurance|vendor registration/.test(text)) return 'Contract / Compliance';
+  if (/proposal|quote|pricing|estimate|budget|cost/.test(text)) return 'Proposal / Pricing';
+  if (/venue|hotel|room|floor plan|load-in|parking|setup|catering|menu|bar|transport/.test(text)) return 'Venue / Logistics';
+  if (/guest|headcount|attendee|participant|table|dealer|instructor|poker pro/.test(text)) return 'Scope / Headcount';
+  if (/photo|video|gallery|asset|logo|artwork|brand/.test(text)) return 'Media / Assets';
+  return 'Client Email';
+}
+
+function lvptSuggestedAction_(category, message, event) {
+  var contact = event && event.contactName ? event.contactName : 'client';
+  if (category === 'Schedule Risk') return 'Review schedule change or attendance risk from ' + contact;
+  if (category === 'Payment / Procurement') return 'Review payment, PO or procurement item from ' + contact;
+  if (category === 'Contract / Compliance') return 'Review contract or compliance request from ' + contact;
+  if (category === 'Proposal / Pricing') return 'Review and respond to proposal or pricing request from ' + contact;
+  if (category === 'Venue / Logistics') return 'Review venue or logistics details from ' + contact;
+  if (category === 'Scope / Headcount') return 'Review scope or headcount update from ' + contact;
+  if (category === 'Media / Assets') return 'Review requested media or brand assets from ' + contact;
+  return 'Review and respond to client message: ' + (message.subject || 'No subject');
+}
+
+function lvptEnsureAutomationTask_(event, title, dueDate, priority, sourceId) {
+  event.tasks = event.tasks || [];
+  var normalized = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  var existing = event.tasks.some(function (task) {
+    return task.status !== 'Complete' && (task.sourceId === sourceId || String(task.title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === normalized);
+  });
+  if (existing) return false;
+  event.tasks.push({ id: Utilities.getUuid(), title: title, owner: (event.setup || {}).internalOwner || 'Matt', dueDate: dueDate, priority: priority || 'High', status: 'Open', source: 'Email Intelligence', sourceId: sourceId || '' });
+  return true;
+}
+
+function lvptQueueAutomationItem_(sheet, index, item) {
+  if (!item.messageId || index[item.messageId]) return false;
+  var reviewId = Utilities.getUuid();
+  sheet.appendRow([reviewId,'Open',item.messageId,item.threadId,item.messageDate,item.from,item.subject,item.snippet,item.suggestedCompany,item.eventId,item.eventName,item.category,item.action,new Date(),'','']);
+  index[item.messageId] = reviewId;
+  return true;
+}
+
+function lvptLooksLikeClientInquiry_(message) {
+  var sender = lvptEmailAddress_(message.from);
+  if (!sender || sender === LVPT_BOOKING_EMAIL.toLowerCase() || /no-?reply|notifications?|mailer-daemon|calendar-notification/.test(sender)) return false;
+  var text = (message.subject + ' ' + message.snippet).toLowerCase();
+  return /poker|casino|event|training|tournament|corporate|team build|client entertainment|quote|proposal|pricing|availability|las vegas|venetian|palazzo|aria|resorts world|mandalay/.test(text);
+}
+
+function lvptRunClientLifecycleScan_(options) {
+  options = options || {};
+    var events = lvptListEvents_();
+    var sheet = lvptAutomationSheet_();
+    var existingQueue = lvptAutomationRows_();
+    var queueIndex = {};
+    existingQueue.forEach(function (item) { if (item.message_id) queueIndex[String(item.message_id)] = String(item.review_id || 'existing'); });
+    var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/New_York', 'yyyy-MM-dd');
+    var knownMessageIds = {};
+    var stats = { eventsReviewed: events.length, matchedMessages: 0, newMessages: 0, tasksCreated: 0, reviewItemsCreated: 0, unmatchedLeads: 0, scanSource: options.source || 'Scheduled automation' };
+
+    events.forEach(function (event) {
+      event.emailActivity = event.emailActivity || [];
+      event.tasks = event.tasks || [];
+      event.automationMeta = event.automationMeta || {};
+      var activityIndex = {};
+      event.emailActivity.forEach(function (activity) { if (activity.id) { activityIndex[String(activity.id)] = true; knownMessageIds[String(activity.id)] = true; } });
+      if ((event.setup || {}).autoEmailMatch !== 'no') {
+        var query = lvptEventGmailQuery_(event);
+        var threads = [];
+        try { threads = GmailApp.search(query, 0, 30); } catch (ignored) {}
+        var messages = [];
+        threads.forEach(function (thread) { thread.getMessages().forEach(function (message) { messages.push(lvptMessageSummary_(message)); }); });
+        messages.sort(function (a,b) { return a.date.localeCompare(b.date); });
+        stats.matchedMessages += messages.length;
+        messages.forEach(function (message) {
+          knownMessageIds[message.id] = true;
+          if (activityIndex[message.id]) return;
+          event.emailActivity.push(message); activityIndex[message.id] = true; stats.newMessages++;
+        });
+        event.emailActivity = event.emailActivity.slice(-300);
+        var latestInbound = null, latestOutbound = null;
+        event.emailActivity.forEach(function (message) {
+          if (message.direction === 'received' && (!latestInbound || message.date > latestInbound.date)) latestInbound = message;
+          if (message.direction === 'sent' && (!latestOutbound || message.date > latestOutbound.date)) latestOutbound = message;
+        });
+        if (latestInbound && (!latestOutbound || latestInbound.date > latestOutbound.date)) {
+          var hoursWaiting = Math.floor((new Date().getTime() - new Date(latestInbound.date).getTime()) / 3600000);
+          if (hoursWaiting >= 6) {
+            var category = lvptClientCategory_(latestInbound);
+            var action = lvptSuggestedAction_(category, latestInbound, event);
+            if (lvptEnsureAutomationTask_(event, action, today, hoursWaiting >= 48 ? 'Critical' : 'High', latestInbound.id)) stats.tasksCreated++;
+            if (lvptQueueAutomationItem_(sheet, queueIndex, { messageId:latestInbound.id,threadId:latestInbound.threadId,messageDate:latestInbound.date,from:latestInbound.from,subject:latestInbound.subject,snippet:latestInbound.snippet,suggestedCompany:event.company,eventId:event.id,eventName:event.eventName,category:category,action:action })) stats.reviewItemsCreated++;
+          }
+        }
+      }
+
+      var eventPast = event.eventDate && event.eventDate < today;
+      var closed = ['Completed','Post-Event Follow-Up','Closed Won'].indexOf(event.status) !== -1 || eventPast;
+      var daysSinceEvent = event.eventDate ? Math.floor((new Date().getTime() - new Date(event.eventDate + 'T12:00:00').getTime()) / 86400000) : -1;
+      if (closed && daysSinceEvent >= 0 && daysSinceEvent <= 60) {
+        if (!(event.postEvent || {}).thankYouSent && lvptEnsureAutomationTask_(event, 'Send or confirm post-event client thank-you', today, 'High', 'post-thank-' + event.id)) stats.tasksCreated++;
+        if (!(event.postEvent || {}).reviewRequested && lvptEnsureAutomationTask_(event, 'Request client feedback / testimonial or mark not needed', today, 'Medium', 'post-review-' + event.id)) stats.tasksCreated++;
+      }
+      if (closed && daysSinceEvent >= 180 && String((event.postEvent || {}).rebookingLikelihood || 'Medium') !== 'Low') {
+        if (lvptEnsureAutomationTask_(event, 'Reconnect about a future or anniversary poker experience', today, 'Medium', 'rebook-' + event.id + '-' + new Date().getFullYear())) stats.tasksCreated++;
+      }
+      if (event.status === 'Proposal Sent') {
+        var latestActivity = (event.emailActivity || []).slice().sort(function(a,b){ return String(b.date||'').localeCompare(String(a.date||'')); })[0];
+        var quietDays = latestActivity ? Math.floor((new Date().getTime() - new Date(latestActivity.date).getTime()) / 86400000) : 999;
+        if (quietDays >= 3 && lvptEnsureAutomationTask_(event, 'Follow up on outstanding proposal', today, quietDays >= 7 ? 'High' : 'Medium', 'proposal-followup-' + event.id)) stats.tasksCreated++;
+      }
+      event.automationMeta.lastReviewedAt = new Date().toISOString();
+    });
+
+    var recentThreads = [];
+    try { recentThreads = GmailApp.search('newer_than:21d to:' + LVPT_BOOKING_EMAIL + ' -in:spam -in:trash -category:promotions -category:social', 0, 80); } catch (ignored) {}
+    recentThreads.forEach(function (thread) {
+      thread.getMessages().forEach(function (gmailMessage) {
+        var message = lvptMessageSummary_(gmailMessage);
+        if (message.direction !== 'received' || knownMessageIds[message.id] || queueIndex[message.id] || !lvptLooksLikeClientInquiry_(message)) return;
+        var company = lvptEmailAddress_(message.from).split('@')[1] || lvptEmailAddress_(message.from) || 'New client inquiry';
+        var category = lvptClientCategory_(message);
+        if (lvptQueueAutomationItem_(sheet, queueIndex, { messageId:message.id,threadId:message.threadId,messageDate:message.date,from:message.from,subject:message.subject,snippet:message.snippet,suggestedCompany:company,eventId:'',eventName:'',category:'Potential New Lead — ' + category,action:'Review unmatched client inquiry and create a pipeline record if qualified' })) { stats.reviewItemsCreated++; stats.unmatchedLeads++; }
+      });
+    });
+
+    lvptSaveAllEvents_({ events: events, actor: 'Email Intelligence', reason: 'Twice-daily client lifecycle review' });
+    var completedAt = new Date().toISOString();
+    stats.completedAt = completedAt;
+    lvptProperties_().setProperty('LVPT_LAST_CLIENT_SCAN_AT', completedAt);
+    lvptProperties_().setProperty('LVPT_LAST_AUTOMATION_STATS', JSON.stringify(stats));
+    if (options.notify && (stats.tasksCreated || stats.reviewItemsCreated)) lvptSendAutomationSummary_(stats);
+    return { ok:true, message:'Client lifecycle scan complete.', lastScanAt:completedAt, stats:stats, items:lvptAutomationStatus_().items };
+}
+
+function lvptSendAutomationSummary_(stats) {
+  var subject = 'LVPT Command Center: ' + (stats.tasksCreated + stats.reviewItemsCreated) + ' client item(s) need attention';
+  var body = [
+    'LVPT twice-daily client lifecycle review is complete.','',
+    'Events reviewed: ' + stats.eventsReviewed,
+    'New matched emails: ' + stats.newMessages,
+    'Tasks created: ' + stats.tasksCreated,
+    'Review items created: ' + stats.reviewItemsCreated,
+    'Potential new leads: ' + stats.unmatchedLeads,'',
+    'Open the Client Follow-Up section in the LVPT Command Center to review and resolve these items.'
+  ].join('\n');
+  GmailApp.sendEmail(LVPT_BOOKING_EMAIL, subject, body);
+}
+
+function lvptReviewAutomationItem_(payload) {
+  var reviewId = String(payload.reviewId || '').trim();
+  var status = String(payload.status || 'Reviewed').trim();
+  if (!reviewId) throw new Error('reviewId is required.');
+  if (['Reviewed','Dismissed'].indexOf(status) === -1) throw new Error('Status must be Reviewed or Dismissed.');
+  var sheet = lvptAutomationSheet_();
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0].map(function(value){ return String(value || ''); });
+  var idColumn = headers.indexOf('review_id'), statusColumn = headers.indexOf('status'), reviewedAtColumn = headers.indexOf('reviewed_at'), reviewedByColumn = headers.indexOf('reviewed_by');
+  for (var row = 1; row < values.length; row++) {
+    if (String(values[row][idColumn]) !== reviewId) continue;
+    sheet.getRange(row + 1, statusColumn + 1).setValue(status);
+    sheet.getRange(row + 1, reviewedAtColumn + 1).setValue(new Date());
+    sheet.getRange(row + 1, reviewedByColumn + 1).setValue(String(payload.actor || 'Command Center'));
+    return { ok:true, reviewId:reviewId, status:status };
+  }
+  throw new Error('Automation review item was not found.');
+}
+
+function runLvptMorningClientLifecycleReview() { return lvptRunClientLifecycleScan_({ notify:true, source:'Morning schedule' }); }
+function runLvptEveningClientLifecycleReview() { return lvptRunClientLifecycleScan_({ notify:true, source:'Evening schedule' }); }
+
+function lvptInstallClientLifecycleTriggers_() {
+  var handlers = ['runLvptMorningClientLifecycleReview','runLvptEveningClientLifecycleReview','sendLvptDailyReminderSummary'];
+  ScriptApp.getProjectTriggers().forEach(function (trigger) { if (handlers.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger); });
+  ScriptApp.newTrigger('runLvptMorningClientLifecycleReview').timeBased().everyDays(1).atHour(8).create();
+  ScriptApp.newTrigger('runLvptEveningClientLifecycleReview').timeBased().everyDays(1).atHour(19).create();
+  return { ok:true, message:'Client lifecycle reviews scheduled for morning and evening.', timeZone:Session.getScriptTimeZone() || 'America/New_York', morningHour:8, eveningHour:19 };
+}
+
+function installLvptTwiceDailyClientLifecycleTriggers() { return lvptInstallClientLifecycleTriggers_(); }

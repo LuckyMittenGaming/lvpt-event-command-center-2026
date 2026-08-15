@@ -12,12 +12,22 @@ Single-event and annual operations dashboard for Las Vegas Poker Training.
 - Gmail API routes for server-side mailbox search and explicit reminder sending from `book@pokertraininglasvegas.com`.
 - Browser notifications for overdue and near-due tasks.
 - CSV and JSON exports.
+- Lifecycle navigation for sales pipeline, booked/active events, past-event archive, proposal library, and client follow-up.
+- Curated live Vercel proposal previews linked back to event records.
+- Email-intelligence review queue for unanswered client messages, procurement/compliance requests, scope changes, post-event follow-up, rebooking, and unmatched potential leads.
+- Protected automation route for manual scans and morning/evening scheduling through the Google Apps Script backend.
 
 ## Current storage model
 
 Event records are saved in browser `localStorage`. Uploaded document blobs are saved in browser `IndexedDB`. This makes the current release usable immediately, but records and files are not shared across devices.
 
 The production upgrade should move event data to Postgres and private documents to Vercel Blob after admin authentication is added.
+
+## Client lifecycle automation
+
+The Google Apps Script backend can scan Gmail, match messages to event records, create safe deterministic follow-up tasks, and place ambiguous findings in the `Automation Inbox` sheet for human review. It also checks completed events for thank-you, review/testimonial, and rebooking opportunities.
+
+After deploying the latest `apps-script/Code.gs` and `apps-script/appsscript.json`, run `installLvptTwiceDailyClientLifecycleTriggers` once. This installs morning and evening scans at approximately 8:00 AM and 7:00 PM in the Apps Script project time zone. The same setup can be requested from the Command Center's Client Follow-Up page after the web-app deployment has been updated.
 
 ## Gmail setup
 

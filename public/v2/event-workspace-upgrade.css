@@ -14,7 +14,15 @@
   min-height:0;
   max-height:none!important;
   flex:1;
+  grid-auto-rows:max-content;
+  align-content:start;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  padding-bottom:4px;
 }
+.event-command-layout .event-card{height:auto;min-height:max-content;flex:none}
 .event-command-workspace{
   display:flex!important;
   flex-direction:column;

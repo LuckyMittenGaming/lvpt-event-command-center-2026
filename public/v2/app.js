@@ -21,6 +21,7 @@
     'js/central-sync.js',
     'js/lifecycle-command-center.js',
     'js/responsive-polish-loader.js',
+    'js/event-workspace-upgrade.js',
   ];
 
   modules.forEach((modulePath) => {

@@ -64,6 +64,15 @@
     return events.filter(isBookedRecord);
   }
 
+  function syncMetricScopeUi() {
+    const mode = localStorage.getItem(METRIC_SCOPE_KEY) || 'all';
+    document.querySelectorAll('[data-metric-scope]').forEach(button => {
+      button.classList.toggle('active', button.dataset.metricScope === mode);
+    });
+    const label = document.querySelector('#metricScopeLabel');
+    if (label) label.textContent = mode === 'all' ? 'All booked revenue + full active pipeline' : (current()?.eventName || 'No event selected');
+  }
+
   function openTasksFor(event) {
     return (event?.tasks || [])
       .filter(task => normalized(task.status) !== 'complete')
@@ -276,6 +285,7 @@
   render = function() {
     normalizeBookedStatuses();
     baseRender();
+    syncMetricScopeUi();
     ensureWorkspaceLayout();
     renderSelectedTasks();
     correctOverallReport();

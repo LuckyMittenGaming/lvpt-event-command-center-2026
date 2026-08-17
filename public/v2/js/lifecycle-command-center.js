@@ -41,7 +41,7 @@
   function isActive(event) { return activeStatuses.includes(event.status) && !isPastDate(event); }
   function isArchive(event) { return archiveStatuses.includes(event.status) || isPastDate(event); }
   function eventValue(event) { return quoteTotal(event) || num(event.setup?.targetQuote); }
-  function openTaskCount(event) { return (event.tasks || []).filter(task => task.status !== 'Complete').length; }
+  function openTaskCount(event) { return (event.tasks || []).filter(task => !taskIsComplete(task)).length; }
   function dateLabel(value) { if(!value) return 'Date TBD'; const date=new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime())?value:date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
   function ageInDays(value) { if(!value) return Infinity; return Math.floor((Date.now()-new Date(value).getTime())/86400000); }
   function proposalForEvent(event) { return proposals.find(item => item.eventId === event.id || item.url === event.proposalUrl || item.client.toLowerCase() === String(event.company||'').toLowerCase()); }
@@ -170,7 +170,7 @@
   function deriveFollowUps() {
     const items=[];
     events.forEach(event=>{
-      (event.tasks||[]).filter(task=>task.status!=='Complete').forEach(task=>{
+      (event.tasks||[]).filter(task=>!taskIsComplete(task)).forEach(task=>{
         const days=daysFromToday(task.dueDate);
         if(days<=7) items.push({id:task.id,eventId:event.id,eventName:event.eventName,title:task.title,detail:`${task.owner||'Unassigned'} · ${task.priority||'Medium'} priority`,due:task.dueDate||'',days,kind:'Task'});
       });

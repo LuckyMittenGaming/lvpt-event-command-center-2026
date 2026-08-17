@@ -77,18 +77,24 @@
 .quick-task.overdue{border-color:rgba(239,68,68,.3);background:rgba(127,29,29,.12)}
 .quick-task.compliance-task{border-left:3px solid rgba(96,165,250,.7)}
 .quick-task-check{
-  display:grid;
-  place-items:center;
-  width:34px;
-  height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  min-width:126px;
+  min-height:38px;
+  padding:8px 12px;
   border:1px solid rgba(52,211,153,.34);
-  border-radius:50%;
+  border-radius:999px;
   background:rgba(52,211,153,.08);
   color:#bbf7d0;
   font-weight:950;
+  font-size:12px;
+  cursor:pointer;
   transition:.18s ease;
 }
-.quick-task-check:hover{transform:scale(1.06);background:rgba(52,211,153,.2)}
+.quick-task-check:hover{transform:translateY(-1px);background:rgba(52,211,153,.2)}
+.quick-task-check:focus-visible{outline:2px solid #86efac;outline-offset:2px}
 .quick-task-copy h3{margin:0;font-size:14px;line-height:1.35}
 .quick-task-copy p{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.4}
 .workspace-report-center .report-center-head{max-width:100%}
@@ -111,6 +117,6 @@
 }
 @media(max-width:320px){
   .quick-task{grid-template-columns:1fr;gap:8px}
-  .quick-task-check{width:32px;height:32px}
+  .quick-task-check{width:max-content;min-width:126px}
   .quick-task>.badge{grid-column:1}
 }

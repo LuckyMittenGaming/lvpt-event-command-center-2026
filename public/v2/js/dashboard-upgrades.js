@@ -42,7 +42,7 @@
     const quoted=scope.reduce((sum,event)=>sum+quoteTotal(event),0);
     const paid=scope.reduce((sum,event)=>sum+num(event.payment.amountPaid),0);
     const cost=scope.reduce((sum,event)=>sum+quoteCost(event),0);
-    const openTasks=scope.flatMap(event=>event.tasks).filter(task=>task.status!=='Complete').length;
+    const openTasks=scope.flatMap(event=>event.tasks).filter(task=>!taskIsComplete(task)).length;
     const docs=scope.reduce((sum,event)=>sum+event.documents.length,0);
     const avgSetup=scope.length?Math.round(scope.reduce((sum,event)=>sum+setupCompleteness(event).percent,0)/scope.length):0;
     const scopeName=metricScope==='all'?'All event records':selected?.eventName||'Selected event';
@@ -118,14 +118,14 @@
     const title=type==='post'?'Post-Event & After-Action Report':'Pre-Event Command Report';
     const subtitle=type==='post'?'Complete event history, results and follow-up':'Complete event briefing and operational record';
     const quoteRows=(event.quote||[]).map(item=>[item.category,item.name,String(item.quantity),money(item.unitPrice),money(num(item.quantity)*num(item.unitPrice)),money(item.internalCost)]);
-    const taskRows=(event.tasks||[]).map(item=>[item.title,item.owner,item.dueDate||'Not set',item.priority,item.status]);
+    const taskRows=(event.tasks||[]).map(item=>[item.title,item.owner,item.dueDate||'Not set',item.priority,taskStatusLabel(item)]);
     const staffRows=(event.staff||[]).map(item=>[item.name,item.role,item.confirmed?'Yes':'No',humanTime(item.arrivalTime),money(item.rate)]);
     const complianceRows=(event.compliance||[]).map(item=>[item.name,item.status,item.dueDate||'Not set']);
     const documentRows=(event.documents||[]).map(item=>[item.category,item.name,item.vendor||'—',item.documentDate||'—',item.amount?money(item.amount):'—']);
     const emailRows=(event.emailActivity||[]).map(item=>[item.subject||'(No subject)',item.from||'Unknown',item.date||'—',item.direction||'received',item.snippet||'']);
     const setup=event.setup||{};
     const header=`<div class="generated-report-hero"><div><p class="eyebrow">Las Vegas Poker Training</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(subtitle)}</p></div><div class="generated-report-badge">${escapeHtml(event.status)}</div></div><div class="generated-report-title"><div><h1>${escapeHtml(event.eventName)}</h1><p>${escapeHtml(event.company)} · ${escapeHtml(event.eventDate||'Date TBD')} · ${escapeHtml(event.venue||'Venue TBD')}, ${escapeHtml(event.city||'')}${event.state?`, ${escapeHtml(event.state)}`:''}</p></div>${validUrl(event.proposalUrl)?`<a class="btn primary" href="${escapeHtml(event.proposalUrl)}" target="_blank" rel="noopener">Open Proposal</a>`:''}</div><div class="generated-report-metrics">${[
-      ['Quote',money(total)],['Collected',money(event.payment.amountPaid)],['Outstanding',money(balance(event))],['Estimated Profit',money(total-cost)],['Open Tasks',String((event.tasks||[]).filter(task=>task.status!=='Complete').length)],['Setup',`${completion.percent}%`]
+      ['Quote',money(total)],['Collected',money(event.payment.amountPaid)],['Outstanding',money(balance(event))],['Estimated Profit',money(total-cost)],['Open Tasks',String((event.tasks||[]).filter(task=>!taskIsComplete(task)).length)],['Setup',`${completion.percent}%`]
     ].map(item=>`<div><span>${escapeHtml(item[0])}</span><strong>${escapeHtml(item[1])}</strong></div>`).join('')}</div>`;
 
     const overview=reportSection('Current Event Information','Full Event Editor',`<div class="report-kv-grid">${[
@@ -150,9 +150,9 @@
     const quoted=events.reduce((sum,event)=>sum+quoteTotal(event),0);
     const paid=events.reduce((sum,event)=>sum+num(event.payment.amountPaid),0);
     const costs=events.reduce((sum,event)=>sum+quoteCost(event),0);
-    const open=events.flatMap(event=>event.tasks).filter(task=>task.status!=='Complete').length;
+    const open=events.flatMap(event=>event.tasks).filter(task=>!taskIsComplete(task)).length;
     const avg=events.length?Math.round(events.reduce((sum,event)=>sum+setupCompleteness(event).percent,0)/events.length):0;
-    const cards=events.map(event=>`<section class="overall-event-card"><div><p class="eyebrow small">${escapeHtml(event.status)}</p><h3>${escapeHtml(event.eventName)}</h3><p>${escapeHtml(event.company)} · ${escapeHtml(event.eventDate||'Date TBD')} · ${escapeHtml(event.venue||'Venue TBD')}</p></div><div class="overall-event-grid">${reportValue('Quote',money(quoteTotal(event)))}${reportValue('Collected',money(event.payment.amountPaid))}${reportValue('Outstanding',money(balance(event)))}${reportValue('Open Tasks',String(event.tasks.filter(task=>task.status!=='Complete').length))}${reportValue('Setup',`${setupCompleteness(event).percent}%`)}${reportValue('Next Action',event.nextAction)}</div>${validUrl(event.proposalUrl)?`<a class="btn small" href="${escapeHtml(event.proposalUrl)}" target="_blank" rel="noopener">Open Proposal</a>`:''}</section>`).join('');
+    const cards=events.map(event=>`<section class="overall-event-card"><div><p class="eyebrow small">${escapeHtml(event.status)}</p><h3>${escapeHtml(event.eventName)}</h3><p>${escapeHtml(event.company)} · ${escapeHtml(event.eventDate||'Date TBD')} · ${escapeHtml(event.venue||'Venue TBD')}</p></div><div class="overall-event-grid">${reportValue('Quote',money(quoteTotal(event)))}${reportValue('Collected',money(event.payment.amountPaid))}${reportValue('Outstanding',money(balance(event)))}${reportValue('Open Tasks',String(event.tasks.filter(task=>!taskIsComplete(task)).length))}${reportValue('Setup',`${setupCompleteness(event).percent}%`)}${reportValue('Next Action',event.nextAction)}</div>${validUrl(event.proposalUrl)?`<a class="btn small" href="${escapeHtml(event.proposalUrl)}" target="_blank" rel="noopener">Open Proposal</a>`:''}</section>`).join('');
     return `<article class="generated-report"><div class="generated-report-hero"><div><p class="eyebrow">Las Vegas Poker Training</p><h2>Overall 2026 Event Report</h2><p>Portfolio-level financial, operational and conversion snapshot.</p></div><div class="generated-report-badge">${events.length} Events</div></div><div class="generated-report-metrics">${[
       ['Quoted Revenue',money(quoted)],['Collected',money(paid)],['Outstanding',money(Math.max(quoted-paid,0))],['Estimated Profit',money(quoted-costs)],['Open Tasks',String(open)],['Average Setup',`${avg}%`]
     ].map(item=>`<div><span>${escapeHtml(item[0])}</span><strong>${escapeHtml(item[1])}</strong></div>`).join('')}</div>${reportSection('Event Portfolio','All Events',`<div class="overall-event-list">${cards||'<div class="report-empty">No event records.</div>'}</div>`)}</article>`;

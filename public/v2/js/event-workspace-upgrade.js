@@ -1,5 +1,5 @@
 (() => {
-  const UPGRADE_VERSION = '2026-08-16-active-booked-filter-v3';
+  const UPGRADE_VERSION = '2026-08-17-task-completion-v4';
   const METRIC_SCOPE_KEY = 'lvptMetricScope';
   const METRIC_MIGRATION_KEY = 'lvptBookedFinancialMetricMigration';
 
@@ -104,7 +104,7 @@
 
   function openTasksFor(event) {
     return (event?.tasks || [])
-      .filter(task => normalized(task.status) !== 'complete')
+      .filter(task => !taskIsComplete(task))
       .sort((a, b) => {
         if (!a.dueDate && !b.dueDate) return String(a.title).localeCompare(String(b.title));
         if (!a.dueDate) return 1;
@@ -171,7 +171,7 @@
 
   function taskItem(task) {
     return `<article class="quick-task ${daysFromToday(task.dueDate) < 0 ? 'overdue' : ''}">
-      <button type="button" class="quick-task-check" data-complete-task="${escapeHtml(task.id)}" aria-label="Mark ${escapeHtml(task.title)} complete">✓</button>
+      <button type="button" class="quick-task-check" data-complete-task="${escapeHtml(task.id)}" aria-label="Mark ${escapeHtml(task.title)} complete"><span aria-hidden="true">✓</span> Mark Complete</button>
       <div class="quick-task-copy"><h3>${escapeHtml(task.title)}</h3><p>${escapeHtml(task.owner || 'Unassigned')} · ${escapeHtml(task.priority || 'Medium')} priority · ${escapeHtml(task.status || 'Open')}</p></div>
       ${dueBadge(task)}
     </article>`;
@@ -243,7 +243,7 @@
     panel.querySelectorAll('[data-complete-task]').forEach(button => button.addEventListener('click', () => {
       const task = (event.tasks || []).find(item => item.id === button.dataset.completeTask);
       if (!task) return;
-      task.status = 'Complete';
+      completeTask(task);
       saveEvents('Task marked complete');
       render();
     }));

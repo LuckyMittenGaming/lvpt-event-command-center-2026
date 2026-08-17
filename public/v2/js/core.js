@@ -47,6 +47,16 @@ function formatBytes(bytes){ if(!bytes) return '0 B'; const units=['B','KB','MB'
 function isoDate(date){ return date.toISOString().slice(0,10); }
 function shiftDate(dateString, days){ if(!dateString) return ''; const date=new Date(`${dateString}T12:00:00`); if(Number.isNaN(date.getTime())) return ''; date.setDate(date.getDate()+days); return isoDate(date); }
 function daysFromToday(dateString){ if(!dateString) return Infinity; const today=new Date(); today.setHours(0,0,0,0); const date=new Date(`${dateString}T00:00:00`); return Math.round((date-today)/86400000); }
+function taskIsComplete(task){ return ['complete','completed','resolved','done'].includes(String(task?.status||'').trim().toLowerCase()); }
+function taskCompletionStatus(task){ return task?.sourceId || task?.source === 'Email Intelligence' ? 'Resolved' : 'Complete'; }
+function completeTask(task){
+  if(!task) return;
+  task.status=taskCompletionStatus(task);
+  task.completedAt=new Date().toISOString();
+  task.completedBy='Command Center';
+  task.dueDate='';
+}
+function taskStatusLabel(task){ return taskIsComplete(task) ? 'Completed' : (task?.status || 'Open'); }
 function toast(message){ const el=$('#toast'); el.textContent=message; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2200); }
 
 function ensureEventShape(event){
@@ -59,4 +69,3 @@ function ensureEventShape(event){
 }
 function loadEvents(){ try { const stored=JSON.parse(localStorage.getItem(STORAGE_KEY)); return (stored||seedEvents).map(ensureEventShape); } catch { return seedEvents.map(ensureEventShape); } }
 function saveEvents(message='Saved to this browser'){ events=events.map(ensureEventShape); localStorage.setItem(STORAGE_KEY,JSON.stringify(events)); if(message) toast(message); }
-

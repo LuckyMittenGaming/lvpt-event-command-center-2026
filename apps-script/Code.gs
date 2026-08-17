@@ -222,7 +222,7 @@ function lvptCreateBackup_() { var events = lvptListEvents_(), stamp = Utilities
 function sendLvptDailyReminderSummary() {
   var events = lvptListEvents_(), today = new Date(), due = [];
   today.setHours(0, 0, 0, 0);
-  events.forEach(function (event) { (event.tasks || []).forEach(function (task) { if (!task.dueDate || task.status === 'Complete') return; var date = new Date(task.dueDate + 'T00:00:00'), days = Math.round((date.getTime() - today.getTime()) / 86400000); if (days <= 3) due.push({ eventName: event.eventName, title: task.title, owner: task.owner, dueDate: task.dueDate, days: days }); }); });
+  events.forEach(function (event) { (event.tasks || []).forEach(function (task) { if (!task.dueDate || ['Complete','Completed','Resolved','Done'].indexOf(String(task.status || '').trim()) !== -1) return; var date = new Date(task.dueDate + 'T00:00:00'), days = Math.round((date.getTime() - today.getTime()) / 86400000); if (days <= 3) due.push({ eventName: event.eventName, title: task.title, owner: task.owner, dueDate: task.dueDate, days: days }); }); });
   if (!due.length) return;
   due.sort(function (a, b) { return a.dueDate.localeCompare(b.dueDate); });
   var lines = due.map(function (item) { var timing = item.days < 0 ? Math.abs(item.days) + ' day(s) overdue' : item.days === 0 ? 'due today' : 'due in ' + item.days + ' day(s)'; return '- ' + item.eventName + ': ' + item.title + ' — ' + timing + ' — Owner: ' + item.owner; });
@@ -332,7 +332,7 @@ function lvptEnsureAutomationTask_(event, title, dueDate, priority, sourceId) {
   event.tasks = event.tasks || [];
   var normalized = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   var existing = event.tasks.some(function (task) {
-    return task.status !== 'Complete' && (task.sourceId === sourceId || String(task.title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === normalized);
+    return task.sourceId === sourceId || String(task.title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === normalized;
   });
   if (existing) return false;
   event.tasks.push({ id: Utilities.getUuid(), title: title, owner: (event.setup || {}).internalOwner || 'Matt', dueDate: dueDate, priority: priority || 'High', status: 'Open', source: 'Email Intelligence', sourceId: sourceId || '' });

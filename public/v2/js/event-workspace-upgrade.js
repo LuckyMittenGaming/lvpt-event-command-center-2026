@@ -1,5 +1,5 @@
 (() => {
-  const UPGRADE_VERSION = '2026-08-16-booked-filter-full-width-v2';
+  const UPGRADE_VERSION = '2026-08-16-active-booked-filter-v3';
   const METRIC_SCOPE_KEY = 'lvptMetricScope';
   const METRIC_MIGRATION_KEY = 'lvptBookedFinancialMetricMigration';
 
@@ -46,6 +46,14 @@
     ].some(bookedStatus => status === bookedStatus || status.includes(bookedStatus));
   }
 
+  function isFinishedRecord(event) {
+    const status = normalized(event.status);
+    const finishedStatus = ['completed', 'post event follow up', 'closed won', 'closed lost']
+      .some(value => status === value || status.includes(value));
+    const today = new Date().toISOString().slice(0, 10);
+    return finishedStatus || Boolean(event.eventDate && event.eventDate < today);
+  }
+
   function normalizeBookedStatuses() {
     events.forEach(event => {
       const status = normalized(event.status);
@@ -80,7 +88,7 @@
         event.contactEmail,
       ].join(' ').toLowerCase();
       const matchesStatus = status === 'All'
-        || (status === 'Booked' ? isBookedRecord(event) : normalized(event.status) === normalized(status));
+        || (status === 'Booked' ? isBookedRecord(event) && !isFinishedRecord(event) : normalized(event.status) === normalized(status));
       return (!query || haystack.includes(query)) && matchesStatus;
     });
   };

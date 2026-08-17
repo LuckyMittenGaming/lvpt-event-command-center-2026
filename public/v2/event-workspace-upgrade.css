@@ -1,4 +1,4 @@
-/* Selected-event workspace: events left, action plan right, reports, then editor. */
+/* Selected-event workspace: events left, action plan right, then full-width reports and editor. */
 .event-command-layout{
   grid-template-columns:minmax(310px,.72fr) minmax(0,1.75fr)!important;
   align-items:start;
@@ -29,9 +29,13 @@
   gap:clamp(12px,1.6vw,20px)!important;
 }
 .selected-event-tasks{order:1}
-.workspace-report-center{order:2;margin-top:0!important}
-.workspace-event-editor{order:3}
-.workspace-editor-tabs{order:4}
+.workspace-report-center,
+.workspace-event-editor,
+.workspace-editor-tabs{
+  width:100%;
+  max-width:none;
+  margin-top:clamp(16px,2vw,24px)!important;
+}
 .selected-event-tasks{
   border-color:rgba(250,204,21,.3)!important;
   background:

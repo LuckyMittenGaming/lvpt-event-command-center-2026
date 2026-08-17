@@ -21,7 +21,7 @@
     'js/central-sync.js',
     'js/lifecycle-command-center.js',
     'js/responsive-polish-loader.js',
-    'js/event-workspace-upgrade.js',
+    'js/event-workspace-upgrade.js?v=2026-08-16-active-booked-v3',
   ];
 
   modules.forEach((modulePath) => {

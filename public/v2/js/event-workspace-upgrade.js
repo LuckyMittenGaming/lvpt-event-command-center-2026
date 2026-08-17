@@ -1,5 +1,5 @@
 (() => {
-  const UPGRADE_VERSION = '2026-08-16-booked-financials-workspace-v1';
+  const UPGRADE_VERSION = '2026-08-16-booked-filter-full-width-v2';
   const METRIC_SCOPE_KEY = 'lvptMetricScope';
   const METRIC_MIGRATION_KEY = 'lvptBookedFinancialMetricMigration';
 
@@ -63,6 +63,27 @@
   function bookedEvents() {
     return events.filter(isBookedRecord);
   }
+
+  filteredEvents = function() {
+    const query = ($('#searchInput')?.value || '').trim().toLowerCase();
+    const status = $('#statusFilter')?.value || 'All';
+    return events.filter(event => {
+      const haystack = [
+        event.eventName,
+        event.company,
+        event.city,
+        event.state,
+        event.venue,
+        event.leadSource,
+        event.status,
+        event.contactName,
+        event.contactEmail,
+      ].join(' ').toLowerCase();
+      const matchesStatus = status === 'All'
+        || (status === 'Booked' ? isBookedRecord(event) : normalized(event.status) === normalized(status));
+      return (!query || haystack.includes(query)) && matchesStatus;
+    });
+  };
 
   function syncMetricScopeUi() {
     const mode = localStorage.getItem(METRIC_SCOPE_KEY) || 'all';
@@ -176,16 +197,18 @@
     const tabs = document.querySelector('.tab-panel');
     if (reportCenter) {
       reportCenter.classList.add('workspace-report-center');
-      taskPanel.after(reportCenter);
+      layout.after(reportCenter);
     }
     if (editor) {
       editor.classList.add('workspace-event-editor');
-      (reportCenter || taskPanel).after(editor);
+      (reportCenter || layout).after(editor);
+      editor.hidden = layout.hidden;
     }
     if (tabs) {
       tabs.id = 'fullEventEditorTabs';
       tabs.classList.add('workspace-editor-tabs');
-      editor?.after(tabs);
+      (editor || reportCenter || layout).after(tabs);
+      tabs.hidden = layout.hidden;
     }
   }
 

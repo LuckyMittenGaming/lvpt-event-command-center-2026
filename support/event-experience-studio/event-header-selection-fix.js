@@ -59,9 +59,25 @@ if(document.body)obs.observe(document.body,{childList:true,subtree:true});
 document.addEventListener('click',e=>{if(e.target.closest('.proofBtn,#newTop,#newSide,#first'))setTimeout(ensureAdminFields,100)});
 setTimeout(ensureAdminFields,120);
 
+function liveValue(id){const el=document.getElementById(id);return el&&'value'in el?String(el.value||'').trim():''}
+function overlayLiveHeader(c){
+  const id=activeId();
+  if(c.id&&id&&c.id!==id)return c;
+  const client=liveValue('client'),event=liveValue('event'),date=liveValue('date'),location=liveValue('location'),label=liveValue('label'),note=liveValue('note'),time=liveValue('eventTime'),guests=liveValue('guestCount');
+  if(client)c.client=client;
+  if(event)c.event=event;
+  if(date)c.date=date;
+  c.location=location||c.location||'';
+  c.label=label||c.label||'';
+  c.note=note||c.note||'';
+  c.eventTime=time||c.eventTime||'';
+  c.guestCount=guests||c.guestCount||'';
+  return c;
+}
+
 const previousClientHTML=window.clientHTML;
 window.clientHTML=function(p,e,f,o){
-  const c=JSON.parse(JSON.stringify(p||{})),d=detailCache.get(c.id)||{};
+  const c=overlayLiveHeader(JSON.parse(JSON.stringify(p||{}))),d=detailCache.get(c.id)||{};
   c.eventTime=c.eventTime||d.eventTime||'';c.guestCount=c.guestCount||d.guestCount||'';
   let html=previousClientHTML(c,e,f,o);
   try{
@@ -87,7 +103,7 @@ window.clientHTML=function(p,e,f,o){
     style.textContent=`.eventDate{margin-bottom:7px!important}.eventFacts{display:grid;gap:5px;color:#aaa69f;font-size:12px;line-height:1.35}.eventFacts>div{display:flex;align-items:center;gap:8px}.summaryWide{grid-column:1/-1}.summaryWide strong{font-weight:600;line-height:1.6}.bevSummaryValue{line-height:1.45}@media(max-width:800px){.summaryWide{grid-column:auto}.eventFacts{font-size:11px}}`;
     doc.head.appendChild(style);
     const summary=doc.querySelector('#review .summary');
-    if(summary){
+    if(summary&&!summary.querySelector('#sumBeer')){
       const makeBox=(label,id,value='Not selected')=>{const box=doc.createElement('div');box.className='summaryBox';box.innerHTML=`<span>${esc(label)}</span><strong class="bevSummaryValue" id="${id}">${esc(value)}</strong>`;return box};
       const include=doc.createElement('div');include.className='summaryBox summaryWide';include.innerHTML='<span>EXPERIENCE INCLUDES</span><strong>Top Shelf Liquor (Casa Amigos, Grey Goose, Blanton’s, Eagle Rare, Crown, etc.). 2 Types of Beer, 2 Types of Red Wine and 2 Types of White Wine.</strong>';
       summary.appendChild(include);

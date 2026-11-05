@@ -32,3 +32,5 @@
 .session-controls{grid-template-columns:minmax(220px,1fr) auto;max-width:780px}
 .session-controls button{min-width:235px}
 @media(max-width:800px){.session-controls{grid-template-columns:1fr}.session-controls button{width:100%}}
+
+.attention-label{font-size:12px;font-weight:700;color:#d6e6ff;border:1px solid #3a5276;background:#213853;padding:3px 9px;border-radius:8px}

@@ -32,7 +32,7 @@
     }
     if(finance){
       return {state:'verify-finance',label:'Check financial records and payouts',
-        detail:'Event payment status: '+record.paymentStatus+'. Owner draws, vendor costs and reimbursables require a separate ledger/receipt check.',record};
+        detail:'Event payment status: '+record.paymentStatus+'. Owner draws, payouts, vendor costs and reimbursables require a separate ledger/receipt check.',record};
     }
     if(bundle.topic.includes('follow-up')||bundle.topic.includes('Lead')){
       return {state:'check-duplicate',label:'Check CRM and Gmail before creating work',

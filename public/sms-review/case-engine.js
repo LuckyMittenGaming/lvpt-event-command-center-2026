@@ -30,6 +30,21 @@
     if (item.category === 'Event operations') return 'Event operations';
     return 'Other business context';
   }
+  function nextCheck(bundle) {
+    const t = bundle.topic.toLowerCase();
+    if (t.includes('draw') || t.includes('distribution'))
+      return 'Compare owner draws with bank transfers and the event profit ledger; do not infer that a proposed draw occurred.';
+    if (t.includes('payment') || t.includes('receivable'))
+      return 'Compare reported payments and balances with issued invoices and bank receipts. Historical “owed” figures may already be settled.';
+    if (t.includes('cost') || t.includes('vendor') || t.includes('financial'))
+      return 'Check vendor invoices, paid receipts, and previously recorded expenses before changing profitability.';
+    if (t.includes('follow-up'))
+      return 'Check current Gmail threads and the CRM first; avoid recreating completed or duplicate outreach.';
+    if (t.includes('lead') || t.includes('proposal'))
+      return 'Match the prospect to an existing lead record before recommending new outreach.';
+    return 'Compare this note with the latest event plan and completed tasks; never overwrite confirmed details using an older SMS alone.';
+  }
+
   function createBundles(findings) {
     if (!Array.isArray(findings)) return [];
     const bundles = new Map();
@@ -61,6 +76,7 @@
       categories:[...b.categories],
       count:b.findings.length,
       sourceCount:b.findings.length,
+      suggestedCheck:nextCheck(b),
       sample:b.findings.slice().sort((a,z) => z.date.localeCompare(a.date)).slice(0,3)
     })).sort((a,b) => {
       // Explicit client references first, then money-related verification, then latest activity.

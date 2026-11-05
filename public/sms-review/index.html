@@ -20,18 +20,27 @@
     </header>
     <section class="alert" aria-label="Privacy information">
       <strong>Staging review pilot</strong>
-      <p>A selected SMS file is read inside this browser tab, not uploaded. Staging mode fetches only redacted findings from the authenticated server. Raw messages are not written to browser storage or GitHub. Flags can be wrong, and approved findings are exported as a separate decisions file—not posted to live records. This is not yet a multi-user authenticated archive.</p>
+      <p>A selected SMS file is read inside this browser tab, not uploaded. Staging mode fetches only redacted findings through a secure, short-lived session cookie. Raw messages are not written to browser storage or GitHub. Flags can be wrong, and approved findings are exported as a separate decisions file—not posted to live records. This is not yet a multi-user authenticated archive.</p>
     </section>
     <section class="panel" aria-labelledby="stagingTitle">
-      <p class="eyebrow">Recommended · Automatic app sync</p>
-      <h2 id="stagingTitle">Connect to the protected staging inbox</h2>
-      <p>Once SMS Test v0.5 is connected to staging, new approved SMS messages are sent automatically. Enter your staging access token here to view business findings. No file imports required. This browser retrieves redacted findings only. Your token stays in this tab's memory while reviewing, and is cleared when you click Clear session or close the tab.</p>
-      <div class="filters">
-        <input id="stagingToken" type="password" autocomplete="off" placeholder="Staging sync token" aria-label="Staging access token">
-        <input id="stagingBypass" type="password" autocomplete="off" placeholder="Optional Vercel preview bypass token" aria-label="Vercel preview bypass token">
-        <button class="primary" type="button" id="connectStaging">Load staging inbox</button>
+      <p class="eyebrow">Secure saved browser access · Development preview</p>
+      <h2 id="stagingTitle">SMS Intelligence staging inbox</h2>
+      <p>Sign in once with your Device Token. Your browser will receive a seven-day, Secure/HttpOnly review-session cookie. The Device Token is never saved in browser storage, and the Vercel Bypass Token remains in Android's encrypted settings rather than being retained by this page.</p>
+      <p id="sessionStatus" class="source-status" role="status" aria-live="polite">Checking your saved review session…</p>
+      <div id="sessionLogin" hidden>
+        <div class="filters session-controls">
+          <input id="stagingToken" type="password" autocomplete="off" spellcheck="false" placeholder="Device Token (enter once)" aria-label="Device Token">
+          <button class="primary" type="button" id="connectStaging">Unlock this browser for 7 days</button>
+        </div>
+        <p class="hint">Access this preview while signed in to Vercel. A separate Vercel Bypass Token should not be saved in the browser. Don't paste any token into ChatGPT.</p>
       </div>
-      <p class="hint">Only authorized staff with the staging token can view redacted findings. This page does not upload SMS or modify live records.</p>
+      <div id="sessionReady" hidden>
+        <div class="case-action-buttons">
+          <button class="primary" type="button" id="refreshStaging">Refresh staging findings</button>
+          <button class="neutral" type="button" id="signOutReview">Sign out of review session</button>
+        </div>
+        <p class="hint">Session remains valid on this browser and the same preview URL for up to seven days. No live invoices, Gmail, tasks or event data are changed.</p>
+      </div>
     </section>
     <section class="panel intro" aria-labelledby="importTitle">
       <div>
@@ -43,7 +52,7 @@
         <label class="file-button" for="smsFile">Choose SMS JSON file</label>
         <input id="smsFile" class="visually-hidden" type="file" accept=".json,application/json">
         <label class="date-label" for="afterDate">Include messages from <input id="afterDate" type="date" value="2026-01-01"></label>
-        <button id="clearSession" class="neutral" type="button">Clear session</button>
+        <button id="clearSession" class="neutral" type="button">Clear results only</button>
       </div>
       <p id="notice" role="status" aria-live="polite">Choose a file to begin. The raw archive is never sent by this page.</p>
     </section>

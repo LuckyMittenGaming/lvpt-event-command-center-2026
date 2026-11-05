@@ -243,7 +243,7 @@
           }
           if(comparisons.emailMatches.length) {
             const section=makeText('div','evidence-detail','');
-            section.append(makeText('strong','','Possible logged Gmail thread overlap (not proof of a reply)'));
+            section.append(makeText('strong','','Possible logged Gmail thread overlap (partial Activity log; not proof of a reply)'));
             comparisons.emailMatches.forEach(mail=>section.append(
               makeText('p','',mail.subject+' — '+(mail.date||'date unavailable'))
             ));
@@ -404,7 +404,7 @@
       payoutRecords=payoutLedgerConnected && Array.isArray(data.payouts)?data.payouts:[];
       $('reconciliationStatus').textContent=
         'Read-only Command Center comparison connected: '+data.recordCount+
-        ' event records. '+(payoutLedgerConnected ? 'Event Payouts ledger connected ('+payoutRecords.length+' entries).' : 'Payout ledger comparison pending Apps Script deployment.')+' No records changed.';
+        ' event records. '+(payoutLedgerConnected ? 'Event Payouts ledger connected ('+payoutRecords.length+' entries).' : 'Payout ledger comparison pending Apps Script deployment.')+' Gmail Activity is incomplete; this is not a full inbox search. No records changed.';
     }catch(error) {
       connectedRecords=[];
       recordsAvailable=false;

@@ -1,11 +1,16 @@
 (function () {
   'use strict';
   const engine = window.LVPTSMSReview;
+  const caseEngine = window.LVPTSMSCases;
   const $ = id => document.getElementById(id);
   let raw = null;
   let report = null;
   let decisions = Object.create(null);
   let visibleLimit = 25;
+  let bundleLimit = 12;
+  let caseBundles = [];
+  let caseDecisions = Object.create(null);
+  let activeCaseKey = '';
   const STATUS = ['Unreviewed', 'Needs verification', 'Approved for export', 'Dismissed'];
   const CATEGORY = ['All categories', 'Finance', 'Follow-up', 'Lead / sales', 'Event operations', 'Business context'];
   const dateFmt = value => new Date(value).toLocaleString('en-US', { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
@@ -22,6 +27,9 @@
   function summary() {
     $('results').hidden = !report;
     $('exportDecisions').disabled = !report;
+    $('exportCaseDecisions').disabled = !report;
+    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; return; }
+    caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
     const reviewed = Object.values(decisions).filter(x => x.status !== 'Unreviewed').length;
     $('summary').replaceChildren();
@@ -38,6 +46,7 @@
     $('explainResults').textContent = report.findings.length + ' candidates were flagged for human review. ' +
       report.excludedCount + ' SMS records since the cutoff had no strong LVPT business match. ' +
       report.duplicateCount + ' duplicate IDs were ignored. Flags are suggestions, not verified facts.';
+    renderCaseBundles();
   }
   function filtered() {
     if (!report) return [];
@@ -48,10 +57,108 @@
       const review = decisions[item.id] || {status:'Unreviewed'};
       if (category !== 'All categories' && item.category !== category) return false;
       if (status !== 'All statuses' && review.status !== status) return false;
+      if (activeCaseKey) {
+        const active = caseBundles.find(c => c.key === activeCaseKey);
+        if (!active || !active.findings.some(f => f.id === item.id)) return false;
+      }
       if (q && ![item.category, item.eventHint, item.excerpt, String(item.smsId)].join(' ').toLowerCase().includes(q)) return false;
       return true;
     });
   }
+  function renderCaseBundles() {
+    const all = caseBundles;
+    const search = $('caseSearch').value.trim().toLowerCase();
+    const eventFilter = $('caseEventFilter').value;
+    const statusFilter = $('caseStatusFilter').value;
+    const reviewed = Object.values(caseDecisions).filter(v => v.status && v.status !== 'Unreviewed').length;
+    $('caseExplain').textContent = all.length + ' event/issue review bundles from ' +
+      (report?.findings.length || 0) + ' business SMS candidates. ' +
+      reviewed + ' bundles reviewed. Grouping is heuristic; no payments or event records have been verified.';
+    const shown = all.filter(bundle => {
+      const decision = caseDecisions[bundle.key] || {status:'Unreviewed'};
+      if (eventFilter === 'matched' && !bundle.explicitReference) return false;
+      if (eventFilter === 'unmatched' && bundle.explicitReference) return false;
+      if (statusFilter !== 'all' && decision.status !== statusFilter) return false;
+      if (search && ![bundle.eventLabel,bundle.topic,...bundle.categories].join(' ').toLowerCase().includes(search))
+        return false;
+      return true;
+    });
+    const parent = $('caseList');
+    parent.replaceChildren();
+    if (!shown.length) parent.append(makeText('p','empty','No review bundles match this filter.'));
+    shown.slice(0,bundleLimit).forEach(bundle => {
+      const review = caseDecisions[bundle.key] || {status:'Unreviewed',note:''};
+      const box = makeText('article','case-card','');
+      const heading = makeText('div','finding-top','');
+      heading.append(
+        makeText('span','tag',bundle.explicitReference ? 'Explicit name mentioned' : 'Event not identified'),
+        makeText('span','secondary',bundle.count+' SMS source'+(bundle.count===1?'':'s')),
+        makeText('span','secondary',bundle.financial ? 'Finance verification' : 'Business review')
+      );
+      box.append(heading);
+      box.append(makeText('h3','',bundle.eventLabel));
+      box.append(makeText('h4','',bundle.topic));
+      box.append(makeText('p','guidance',bundle.explicitReference ?
+        'Client name mentioned in a message; event year and official record are not confirmed.' :
+        'No unique client/event identifier. These messages may concern different events.'));
+      const samples = makeText('div','case-samples','');
+      bundle.sample.forEach(f => {
+        const sample = makeText('div','case-sample','');
+        sample.append(
+          makeText('span','secondary','SMS #'+f.smsId+' · '+dateFmt(f.date)),
+          makeText('p','excerpt',f.excerpt || '[No excerpt]')
+        );
+        samples.append(sample);
+      });
+      box.append(samples);
+      const controls = makeText('div','review-controls','');
+      const select = document.createElement('select');
+      select.setAttribute('aria-label','Review status for '+bundle.eventLabel+' '+bundle.topic);
+      ['Unreviewed','Needs verification','Investigating','Reviewed — no action','Candidate for reconciliation']
+        .forEach(s => select.add(new Option(s,s)));
+      select.value=review.status;
+      select.addEventListener('change',()=> {
+        caseDecisions[bundle.key] = {
+          ...(caseDecisions[bundle.key]||{note:''}),
+          status:select.value
+        };
+        renderCaseBundles();
+      });
+      const note = document.createElement('input');
+      note.className='note';
+      note.type='text';
+      note.maxLength=500;
+      note.placeholder='Reviewer note — no account numbers or sensitive details';
+      note.setAttribute('aria-label','Case note for '+bundle.eventLabel+' '+bundle.topic);
+      note.value=review.note||'';
+      note.addEventListener('input',()=>{
+        caseDecisions[bundle.key] = {
+          ...(caseDecisions[bundle.key]||{status:'Unreviewed'}),
+          note:note.value
+        };
+      });
+      controls.append(select,note);
+      box.append(controls);
+      const drill = document.createElement('button');
+      drill.type='button';
+      drill.className='neutral case-open';
+      drill.textContent='Inspect all '+bundle.count+' source SMS';
+      drill.addEventListener('click',()=>{
+        activeCaseKey=bundle.key;
+        $('findQuery').value='';
+        $('findCategory').value='All categories';
+        $('findStatus').value='All statuses';
+        visibleLimit=25;
+        $('clearCaseFilter').hidden=false;
+        render();
+        $('queue').scrollIntoView({behavior:'smooth',block:'start'});
+      });
+      box.append(drill);
+      parent.append(box);
+    });
+    $('showMoreCases').hidden = shown.length <= bundleLimit;
+  }
+
   function setDecision(item, status) {
     const prev = decisions[item.id] || {status:'Unreviewed', note:''};
     decisions[item.id] = {...prev, status};
@@ -63,7 +170,9 @@
     list.replaceChildren();
     if (!report) return;
     const items = filtered();
-    $('shownCount').textContent = items.length.toLocaleString() + ' matching findings';
+    $('clearCaseFilter').hidden = !activeCaseKey;
+    const extra = activeCaseKey ? ' (filtered to selected review bundle)' : '';
+    $('shownCount').textContent = items.length.toLocaleString() + ' matching findings'+extra;
     if (!items.length) list.append(makeText('p','empty','No findings match these filters.'));
     items.slice(0, visibleLimit).forEach(item => {
       const decision = decisions[item.id] || {status:'Unreviewed',note:''};
@@ -136,6 +245,9 @@
       }
       raw = null;
       decisions = Object.create(null);
+      caseDecisions = Object.create(null);
+      activeCaseKey = '';
+      bundleLimit = 12;
       visibleLimit = 25;
       report = {
         source:'staging',
@@ -168,6 +280,9 @@
       const content = await file.text();
       raw = engine.asRecord(content);
       decisions = Object.create(null);
+      caseDecisions = Object.create(null);
+      activeCaseKey = '';
+      bundleLimit = 12;
       visibleLimit = 25;
       scan();
       setStatus('Loaded ' + report.count.toLocaleString() + ' SMS records. This session stays in memory; nothing was uploaded.');
@@ -196,17 +311,40 @@
   function clear() {
     $('stagingToken').value = '';
     $('stagingBypass').value = '';
-    raw = null; report = null; decisions = Object.create(null);visibleLimit = 25;
+    raw = null; report = null; decisions = Object.create(null);
+    caseDecisions = Object.create(null); activeCaseKey = ''; bundleLimit = 12;
+    visibleLimit = 25;
     $('findQuery').value = '';
     $('afterDate').value = '2026-01-01';
     summary(); render();
     setStatus('Session cleared. The raw SMS archive was not saved in the browser or sent to a server.');
   }
+  $('caseSearch').addEventListener('input',()=>{bundleLimit=12;renderCaseBundles();});
+  $('caseEventFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
+  $('caseStatusFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
+  $('showMoreCases').addEventListener('click',()=>{bundleLimit+=12;renderCaseBundles();});
+  $('clearCaseFilter').addEventListener('click',()=>{
+    activeCaseKey='';
+    $('clearCaseFilter').hidden=true;
+    render();
+  });
+  $('exportCaseDecisions').addEventListener('click',()=>{
+    if (!report) return;
+    const reviewed = caseEngine.exportBundleDecisions(caseBundles,caseDecisions,report);
+    if (!reviewed.decisions.length) {
+      setStatus('Select a review status for at least one case before exporting.',true);
+      return;
+    }
+    download(reviewed,'lvpt-sms-case-decisions.json');
+    setStatus('Exported '+reviewed.decisions.length+' review bundle decisions. No live event or accounting records changed.');
+  });
   $('connectStaging').addEventListener('click',loadStaging);
   $('smsFile').addEventListener('change',event => loadFile(event.target.files?.[0]));
   $('afterDate').addEventListener('change',() => {
     if (report) {
       decisions = Object.create(null);
+      caseDecisions = Object.create(null);
+      activeCaseKey = '';
       if (raw) {
         scan();
       } else {

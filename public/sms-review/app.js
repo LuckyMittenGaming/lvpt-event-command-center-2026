@@ -14,8 +14,8 @@
   let activeCaseKey = '';
   let connectedRecords = [];
   let recordsAvailable = false;
-  let sessionToken = '';
-  let sessionBypass = '';
+  let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
+
   let savedSourceCounts = Object.create(null);
   const STATUS = ['Unreviewed', 'Needs verification', 'Approved for export', 'Dismissed'];
   const CATEGORY = ['All categories', 'Finance', 'Follow-up', 'Lead / sales', 'Event operations', 'Business context'];
@@ -232,8 +232,7 @@
     $('more').hidden = items.length <= visibleLimit;
   }
   async function getProtected(path, token, bypass, opts={}) {
-    const headers={'x-lvpt-sms-sync-token':token, ...(opts.body ? {'content-type':'application/json'} : {})};
-    if (bypass) headers['x-vercel-protection-bypass']=bypass;
+    const headers=opts.body ? {'content-type':'application/json'} : {};
     const response=await fetch(path,{
       method:opts.body?'POST':'GET',
       headers,
@@ -253,7 +252,7 @@
     if (!sessionToken) return;
     $('reconciliationStatus').textContent='Checking current Command Center event and payment records (read-only)…';
     try {
-      const data=await getProtected('/api/sms/staging/reconcile',sessionToken,sessionBypass);
+      const data=await getProtected('/api/sms/staging/reconcile',sessionToken,'');
       if (!Array.isArray(data.events)) throw new Error('Invalid reconciliation response');
       connectedRecords=data.events;
       recordsAvailable=true;
@@ -274,7 +273,7 @@
   async function loadSavedDecisions() {
     if (!sessionToken) return;
     try {
-      const data=await getProtected('/api/sms/staging/decisions',sessionToken,sessionBypass);
+      const data=await getProtected('/api/sms/staging/decisions',sessionToken,'');
       caseDecisions=Object.create(null);
       savedSourceCounts=Object.create(null);
       for (const d of data.decisions || []) {
@@ -309,7 +308,7 @@
     try {
       let saved=0;
       for(let i=0;i<toSave.length;i+=40) {
-        const data=await getProtected('/api/sms/staging/decisions',sessionToken,sessionBypass,{
+        const data=await getProtected('/api/sms/staging/decisions',sessionToken,'',{
           body:{decisions:toSave.slice(i,i+40)}
         });
         saved+=data.saved;
@@ -322,22 +321,78 @@
     }finally{btn.disabled=false;}
   }
 
-  async function loadStaging() {
-    const token = $('stagingToken').value.trim();
-    const bypass = $('stagingBypass').value.trim();
-    if (token.length < 32) {
-      setStatus('Enter the 32+ character staging token configured on the server.', true);
+  function showSession(active) {
+    sessionToken=active ? 'review-cookie-active' : '';
+    $('sessionLogin').hidden=Boolean(active);
+    $('sessionReady').hidden=!active;
+    $('sessionStatus').textContent=active
+      ? 'Signed in securely. This browser can reload the staging inbox for up to seven days.'
+      : 'Sign in once with your Device Token. It is not saved in browser storage.';
+    if(report) summary();
+  }
+  async function checkSession() {
+    try {
+      const response=await fetch('/api/sms/staging/session',{
+        credentials:'same-origin',cache:'no-store'
+      });
+      if(!response.ok) throw new Error('Review session check failed (HTTP '+response.status+').');
+      const data=await response.json();
+      showSession(Boolean(data.authenticated));
+      if(data.authenticated) await loadStaging();
+    }catch(e){
+      showSession(false);
+      $('sessionStatus').textContent=e instanceof Error ? e.message : 'Unable to verify browser session.';
+    }
+  }
+  async function unlockSession() {
+    const token=$('stagingToken').value.trim();
+    if(token.length<32 || token.length>256) {
+      $('sessionStatus').textContent='Enter your Device Token, not its SHA256 hash.';
       return;
     }
-    const btn = $('connectStaging');
+    const btn=$('connectStaging');
+    btn.disabled=true;
+    try {
+      const response=await fetch('/api/sms/staging/session',{
+        method:'POST',credentials:'same-origin',cache:'no-store',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({token})
+      });
+      const data=await response.json().catch(()=>({ok:false}));
+      if(!response.ok || !data.authenticated)
+        throw new Error(response.status===401 ?
+          'Device Token was rejected. Check your password manager.' :
+          'Could not create review session (HTTP '+response.status+').');
+      showSession(true);
+      await loadStaging();
+    }catch(e){
+      showSession(false);
+      $('sessionStatus').textContent=e instanceof Error?e.message:'Unable to unlock review.';
+    }finally{$('stagingToken').value='';btn.disabled=false;}
+  }
+  async function signOut() {
+    try {
+      const response=await fetch('/api/sms/staging/session',{
+        method:'DELETE',credentials:'same-origin',cache:'no-store'
+      });
+      if(!response.ok) throw new Error('Could not clear saved browser login.');
+      showSession(false);
+      clear();
+      $('sessionStatus').textContent='Signed out. Android SMS synchronization was not affected.';
+    }catch(e){
+      $('sessionStatus').textContent=e instanceof Error?e.message:'Sign-out failed.';
+    }
+  }
+
+  async function loadStaging() {
+    if (!sessionToken) { showSession(false); return; }
+    const btn = $('refreshStaging');
     btn.disabled = true;
     const after = $('afterDate').value || '2026-01-01';
     try {
       let offset = 0;
       let scanned = 0;
       let findings = [];
-      const headers = { 'x-lvpt-sms-sync-token': token };
-      if (bypass) headers['x-vercel-protection-bypass'] = bypass;
+      const headers = {};
       for (let i = 0; i < 50; i++) {
         setStatus('Loading protected staging results: ' + scanned + ' SMS screened…');
         const url = '/api/sms/staging/review?after=' +
@@ -358,8 +413,6 @@
         offset = payload.nextOffset;
       }
       raw = null;
-      sessionToken=token;
-      sessionBypass=bypass;
       recordsAvailable=false;
       connectedRecords=[];
       savedSourceCounts=Object.create(null);
@@ -388,9 +441,7 @@
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Staging fetch failed.', true);
     } finally {
-      // Input fields cleared; the protected token remains only in this tab's memory for saving decisions.
-      $('stagingToken').value = '';
-      $('stagingBypass').value = '';
+      // Credentials are not retained in JavaScript; review access uses a secure cookie.
       btn.disabled = false;
     }
   }
@@ -402,7 +453,6 @@
       setStatus('Reading SMS history locally. Nothing is sent to a server.');
       const content = await file.text();
       raw = engine.asRecord(content);
-      sessionToken=''; sessionBypass='';
       recordsAvailable=false; connectedRecords=[];
       savedSourceCounts=Object.create(null);
       $('reconciliationStatus').textContent='Local file review: live Command Center comparison not connected.';
@@ -414,7 +464,7 @@
       scan();
       setStatus('Loaded ' + report.count.toLocaleString() + ' SMS records. This session stays in memory; nothing was uploaded.');
     } catch (error) {
-      sessionToken=''; sessionBypass=''; connectedRecords=[]; recordsAvailable=false;
+      connectedRecords=[]; recordsAvailable=false;
     savedSourceCounts=Object.create(null);
     $('reconciliationStatus').textContent='Command Center comparison not loaded.';
     raw = null; report = null; decisions = Object.create(null);
@@ -440,7 +490,6 @@
   }
   function clear() {
     $('stagingToken').value = '';
-    $('stagingBypass').value = '';
     raw = null; report = null; decisions = Object.create(null);
     caseDecisions = Object.create(null); activeCaseKey = ''; bundleLimit = 12;
     visibleLimit = 25;
@@ -450,7 +499,7 @@
     $('caseStatusFilter').value = 'all';
     $('afterDate').value = '2026-01-01';
     summary(); render();
-    setStatus('Session cleared. The raw SMS archive was not saved in the browser or sent to a server.');
+    setStatus('Results cleared; secure review login remains active until you sign out.');
   }
   $('saveCaseDecisions').addEventListener('click',saveDecisions);
   $('caseSearch').addEventListener('input',()=>{bundleLimit=12;renderCaseBundles();});
@@ -472,7 +521,9 @@
     download(reviewed,'lvpt-sms-case-decisions.json');
     setStatus('Exported '+reviewed.decisions.length+' review bundle decisions. No live event or accounting records changed.');
   });
-  $('connectStaging').addEventListener('click',loadStaging);
+  $('connectStaging').addEventListener('click',unlockSession);
+  $('refreshStaging').addEventListener('click',loadStaging);
+  $('signOutReview').addEventListener('click',signOut);
   $('smsFile').addEventListener('change',event => loadFile(event.target.files?.[0]));
   $('afterDate').addEventListener('change',() => {
     if (report) {
@@ -503,4 +554,5 @@
   CATEGORY.forEach(v => $('findCategory').add(new Option(v,v)));
   ['All statuses',...STATUS].forEach(v => $('findStatus').add(new Option(v,v)));
   summary();render();
+  checkSession();
 })();

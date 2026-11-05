@@ -44,6 +44,7 @@ assert.equal(proposalPricing.category,'Lead / sales');
 assert.equal(proposalPricing.eventKey,'lithic');
 const paidVendor=classifyBusinessSms('Mosaic website developer was paid $2,400 by ACH for the custom site.');
 assert.equal(paidVendor.category,'Finance','Actual payment claims remain financial');
+assert.equal(paidVendor.topic,'Costs / vendors — verify','Explicit paid developer is a cost, not a client receivable');
 const futureDraw=classifyBusinessSms('Mosaic partner distributions of $6,233.28 were planned, not paid.');
 assert.equal(futureDraw.topic,'Owner draws / distributions');
 assert.equal(futureDraw.financialSignal,'historical_claim_unverified');

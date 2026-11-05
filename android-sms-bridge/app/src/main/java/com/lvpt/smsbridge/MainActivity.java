@@ -15,7 +15,7 @@ import android.widget.TextView;
 
 public class MainActivity extends Activity {
     private static final int SMS_PERMISSION_REQUEST = 801;
-    private EditText number;
+    private ContactsPanel contactsPanel;
     private TextView status;
     private TextView lastAction;
     private TextView messagePreview;
@@ -51,12 +51,10 @@ public class MainActivity extends Activity {
         explanation.setTextSize(16);
         box.addView(explanation);
 
-        number = new EditText(this);
-        number.setHint("Approved contact's 10-digit number");
-        number.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
-        number.setSingleLine(true);
-        number.setText(SmsMonitor.savedPhone(this));
-        box.addView(number);
+        contactsPanel = new ContactsPanel(this, box, 10, () -> {
+            hidePreview();
+            refresh();
+        });
 
         Button permission = button("1. Allow SMS reading (Android permission)", box);
         permission.setOnClickListener(v -> requestPermissions(
@@ -66,7 +64,7 @@ public class MainActivity extends Activity {
         Button start = button("2. Start monitoring new SMS", box);
         start.setOnClickListener(v -> {
             try {
-                SmsMonitor.start(this, number.getText().toString());
+                SmsMonitor.startWithContacts(this);
                 lastAction.setText("Monitoring started. Only NEW SMS after this moment can count.");
             } catch (Exception e) {
                 lastAction.setText("Couldn't start: " + e.getMessage());
@@ -127,12 +125,11 @@ public class MainActivity extends Activity {
             loadHistoryPage(nextHistoryBeforeId, historyPage + 1, previewGeneration);
         });
 
-        Button stop = button("Stop and erase test settings", box);
+        Button stop = button("Stop monitoring (keep contacts)", box);
         stop.setOnClickListener(v -> {
             hidePreview();
-            SmsMonitor.stopAndClear(this);
-            number.setText("");
-            lastAction.setText("Stopped. Contact selection and counters erased.");
+            SmsMonitor.stopMonitoring(this);
+            lastAction.setText("Monitoring stopped. Your approved contacts remain saved.");
             refresh();
         });
 

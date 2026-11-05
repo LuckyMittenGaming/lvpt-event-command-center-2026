@@ -93,7 +93,7 @@ public final class SyncConfig {
             .putString(TOKEN, encryptedToken)
             .putString(BYPASS, encryptedBypass)
             .putString(DEVICE, s.getString(DEVICE, UUID.randomUUID().toString()))
-            .putLong(CURSOR, previousHost.equals(host) ? s.getLong(CURSOR, 0L) : 0L)
+            .putLong(CURSOR, 0L)
             .putBoolean(ACTIVE, true)
             .putString(LAST_RESULT, "Enabled — waiting for first authenticated connection")
             .apply();

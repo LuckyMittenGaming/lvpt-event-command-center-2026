@@ -180,7 +180,12 @@ public final class StagingSync {
                 throw new IllegalStateException("Staging endpoint returned HTTP " + code);
             byte[] responseBytes;
             try (InputStream input = conn.getInputStream()) {
-                responseBytes = input.readNBytes(4096);
+                java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[512];
+                int n;
+                while ((n = input.read(chunk)) != -1 && buffer.size() < 4096)
+                    buffer.write(chunk, 0, n);
+                responseBytes = buffer.toByteArray();
             }
             JSONObject response = new JSONObject(new String(responseBytes, StandardCharsets.UTF_8));
             if (!response.optBoolean("ok") || response.optInt("accepted", -1) != messages.length() ||

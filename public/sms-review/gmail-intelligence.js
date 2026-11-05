@@ -20,6 +20,11 @@
     const validDate=Number.isFinite(lastDate) && lastDate<=nowMs && lastDate>0;
     const days=validDate?Math.floor((nowMs-lastDate)/86400000):null;
     const context=thread.hasOutboundMessage===true && thread.hasInboundMessage===true;
+    if(!validDate) return {
+      kind:'unverified',rank:3,label:'Thread chronology unavailable',
+      explanation:'A reliable message timestamp was not available. Open Gmail to check the conversation before suggesting outreach.',
+      daysSinceLastMessage:null,hasTwoWayHistory:context
+    };
     // A last inbound message is a reason to read the thread, not proof that
     // the client is awaiting a response; they may have spoken offline.
     if(direction==='inbound') return {
@@ -50,9 +55,10 @@
         rank:4,threads:[]};
     const rows=(Array.isArray(record.threads)?record.threads:[]).slice(0,10);
     if(rows.length===0)
-      return {eventKey,clientLabel:CLIENTS[eventKey],status:'no-match',
-        label:'No verified Gmail threads in limited search',
-        explanation:'Search coverage is limited and may miss earlier conversations, other email addresses or calls.',
+      return {eventKey,clientLabel:CLIENTS[eventKey],
+        status:record.partial?'incomplete':'no-match',
+        label:record.partial?'Gmail thread evidence incomplete':'No verified Gmail threads in limited search',
+        explanation:'This is a bounded metadata search, not a complete mailbox check. Earlier threads, alternate addresses and calls may exist.',
         rank:3,threads:[]};
     const threads=rows.map(t=>({...t,...classifyThread(t,nowMs)}));
     // Never elevate an older, potentially resolved inbound thread over a

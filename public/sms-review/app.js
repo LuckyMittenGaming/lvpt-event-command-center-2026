@@ -18,6 +18,8 @@
   let recordsAvailable = false;
   let payoutLedgerConnected = false;
   let payoutRecords = [];
+  let paymentLedgerConnected = false;
+  let paymentRecords = [];
   let gmailEvidenceRecords = [];
   let gmailEvidenceLoading = false;
   let auditServiceReady = false;
@@ -152,6 +154,47 @@
     }
   }
 
+  function renderPaymentAudit() {
+    const status=$('paymentAuditStatus');
+    const rows=$('paymentAuditItems');
+    rows.replaceChildren();
+    if(!report || report.source!=='staging') {
+      status.textContent='Load authenticated staging data to check each recorded invoice.';
+      return;
+    }
+    if(!recordsAvailable) {
+      status.textContent='Command Center connection unavailable. No payment conclusions inferred.';
+      return;
+    }
+    const brief=evidence.paymentBrief(paymentRecords,paymentLedgerConnected,connectedRecords);
+    if(!brief.connected) {
+      status.textContent='Full Payments ledger is not yet connected. Existing event summaries show only the first payment per event; do not treat them as complete invoice reconciliation.';
+      return;
+    }
+    status.textContent='Full Payments ledger connected: '+brief.total+' entries. '+
+      brief.settled+' recorded Paid In Full; '+brief.initiated+
+      ' Payment Initiated / Processing; '+brief.invoiceSent+
+      ' Invoice Sent; '+brief.unknown+
+      ' other status. No bank receipt independently checked.';
+    brief.exceptions.slice(0,25).forEach(p=>{
+      const row=makeText('div','payout-exception','');
+      row.append(makeText('strong','',p.eventName+' · '+p.invoiceNumber));
+      const amount=p.invoiceTotal===null?'total unavailable':p.invoiceTotal.toLocaleString('en-US',{style:'currency',currency:'USD'});
+      row.append(makeText('p','','Recorded '+p.paymentStatus+' · '+amount+
+        ' · paid in ledger: '+(p.amountPaid===null?'not recorded':
+         p.amountPaid.toLocaleString('en-US',{style:'currency',currency:'USD'}))));
+      if(p.kind==='initiated')
+        row.append(makeText('p','',
+          'Payment initiation is not receipt. Verify settlement before marking Paid In Full.'));
+      else if(p.kind==='invoiceSent')
+        row.append(makeText('p','',
+          'Invoice was sent; receipt is not evidenced by this status. Check client and payment history.'));
+      rows.append(row);
+    });
+    if(brief.exceptions.length>25)
+      rows.append(makeText('p','hint','Showing the first 25 exceptions; additional records require a broader reconciliation view.'));
+  }
+
   function renderPayoutAudit() {
     const status=$('payoutAuditStatus');
     const rows=$('payoutAuditItems');
@@ -195,7 +238,7 @@
     $('exportDecisions').disabled = !report;
     $('exportCaseDecisions').disabled = !report;
     updateSaveControls();
-    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); renderAttentionBrief(); return; }
+    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); renderPaymentAudit(); renderAttentionBrief(); return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
     const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
@@ -525,6 +568,8 @@
       recordsAvailable=true;
       payoutLedgerConnected=data.payoutSourceStatus==='command_center_ledger';
       payoutRecords=payoutLedgerConnected && Array.isArray(data.payouts)?data.payouts:[];
+      paymentLedgerConnected=data.paymentSourceStatus==='command_center_all_payments';
+      paymentRecords=paymentLedgerConnected && Array.isArray(data.paymentRecords)?data.paymentRecords:[];
       $('reconciliationStatus').textContent=
         'Read-only Command Center comparison connected: '+data.recordCount+
         ' event records. '+(payoutLedgerConnected ? 'Event Payouts ledger connected ('+payoutRecords.length+' entries).' : 'Payout ledger comparison pending Apps Script deployment.')+' Gmail Activity is incomplete; this is not a full inbox search. No records changed.';
@@ -533,6 +578,8 @@
       recordsAvailable=false;
       payoutLedgerConnected=false;
       payoutRecords=[];
+      paymentLedgerConnected=false;
+      paymentRecords=[];
       const reason=error instanceof Error ? error.message : 'unknown error';
       $('reconciliationStatus').textContent=
         reason.includes('command_center_source_unconfigured') ?
@@ -541,6 +588,7 @@
     }
     renderCaseBundles();
     renderPayoutAudit();
+    renderPaymentAudit();
   }
   async function loadAuditHealth() {
     auditServiceReady=false;
@@ -724,6 +772,8 @@
       auditServiceReady=false;
       payoutLedgerConnected=false;
       payoutRecords=[];
+      paymentLedgerConnected=false;
+      paymentRecords=[];
       gmailEvidenceRecords=[];
       savedSourceCounts=Object.create(null);
       savedDecisionSignatures=Object.create(null);
@@ -807,7 +857,7 @@
   }
   function clear() {
     $('stagingToken').value = '';
-    payoutRecords=[]; payoutLedgerConnected=false; auditServiceReady=false;
+    payoutRecords=[]; payoutLedgerConnected=false; paymentLedgerConnected=false; paymentRecords=[]; auditServiceReady=false;
     gmailEvidenceRecords=[];
     savedDecisionSignatures=Object.create(null);
     showSaveFeedback('Results cleared. Saved reviews remain securely stored.','neutral');

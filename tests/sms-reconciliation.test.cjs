@@ -56,4 +56,21 @@ assert.equal(manuallyClosed.group,'reviewed','Manual closure preserved');
 const newMessages=prioritizeCase(payment,records,{status:'Reviewed — no action'},true,true);
 assert.equal(newMessages.group,'review-first','New SMS sources must reopen attention without changing saved reviewer decision');
 
+
+const unmappedLead=prioritizeCase({
+  eventKey:'lithic',explicitReference:true,financial:false,topic:'Lead / proposal activity',
+  findings:[{excerpt:'Lithic client proposal follow-up'}]
+},records,{status:'Unreviewed'},true);
+assert.equal(unmappedLead.group,'review-first','Named prospective leads must not be buried by missing event ID');
+const vagueLead=prioritizeCase({
+  eventKey:'unmatched',explicitReference:false,financial:false,topic:'Lead / proposal activity',
+  findings:[{excerpt:'Generic poker inquiry'}]
+},records,{status:'Unreviewed'},true);
+assert.equal(vagueLead.group,'unverified','Unidentified sales chatter must not trigger outreach');
+const unmappedClaim=prioritizeCase({
+  eventKey:'blackedge',explicitReference:true,financial:true,topic:'Payments / receivables — verify',
+  findings:[{financialSignal:'historical_claim_unverified'}]
+},records,{status:'Unreviewed'},true);
+assert.equal(unmappedClaim.group,'review-first','Named financial claims without ledger ID need review');
+
 console.log('SMS read-only reconciliation tests passed.');

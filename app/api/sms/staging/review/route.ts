@@ -1,5 +1,6 @@
 import { createDecipheriv } from 'node:crypto';
-import { authorized, jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
+import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
+import { authorizedReviewer } from '../_review-auth';
 import { classifyBusinessSms } from '../../../../../lib/sms-intelligence.mjs';
 
 export const runtime = 'nodejs';
@@ -25,7 +26,7 @@ function decrypt(row: EncryptedRow): string {
 
 export async function GET(request: Request) {
   if (!ready()) return jsonNoStore({ok:false, reason:'staging_unconfigured'},503);
-  if (!authorized(request)) return jsonNoStore({ok:false,reason:'unauthorized'},401);
+  if (!authorizedReviewer(request)) return jsonNoStore({ok:false,reason:'unauthorized'},401);
   try {
     const search = new URL(request.url).searchParams;
     const after = search.get('after') || '2026-01-01';

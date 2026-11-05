@@ -1,0 +1,26 @@
+name: SMS Review Engine Tests
+
+on:
+  push:
+    branches:
+      - feature/lvpt-sms-intelligence-review
+    paths:
+      - 'public/sms-review/**'
+      - 'tests/sms-review.test.js'
+      - '.github/workflows/sms-intelligence-review-ci.yml'
+  pull_request:
+    paths:
+      - 'public/sms-review/**'
+      - 'tests/sms-review.test.js'
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check public/sms-review/review-engine.js
+      - run: node --check public/sms-review/app.js
+      - run: node tests/sms-review.test.js

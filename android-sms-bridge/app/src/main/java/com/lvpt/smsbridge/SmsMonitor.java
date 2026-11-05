@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.provider.Telephony;
 import android.os.Build;
+import java.util.Set;
 
 public final class SmsMonitor {
     private static final String PREFS = "lvpt_sms_test_settings";
@@ -66,6 +67,32 @@ public final class SmsMonitor {
         }
     }
 
+    public static void startWithContacts(Context context) {
+        synchronized (LOCK) {
+            if (!hasReadPermission(context))
+                throw new SecurityException("READ_SMS permission not granted.");
+            Set<String> allowed = MonitoredContacts.allNumbers(context);
+            if (allowed.isEmpty()) throw new IllegalStateException("Add a contact first.");
+            long baseline = maxSmsId(context);
+            settings(context).edit()
+                .putBoolean(ACTIVE, true)
+                .putLong(LAST_ID, baseline)
+                .putInt(IN_COUNT, 0)
+                .putInt(OUT_COUNT, 0)
+                .remove(LAST_DIRECTION)
+                .remove(LAST_TIMESTAMP)
+                .apply();
+            SmsScanJob.schedule(context);
+        }
+    }
+
+    public static void stopMonitoring(Context context) {
+        synchronized (LOCK) {
+            settings(context).edit().putBoolean(ACTIVE, false).apply();
+            SmsScanJob.cancel(context);
+        }
+    }
+
     public static void stopAndClear(Context context) {
         synchronized (LOCK) {
             settings(context).edit().clear().apply();
@@ -88,7 +115,8 @@ public final class SmsMonitor {
             SharedPreferences s = settings(context);
             if (!s.getBoolean(ACTIVE, false)) return new ScanResult(0, 0, "Monitoring is stopped.");
             if (!hasReadPermission(context)) return new ScanResult(0, 0, "SMS read permission is unavailable.");
-            String phone = s.getString(PHONE, "");
+            Set<String> allowed = MonitoredContacts.allNumbers(context);
+            if (allowed.isEmpty()) return new ScanResult(0, 0, "No approved contacts configured.");
             long highWaterId = s.getLong(LAST_ID, 0);
             long newWatermark = highWaterId;
             int addedIn = 0;
@@ -108,7 +136,8 @@ public final class SmsMonitor {
                     String address = c.getString(1);
                     int type = c.getInt(2);
                     long when = c.getLong(3);
-                    if (!usLocalNumber(address).isEmpty() && usLocalNumber(address).equals(phone)) {
+                    String normalized = usLocalNumber(address);
+                    if (!normalized.isEmpty() && allowed.contains(normalized)) {
                         if (type == Telephony.Sms.MESSAGE_TYPE_INBOX) {
                             addedIn++;
                             lastDirection = "Incoming SMS";
@@ -141,6 +170,7 @@ public final class SmsMonitor {
         StringBuilder b = new StringBuilder();
         b.append("Monitoring: ").append(s.getBoolean(ACTIVE, false) ? "ON" : "OFF");
         b.append("\nSMS read permission: ").append(hasReadPermission(context) ? "Granted" : "Not granted");
+        b.append("\nApproved contacts: ").append(MonitoredContacts.list(context).size());
         b.append("\nIncoming SMS detected: ").append(s.getInt(IN_COUNT, 0));
         b.append("\nOutgoing SMS detected: ").append(s.getInt(OUT_COUNT, 0));
         String last = s.getString(LAST_DIRECTION, "");

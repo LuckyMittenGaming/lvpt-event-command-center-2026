@@ -84,5 +84,25 @@
       payoutEvidence:payoutCrossCheck(bundle,record,payouts,connected)
     };
   }
-  return {inspectBundle,similarity,tokens,payoutCrossCheck,sameMessagePaymentReference};
+  function payoutBrief(payouts,connected,events) {
+    if(!connected)return {connected:false,total:0,paid:0,planned:0,other:0,exceptions:[]};
+    const rows=Array.isArray(payouts)?payouts:[];
+    const eventNames=new Map((events||[]).map(e=>[e.id,e.eventName||e.company||e.id]));
+    const exceptions=rows.filter(p=>!/^paid$/i.test(String(p.status||'')))
+      .slice(0,30).map(p=>({
+        eventName:eventNames.get(p.eventId)||'Event record not identified',
+        payee:String(p.payee||'Payee not recorded').slice(0,120),
+        payoutType:String(p.payoutType||'Payout').slice(0,80),
+        status:String(p.status||'Unknown').slice(0,50),
+        amount:typeof p.amount==='number'&&Number.isFinite(p.amount)?p.amount:null
+      }));
+    return {
+      connected:true,total:rows.length,
+      paid:rows.filter(p=>/^paid$/i.test(String(p.status||''))).length,
+      planned:rows.filter(p=>/^planned$/i.test(String(p.status||''))).length,
+      other:rows.filter(p=>!/^(?:paid|planned)$/i.test(String(p.status||''))).length,
+      exceptions
+    };
+  }
+  return {inspectBundle,similarity,tokens,payoutCrossCheck,sameMessagePaymentReference,payoutBrief};
 });

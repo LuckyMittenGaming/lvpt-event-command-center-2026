@@ -26,7 +26,7 @@
     const reviewed = Object.values(decisions).filter(x => x.status !== 'Unreviewed').length;
     $('summary').replaceChildren();
     [
-      ['Total in source', report.count.toLocaleString()],
+      ['SMS records scanned', report.count.toLocaleString()],
       ['SMS since ' + report.after, report.afterDateCount.toLocaleString()],
       ['Business candidates', report.findings.length.toLocaleString()],
       ['Reviewed', reviewed.toLocaleString()],
@@ -99,6 +99,67 @@
     });
     $('more').hidden = items.length <= visibleLimit;
   }
+  async function loadStaging() {
+    const token = $('stagingToken').value.trim();
+    const bypass = $('stagingBypass').value.trim();
+    if (token.length < 32) {
+      setStatus('Enter the 32+ character staging token configured on the server.', true);
+      return;
+    }
+    const btn = $('connectStaging');
+    btn.disabled = true;
+    const after = $('afterDate').value || '2026-01-01';
+    try {
+      let offset = 0;
+      let scanned = 0;
+      let findings = [];
+      const headers = { 'x-lvpt-sms-sync-token': token };
+      if (bypass) headers['x-vercel-protection-bypass'] = bypass;
+      for (let i = 0; i < 50; i++) {
+        setStatus('Loading protected staging results: ' + scanned + ' SMS screened…');
+        const url = '/api/sms/staging/review?after=' +
+          encodeURIComponent(after) + '&offset=' + offset;
+        const response = await fetch(url, { headers, cache:'no-store', credentials:'omit' });
+        if (!response.ok) {
+          const status = response.status === 503 ? 'Storage is not configured yet (503).'
+            : response.status === 401 ? 'Staging token or deployment access was rejected (401).'
+            : 'Staging request failed (HTTP ' + response.status + ').';
+          throw new Error(status);
+        }
+        const payload = await response.json();
+        if (!payload.ok || !payload.staging || !Array.isArray(payload.findings))
+          throw new Error('Staging response was not valid.');
+        scanned += payload.scanned;
+        findings.push(...payload.findings);
+        if (payload.nextOffset === null) break;
+        offset = payload.nextOffset;
+      }
+      raw = null;
+      decisions = Object.create(null);
+      visibleLimit = 25;
+      report = {
+        source:'staging',
+        contact:'LVPT Staging',
+        count:scanned,
+        afterDateCount:scanned,
+        excludedCount:Math.max(0,scanned-findings.length),
+        duplicateCount:0,
+        findings:findings.sort((a,b)=>b.date.localeCompare(a.date)),
+        after
+      };
+      summary(); render();
+      setStatus('Staging inbox loaded: '+scanned+' SMS screened; '+
+        findings.length+' findings available for review. No accounting records changed.');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Staging fetch failed.', true);
+    } finally {
+      // The browser never retains or persists the staging token.
+      $('stagingToken').value = '';
+      $('stagingBypass').value = '';
+      btn.disabled = false;
+    }
+  }
+
   async function loadFile(file) {
     if (!file) return;
     if (file.size > 25*1024*1024) {setStatus('File exceeds the 25 MB safety limit.',true);return;}
@@ -133,15 +194,27 @@
     setTimeout(() => URL.revokeObjectURL(url),3000);
   }
   function clear() {
+    $('stagingToken').value = '';
+    $('stagingBypass').value = '';
     raw = null; report = null; decisions = Object.create(null);visibleLimit = 25;
     $('findQuery').value = '';
     $('afterDate').value = '2026-01-01';
     summary(); render();
     setStatus('Session cleared. The raw SMS archive was not saved in the browser or sent to a server.');
   }
+  $('connectStaging').addEventListener('click',loadStaging);
   $('smsFile').addEventListener('change',event => loadFile(event.target.files?.[0]));
   $('afterDate').addEventListener('change',() => {
-    if (report) {decisions = Object.create(null);scan();setStatus('Date filter changed. Previous review decisions were cleared.');}
+    if (report) {
+      decisions = Object.create(null);
+      if (raw) {
+        scan();
+      } else {
+        report = null;
+        summary(); render();
+      }
+      setStatus('Date changed. Reload the inbox or file to review the new range.');
+    }
   });
   $('findQuery').addEventListener('input',() => {visibleLimit = 25;render();});
   $('findCategory').addEventListener('change',() => {visibleLimit = 25;render();});

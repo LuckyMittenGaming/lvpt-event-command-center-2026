@@ -87,6 +87,20 @@
       group:'review-first',rank:1,label:'Check before contacting',
       explanation:'Compare current Gmail and task records to avoid duplicating client follow-up.'
     };
+    // Potentially convertible leads and follow-ups should not disappear just
+    // because a prior event ID has not yet been mapped in the Command Center.
+    const isSales=bundle.explicitReference &&
+      /lead|proposal|follow[- ]?up/i.test(bundle.topic||'');
+    if(isSales) return {
+      group:'review-first',rank:1,label:'Potential client opportunity — check history',
+      explanation:'Look for an existing CRM lead and current Gmail thread before contacting anyone. Historical SMS does not prove this opportunity is still active.'
+    };
+    const hasFinancialClaim=bundle.explicitReference && bundle.financial &&
+      (bundle.findings||[]).some(f=>f.financialSignal==='historical_claim_unverified');
+    if(check.state==='unlinked' && hasFinancialClaim) return {
+      group:'review-first',rank:1,label:'Financial claim — event link missing',
+      explanation:'Source SMS contains financial language, but no verified event ID is mapped. Identify the event and current ledger before taking action.'
+    };
     if (check.state==='unlinked'||check.state==='unmatched') return {
       group:'unverified',rank:2,label:'Event identity unverified',
       explanation:'No confirmed event record is linked. Identify the client before taking action.'

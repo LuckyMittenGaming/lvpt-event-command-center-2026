@@ -99,6 +99,7 @@ public final class MonitoredContacts {
             Collections.singletonList(normalized));
         current.add(entry);
         persist(context, current);
+        if (SyncConfig.enabled(context)) SyncConfig.resetCursor(context);
         if (prefs(context).getString(SELECTED, "").isEmpty()) select(context, entry.id);
         return entry;
     }
@@ -125,6 +126,7 @@ public final class MonitoredContacts {
         }
         if (!found) throw new IllegalArgumentException("Select a valid contact first.");
         persist(context, entries);
+        if (SyncConfig.enabled(context)) SyncConfig.resetCursor(context);
     }
 
     public static synchronized void remove(Context context, String id) {

@@ -396,14 +396,7 @@
         setStatus('Loading protected staging results: ' + scanned + ' SMS screened…');
         const url = '/api/sms/staging/review?after=' +
           encodeURIComponent(after) + '&offset=' + offset;
-        const response = await fetch(url, { headers, cache:'no-store', credentials:'same-origin' });
-        if (!response.ok) {
-          const status = response.status === 503 ? 'Storage is not configured yet (503).'
-            : response.status === 401 ? 'Staging token or deployment access was rejected (401).'
-            : 'Staging request failed (HTTP ' + response.status + ').';
-          throw new Error(status);
-        }
-        const payload = await response.json();
+        const payload = await getProtected(url);
         if (!payload.ok || !payload.staging || !Array.isArray(payload.findings))
           throw new Error('Staging response was not valid.');
         scanned += payload.scanned;

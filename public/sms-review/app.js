@@ -24,6 +24,9 @@
   let gmailEvidenceRecords = [];
   let gmailEvidenceLoading = false;
   let showActionMonitoring = false;
+  let actionDecisions = new Map();
+  let actionAuditReady = false;
+  let savingActionId = '';
   let auditServiceReady = false;
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
 
@@ -74,6 +77,58 @@
     return el;
   }
 
+  async function loadActionDecisions() {
+    actionAuditReady=false;
+    actionDecisions=new Map();
+    $('actionDecisionStatus').textContent='Checking the separate owner approval audit…';
+    try {
+      const data=await getProtected('/api/sms/staging/action-decisions');
+      if(!Array.isArray(data.decisions)||data.source!=='separate_staging_action_audit')
+        throw new Error('Invalid action audit response');
+      for(const d of data.decisions){
+        if(!d || typeof d.actionKey!=='string' || typeof d.sourceFingerprint!=='string')continue;
+        actionDecisions.set(d.actionKey,d);
+      }
+      actionAuditReady=true;
+      $('actionDecisionStatus').textContent='Separate approval audit connected. '+
+        data.decisions.length+' latest decision(s) restored. No external actions triggered.';
+    }catch {
+      actionAuditReady=false;
+      $('actionDecisionStatus').textContent='Separate owner audit unavailable. Approval controls are disabled.';
+    }
+    renderActionQueue();
+    return actionAuditReady;
+  }
+
+  async function saveOwnerActionDecision(item,decision) {
+    if(!actionAuditReady || !sessionToken || savingActionId || !report ||
+       report.source!=='staging' || !recordsAvailable)return;
+    savingActionId=item.id;
+    renderActionQueue();
+    const sourceFingerprint=actionQueueEngine.sourceFingerprint(item);
+    $('actionDecisionStatus').textContent='Recording '+item.eventName+
+      ' decision in protected staging audit…';
+    try {
+      const data=await getProtected('/api/sms/staging/action-decisions',{
+        body:{actionKey:item.id,decision,sourceFingerprint,requestId:crypto.randomUUID()}
+      });
+      if(data.audited!==true || data.saved!==1)
+        throw new Error('Approval change was not confirmed by the audit service.');
+      actionDecisions.set(item.id,{
+        actionKey:item.id,decision,sourceFingerprint,
+        recordedAt:data.recordedAt||new Date().toISOString()
+      });
+      $('actionDecisionStatus').textContent='Decision recorded with separate audit history. '+
+        'No email, accounting, CRM or task records changed.';
+    }catch(error) {
+      $('actionDecisionStatus').textContent='Decision not confirmed. Existing approvals remain unchanged. '+
+        (error instanceof Error?error.message:'Audit service error.');
+    }finally {
+      savingActionId='';
+      renderActionQueue();
+    }
+  }
+
   function renderActionQueue() {
     const holder=$('actionQueueItems');
     const status=$('actionQueueStatus');
@@ -120,6 +175,34 @@
       card.append(makeText('p','action-queue-source','Source: '+item.source));
       card.append(makeText('p','',item.evidence));
       card.append(makeText('p','',item.action));
+      const stored=actionDecisions.get(item.id);
+      const valid=actionQueueEngine.decisionApplies(item,stored);
+      const names={
+        draft_requested:'Approved for drafting (no draft created)',
+        verify_requested:'Flagged for verification',
+        hold:'On hold',dismissed:'Dismissed from active review'
+      };
+      card.append(makeText('p','action-queue-decision',
+        stored && !valid?'Source evidence changed since the saved decision. Review again.':
+        valid?(names[stored.decision]||'Previously reviewed')+
+          ' · recorded '+(stored.recordedAt?dateFmt(stored.recordedAt):'in audit'):
+          'Not yet reviewed'));
+      const controls=makeText('div','action-queue-controls','');
+      const actionButtons=item.type==='gmail'?
+        [['draft_requested','Approve for Drafting'],['hold','Hold'],['dismissed','Dismiss']]:
+        [['verify_requested','Flag for Verification'],['hold','Hold'],['dismissed','Dismiss']];
+      for(const [decision,label] of actionButtons){
+        const btn=document.createElement('button');
+        btn.type='button';
+        btn.className=decision==='hold'||decision==='dismissed'?'neutral':'primary';
+        btn.textContent=label;
+        btn.disabled=!actionAuditReady||Boolean(savingActionId)||
+          (valid && stored.decision===decision);
+        btn.setAttribute('aria-label',label+' — '+item.eventName+' — '+item.title);
+        btn.addEventListener('click',()=>saveOwnerActionDecision(item,decision));
+        controls.append(btn);
+      }
+      card.append(controls);
       const open=document.createElement('button');
       open.type='button';
       open.className='neutral';
@@ -843,6 +926,7 @@
       paymentLedgerConnected=false;
       paymentRecords=[];
       gmailEvidenceRecords=[];
+      actionDecisions=new Map();actionAuditReady=false;
       savedSourceCounts=Object.create(null);
       savedDecisionSignatures=Object.create(null);
       showSaveFeedback('Loading saved reviews…','neutral');
@@ -865,7 +949,7 @@
       setStatus('Staging inbox loaded: '+scanned+' SMS screened; '+
         findings.length+' findings available for review. Checking saved decisions and current Command Center…');
       const [decisionResult, , auditReady] = await Promise.all([
-        loadSavedDecisions(),loadReferenceData(),loadAuditHealth()
+        loadSavedDecisions(),loadReferenceData(),loadAuditHealth(),loadActionDecisions()
       ]);
       void loadGmailEvidence();
       if(decisionResult!==null && auditReady)
@@ -928,6 +1012,7 @@
     payoutRecords=[]; payoutLedgerConnected=false; paymentLedgerConnected=false; paymentRecords=[]; auditServiceReady=false;
     connectedRecords=[]; recordsAvailable=false;
     gmailEvidenceRecords=[]; showActionMonitoring=false;
+    actionDecisions=new Map(); actionAuditReady=false; savingActionId='';
     savedDecisionSignatures=Object.create(null);
     showSaveFeedback('Results cleared. Saved reviews remain securely stored.','neutral');
     raw = null; report = null; decisions = Object.create(null);

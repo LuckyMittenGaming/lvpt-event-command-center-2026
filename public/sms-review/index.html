@@ -58,6 +58,13 @@
     </section>
     <section id="results" hidden>
       <div class="metrics" id="summary"></div>
+      <section class="panel" aria-labelledby="payoutAuditTitle">
+        <p class="eyebrow">Owner brief · Financial exceptions</p>
+        <h2 id="payoutAuditTitle">Planned payouts &amp; independent verification</h2>
+        <p class="hint">This is a read-only summary of the Command Center Event Payouts ledger, not bank transaction evidence. A Paid client invoice does not settle a Planned owner distribution or vendor obligation.</p>
+        <p id="payoutAuditStatus" class="source-status" role="status" aria-live="polite">Waiting for live payout ledger comparison…</p>
+        <div id="payoutAuditItems" class="payout-audit-items"></div>
+      </section>
       <section class="panel" aria-labelledby="caseTitle">
         <p class="eyebrow">Step 2 · Consolidated intelligence</p>
         <div class="section-heading">
@@ -106,7 +113,7 @@
         <button id="more" type="button" class="neutral" hidden>Show 25 more findings</button>
       </section>
     </section>
-    <footer>LVPT SMS Intelligence · Staging Pilot v0.2 · Android synchronizes standard SMS only (RCS, MMS and WhatsApp excluded). No live accounting synchronization.</footer>
+    <footer>LVPT SMS Intelligence · Staging Pilot v0.6 · Android synchronizes standard SMS only (RCS, MMS and WhatsApp excluded). No live accounting synchronization.</footer>
   </main>
   <script src="./review-engine.js" defer></script>
   <script src="./case-engine.js" defer></script>

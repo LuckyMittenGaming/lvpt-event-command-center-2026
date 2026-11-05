@@ -1,31 +1,51 @@
-# LVPT SMS Bridge — Android diagnostic alpha
+# LVPT SMS Bridge — Android diagnostic, v0.4.0
 
-**Scope:** privately installed, business-only diagnostic for a single phone contact. Version 0.3 **can browse all available historical SMS message bodies from one approved contact, 20 at a time, after the user explicitly taps Browse**. This text is not cached, transmitted, logged, forwarded, or synced to the Command Center. It verifies whether Android's standard SMS content provider exposes both new incoming SMS and **SMS manually sent through the existing texting app**.
+**Purpose:** Private prototype on the owner's Android phone. Keep the existing messaging app and number. This app requires user-granted SMS permission and explicit selection of business contacts. It does not upload SMS or send any messages.
 
-## Build
-Open `android-sms-bridge/` in Android Studio (JDK 17 / Android SDK 35) and build the `app` debug variant. Alternatively, download the `lvpt-sms-bridge-debug-apk` artifact from the branch-specific GitHub Actions workflow if it completed successfully. Do not install an unsigned or unverified APK from unrelated sites.
+## New in v0.4
 
-## Phone test
-1. Install the **LVPT SMS Test** debug APK on your own Android phone. This is intentionally *not* a default SMS app.
-2. Enter **one approved business contact's US phone number**. Tap **Allow SMS reading**; Android permissions may be restricted on certain devices, OEMs, Android releases, or distribution methods.
-3. Tap **Start monitoring new SMS**. The app takes an SMS database high-water snapshot; older messages are ignored.
-4. Have the selected contact send a **regular SMS** (not RCS/WhatsApp). Tap **Check for new messages**, verify incoming counter increases.
-5. Send a **regular SMS** using your *normal* Messages app. Tap **Check**; verify outgoing counter increases.
-6. Try with phone screen locked and after restart. The app receives `SMS_RECEIVED` and schedules OS-managed scanning, plus a best-effort periodic job (approximately 15 minutes or later due to power restrictions).
-7. In v0.3, tap **Browse all saved SMS history (local only)** to count **all** available incoming/outgoing SMS for the approved contact and display 20 SMS at a time. Tap **Show 20 older SMS messages** for the next page. This can reach the oldest SMS still stored on the device without uploading anything. You can leave RCS on; only older standard SMS is available, not old RCS messages. History clears from the app view when hidden or the app loses focus; Android screenshots are disabled while browsing. **Do not send message text or screenshots to the chat.**\n8. Tap **Stop and erase test settings** to disable scheduled capture and remove the saved contact and counters.
+- **+ Add monitored contact:** Up to 10 people in the prototype. Each person occupies one slot regardless of their number of approved phone numbers.
+- **+ Number:** Associate up to 10 US phone numbers with one person. For example, add both Mark's old and new numbers to a single Mark record.
+- **Select:** One chosen person is the target for historical browsing and file export.
+- **Monitor:** New incoming and outgoing standard SMS from *all* explicitly added people are counted on the phone.
+- **Browse all saved SMS history:** Read the selected person's historical SMS from all of that person's numbers, 20 messages per page.
+- **Export selected contact's SMS to JSON:** After explicit confirmation, Android's document picker lets the owner write the full SMS history to a local file. This is **plain JSON (not password protected)**. Dates, sender/receiver direction, matched number, Android SMS row ID, and complete message text are included. The program reads message text only after confirming a match to an approved phone number. It processes the full available history without requiring hundreds of page clicks.
 
-## Privacy model
-The Android app reads SMS provider **metadata** (_id/address/type/time) to locally filter the approved contact. Only after the user taps Browse does it read **message bodies from matching SMS rows**, displaying one page of 20 messages in app memory, without permanent storage or network transfer. The total incoming/outgoing historical SMS counts are metadata-only. Messages from other contacts are never read for body text. It never uploads anything. The monitored number and counts stay in app-private SharedPreferences. Non-allowed contacts aren't retained. No default SMS handler switch, no root, no notification listener, no hidden monitoring.
+## Installation and test
 
-## Known limitations
-- A passing SMS test **does not** establish access to RCS or WhatsApp.\n- v0.3 does not yet ingest anything to the Command Center, and does not automatically store SMS message bodies.
-- Android READ_SMS permissions may be blocked by device settings, Play Store policy, or OEM-specific protections.
-- The Android SMS provider may not record outgoing SMS from a particular app/device configuration. This is what we're testing.
-- `_id` high-water capture is deliberately simple; SMS that switches from outbox to sent without a new ID may be missed. A production version needs state transition tracking, robust backfill, deduplication, encryption, and consent/retention controls.
-- Periodic JobScheduler execution can be delayed; do not promise real-time capture or 100% reliability.
-- Once the body-preview alpha proves both SMS directions and text contents, build the secured **authenticated, encrypted, staging-only** transport to the Command Center, and separate human-approved financial/task extraction. Never auto-send a reply or change an event balance based on a text alone.
+1. Download the `lvpt-sms-bridge-debug-apk` artifact from the successful branch-specific GitHub Actions workflow. Debug signing is not stable between independent builds, so **uninstall older LVPT SMS Test versions before installing**.
+2. Give SMS reading permission when Android requests it. We do not become the default SMS app.
+3. Enter a person's name and one number; tap **+ Add monitored contact**. Use **+ Number** on that person's row to add their previous/secondary numbers. Repeat for additional people only when authorized.
+4. Tap **Start monitoring** to count future standard SMS across the allowlist.
+5. Select Mark and tap **Browse** to confirm old messages from both numbers can be displayed.
+6. Tap **Export selected contact's SMS to JSON**. Read and accept the plaintext privacy warning. Save the file in a private device folder.
+7. The app displays a local message count when export finishes; do not share the full message file or its contents casually.
+
+## Privacy and security
+
+- Nothing is automatically uploaded to the LVPT Event Command Center, GitHub, Sheets, or any backend.
+- The app has no INTERNET permission and never sends SMS.
+- App-specific contact settings are stored locally with app backup disabled.
+- Files created through Android's document picker are **not encrypted**; anyone obtaining them can read them. If saved into a cloud-synced folder, the cloud provider might automatically upload them.
+- Only people and aliases the phone owner explicitly authorizes are monitored. Other conversations' message *bodies* are not accessed by the history viewer/exporter.
+- Removing a person stops matching their numbers, but does not delete the original messages from the default messaging app or any exported JSON files.
+- RCS, MMS, WhatsApp, group-message extraction, contact sync, and deleted messages are **not** included.
+- This is a diagnostic build, not production-grade permission/security handling or a public Play Store app.
+
+## Product/tier design — not activated
+
+The prototype caps the local screen at 10 monitored **people**, each with multiple known phone aliases. In a subscription product, server-verified entitlements must enforce both maximum people and usage quotas. Suggested starting tiers to price-test: Starter 2 people, Team 5, Business 10. **These numbers are hypothetical product packaging, not actual subscriptions.** Account/entitlement controls, team login, billing, secure synchronization, customer data retention, and consent auditing still need to be built.
+
+**Cost model:** Reading SMS on-device has no per-message SMS-gateway charge. Actual operating cost in a hosted product comes from encrypted storage, cloud bandwidth, security/authentication, and especially AI analysis tokens. Limit AI processing by messages/tokens per month instead of assuming that the number of contacts predicts cost. Track per-account import volume and AI usage before publishing subscription prices.
+
+## Next product milestones
+
+1. Validate the v0.4 history/export totals against the Android phone.
+2. Add secure customer accounts and a protected staging import (plaintext JSON only with deliberate upload and transport security).
+3. Add review/approval for derived event tasks, expenses, payments, and client follow-ups. Text mentions are *not* evidence of settled payment.
+4. Investigate official, permitted RCS integrations separately; the Android SMS provider is not a complete RCS access method.
+5. Before customer distribution, obtain signing keys, Play Store policy review (SMS permissions are restricted), privacy/legal review, retention/data deletion mechanisms, and third-party participant consent requirements.
 
 ## References
 - https://developer.android.com/reference/android/provider/Telephony.Sms
 - https://developer.android.com/reference/android/app/job/JobScheduler
-- https://github.com/capcom6/android-sms-gateway (Apache 2.0; design reference, not bundled)

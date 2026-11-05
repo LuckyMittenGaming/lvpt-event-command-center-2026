@@ -38,13 +38,13 @@
     if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
-    const reviewed = Object.values(decisions).filter(x => x.status !== 'Unreviewed').length;
+    const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
     $('summary').replaceChildren();
     [
       ['SMS records scanned', report.count.toLocaleString()],
       ['SMS since ' + report.after, report.afterDateCount.toLocaleString()],
       ['Business candidates', report.findings.length.toLocaleString()],
-      ['Reviewed', reviewed.toLocaleString()],
+      ['Reviewed cases', reviewed.toLocaleString()],
     ].forEach(([label, number]) => {
       const card = makeText('div', 'metric', '');
       card.append(makeText('span', 'metric-label', label), makeText('strong', 'metric-number', number));
@@ -78,6 +78,8 @@
     const eventFilter = $('caseEventFilter').value;
     const statusFilter = $('caseStatusFilter').value;
     const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
+    const reviewMetric=document.querySelector('#summary .metric:nth-child(4) .metric-number');
+    if(reviewMetric) reviewMetric.textContent=reviewed.toLocaleString();
     $('caseExplain').textContent = all.length + ' event/issue review bundles from ' +
       (report?.findings.length || 0) + ' business SMS candidates. ' +
       reviewed + ' bundles reviewed. Grouping is heuristic; no payments or event records have been verified.';

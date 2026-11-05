@@ -243,6 +243,7 @@
     const payload=await response.json().catch(()=>({ok:false}));
     if(!response.ok || !payload.ok) {
       const reason=payload.reason || 'request_failed';
+      if(response.status===401) showSession(false);
       throw new Error(reason+' (HTTP '+response.status+')');
     }
     return payload;

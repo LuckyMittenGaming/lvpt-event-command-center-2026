@@ -3,6 +3,7 @@
   const engine = window.LVPTSMSReview;
   const caseEngine = window.LVPTSMSCases;
   const reconciliation = window.LVPTSMSReconciliation;
+  const evidence = window.LVPTSMSEvidence;
   const $ = id => document.getElementById(id);
   let raw = null;
   let report = null;
@@ -14,6 +15,8 @@
   let activeCaseKey = '';
   let connectedRecords = [];
   let recordsAvailable = false;
+  let payoutLedgerConnected = false;
+  let payoutRecords = [];
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
 
   let savedSourceCounts = Object.create(null);
@@ -136,6 +139,42 @@
           makeText('p','',result.detail)
         );
         box.append(reconciliationLine);
+      }
+      if(recordsAvailable && evidence) {
+        const related=reconciliation.checkCase(bundle,connectedRecords);
+        const record=related.record||null;
+        const comparisons=evidence.inspectBundle(bundle,connectedRecords,payoutRecords,
+          payoutLedgerConnected,record);
+        if(comparisons.linked) {
+          if(comparisons.taskMatches.length) {
+            const section=makeText('div','evidence-detail','');
+            section.append(makeText('strong','','Possible existing task overlap (not confirmation of completion)'));
+            comparisons.taskMatches.forEach(t=>section.append(
+              makeText('p','',t.title+' — status in Command Center: '+(t.status||'Unknown'))
+            ));
+            box.append(section);
+          }
+          if(comparisons.emailMatches.length) {
+            const section=makeText('div','evidence-detail','');
+            section.append(makeText('strong','','Possible logged Gmail thread overlap (not proof of a reply)'));
+            comparisons.emailMatches.forEach(mail=>section.append(
+              makeText('p','',mail.subject+' — '+(mail.date||'date unavailable'))
+            ));
+            box.append(section);
+          }
+          if(comparisons.payoutEvidence) {
+            const p=comparisons.payoutEvidence;
+            const section=makeText('div','evidence-detail','');
+            section.append(makeText('strong','','Event Payouts ledger — recorded statuses, not bank verification'));
+            section.append(makeText('p','','Paid: '+p.statuses.Paid+
+              ' · Planned: '+p.statuses.Planned+' · Other: '+p.statuses.Other));
+            p.matching.forEach(item=>section.append(makeText('p','',
+              'Possible payee + amount match: '+item.payee+' · '+
+              Number(item.amount).toLocaleString('en-US',{style:'currency',currency:'USD'})+
+              ' · recorded '+item.ledgerStatus)));
+            box.append(section);
+          }
+        }
       }
       if (savedSourceCounts[bundle.key]!==undefined && savedSourceCounts[bundle.key]!==bundle.count) {
         box.append(makeText('p','case-alert','New or changed SMS source count since last saved review ('+
@@ -274,12 +313,16 @@
       if (!Array.isArray(data.events)) throw new Error('Invalid reconciliation response');
       connectedRecords=data.events;
       recordsAvailable=true;
+      payoutLedgerConnected=data.payoutSourceStatus==='command_center_ledger';
+      payoutRecords=payoutLedgerConnected && Array.isArray(data.payouts)?data.payouts:[];
       $('reconciliationStatus').textContent=
         'Read-only Command Center comparison connected: '+data.recordCount+
-        ' event records. Financial and task data remain unchanged.';
+        ' event records. '+(payoutLedgerConnected ? 'Event Payouts ledger connected ('+payoutRecords.length+' entries).' : 'Payout ledger comparison pending Apps Script deployment.')+' No records changed.';
     }catch(error) {
       connectedRecords=[];
       recordsAvailable=false;
+      payoutLedgerConnected=false;
+      payoutRecords=[];
       const reason=error instanceof Error ? error.message : 'unknown error';
       $('reconciliationStatus').textContent=
         reason.includes('command_center_source_unconfigured') ?
@@ -425,6 +468,8 @@
       raw = null;
       recordsAvailable=false;
       connectedRecords=[];
+      payoutLedgerConnected=false;
+      payoutRecords=[];
       savedSourceCounts=Object.create(null);
       decisions = Object.create(null);
       caseDecisions = Object.create(null);
@@ -500,6 +545,7 @@
   }
   function clear() {
     $('stagingToken').value = '';
+    payoutRecords=[]; payoutLedgerConnected=false;
     raw = null; report = null; decisions = Object.create(null);
     caseDecisions = Object.create(null); activeCaseKey = ''; bundleLimit = 12;
     visibleLimit = 25;

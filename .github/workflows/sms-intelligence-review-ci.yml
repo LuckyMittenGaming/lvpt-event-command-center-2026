@@ -10,6 +10,7 @@ on:
       - 'tests/sms-intelligence.test.mjs'
       - 'tests/sms-reconciliation.test.cjs'
       - 'tests/sms-evidence.test.cjs'
+      - 'tests/sms-gmail-intelligence.test.cjs'
       - 'tests/sms-review-audit-static.test.cjs'
       - 'docs/staging-migrations/**'
       - 'apps-script/Code.gs'
@@ -20,6 +21,7 @@ on:
       - 'app/api/sms/staging/decisions/route.ts'
       - 'app/api/sms/staging/audit-health/route.ts'
       - 'app/api/sms/staging/reconcile/route.ts'
+      - 'app/api/sms/staging/gmail-evidence/route.ts'
       - 'lib/sms-intelligence.mjs'
       - 'app/api/sms/staging/review/route.ts'
       - '.github/workflows/sms-intelligence-review-ci.yml'
@@ -41,12 +43,14 @@ jobs:
       - run: node --check public/sms-review/case-engine.js
       - run: node --check public/sms-review/reconciliation.js
       - run: node --check public/sms-review/evidence-overlap.js
+      - run: node --check public/sms-review/gmail-intelligence.js
       - run: node --check lib/sms-intelligence.mjs
       - run: node --check lib/sms-review-session.mjs
       - run: node tests/sms-review.test.js
       - run: node tests/sms-intelligence.test.mjs
       - run: node tests/sms-reconciliation.test.cjs
       - run: node tests/sms-evidence.test.cjs
+      - run: node tests/sms-gmail-intelligence.test.cjs
       - run: node tests/sms-review-audit-static.test.cjs
       - run: node tests/sms-review-session.test.mjs
       - run: npm ci

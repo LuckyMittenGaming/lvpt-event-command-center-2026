@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const {inspectBundle,similarity,payoutCrossCheck}=require('../public/sms-review/evidence-overlap.js');
+const {inspectBundle,similarity,payoutCrossCheck,payoutBrief}=require('../public/sms-review/evidence-overlap.js');
 const event={id:'evt-neo-reunion-2026',taskEvidence:[{title:'Confirm custom decks and printed cards',status:'Complete'}],emailTopics:[{subject:'Updated floor plan and load-in packet',date:'2026-08-14'}]};
 const payouts=[{eventId:event.id,payee:'Mark Streeter',payoutType:'Owner Distribution',amount:6233.28,status:'Planned'},{eventId:event.id,payee:'Mark Streeter',payoutType:'Owner Distribution',amount:3000,status:'Paid'},{eventId:'evt-nium-2026',payee:'Mark Streeter',amount:6233.28,status:'Paid'}];
 assert.equal(similarity('poker training event today','client poker training'),0);
@@ -30,5 +30,20 @@ const wrongStatus=payoutCrossCheck({
 assert.equal(wrongStatus.matching[0].ledgerStatus,'Planned','Planned payout must never be described as Paid');
 assert.equal(wrongStatus.matching[0].smsId,52);
 assert.equal(payoutCrossCheck({...bundle,explicitReference:false},event,payouts,true),null,'Unlinked events must not receive payout matches');
+
+
+const brief=payoutBrief(payouts,true,[
+  {id:event.id,eventName:'Mosaic / NEO'},
+  {id:'evt-nium-2026',eventName:'NIUM'}
+]);
+assert.equal(brief.connected,true);
+assert.equal(brief.total,3);
+assert.equal(brief.paid,2);
+assert.equal(brief.planned,1);
+assert.equal(brief.other,0);
+assert.equal(brief.exceptions.length,1);
+assert.equal(brief.exceptions[0].amount,6233.28);
+assert.equal(brief.exceptions[0].eventName,'Mosaic / NEO');
+assert.equal(payoutBrief(payouts,false,[event]).connected,false,'No ledger brief when disconnected');
 
 console.log('SMS read-only evidence matching tests passed.');

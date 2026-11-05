@@ -56,7 +56,7 @@
             <h2 id="caseTitle">Review by event and issue</h2>
             <p id="caseExplain">Business-related SMS will be grouped into review bundles after the inbox loads.</p>
           </div>
-          <button id="exportCaseDecisions" class="primary" type="button" disabled>Export case decisions</button>
+          <div class="case-action-buttons"><button id="saveCaseDecisions" class="primary" type="button" disabled>Save reviewed cases</button><button id="exportCaseDecisions" class="neutral" type="button" disabled>Export decisions</button></div>
         </div>
         <p class="hint"><strong>Candidate matches only:</strong> client/event names are not independently verified. Generic venues and vendors do not establish event identity. Financial messages require bank and invoice checks. Reviewing a bundle does not change accounting, tasks, or client records.</p>
         <div class="filters">
@@ -71,6 +71,7 @@
             <option value="Candidate for reconciliation">Candidate for reconciliation</option>
           </select>
         </div>
+        <p id="reconciliationStatus" role="status" aria-live="polite" class="source-status">Command Center comparison not loaded.</p>
         <div id="caseList" class="case-list" aria-live="polite"></div>
         <button id="showMoreCases" class="neutral" hidden type="button">Show more review bundles</button>
       </section>
@@ -93,6 +94,7 @@
   </main>
   <script src="./review-engine.js" defer></script>
   <script src="./case-engine.js" defer></script>
+  <script src="./reconciliation.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

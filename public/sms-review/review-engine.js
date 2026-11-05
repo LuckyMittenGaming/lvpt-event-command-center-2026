@@ -103,6 +103,7 @@
       if (!decision || decision.status === 'Unreviewed') return [];
       return [{
         source_system: 'lvpt_android_sms', source_sms_id: f.smsId,
+        ...(f.deviceId ? {source_device_id: f.deviceId} : {}),
         source_time_utc: f.date, direction: f.direction,
         event_hint_unverified: f.eventHint, category: f.category,
         status: decision.status, reviewer_note: String(decision.note || '').slice(0, 500),

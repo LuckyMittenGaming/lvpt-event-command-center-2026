@@ -43,7 +43,11 @@ assert.equal(brief.planned,1);
 assert.equal(brief.other,0);
 assert.equal(brief.exceptions.length,1);
 assert.equal(brief.exceptions[0].amount,6233.28);
+assert.equal(brief.plannedTotalCents,623328,'Planned total is exact in cents');
+assert.equal(brief.paidMissingDate,2,'Missing paid dates are data-quality gaps, not unpaid claims');
 assert.equal(brief.exceptions[0].eventName,'Mosaic / NEO');
 assert.equal(payoutBrief(payouts,false,[event]).connected,false,'No ledger brief when disconnected');
+const blankAmount=payoutBrief([{eventId:event.id,payoutType:'Owner Distribution',status:'Planned',amount:null}],true,[event]);
+assert.equal(blankAmount.plannedTotalCents,null,'Never infer missing planned amounts as zero');
 
 console.log('SMS read-only evidence matching tests passed.');

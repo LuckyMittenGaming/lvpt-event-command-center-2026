@@ -8,6 +8,9 @@ on:
       - 'public/sms-review/**'
       - 'tests/sms-review.test.js'
       - 'tests/sms-intelligence.test.mjs'
+      - 'tests/sms-reconciliation.test.cjs'
+      - 'app/api/sms/staging/decisions/route.ts'
+      - 'app/api/sms/staging/reconcile/route.ts'
       - 'lib/sms-intelligence.mjs'
       - 'app/api/sms/staging/review/route.ts'
       - '.github/workflows/sms-intelligence-review-ci.yml'
@@ -27,6 +30,10 @@ jobs:
       - run: node --check public/sms-review/review-engine.js
       - run: node --check public/sms-review/app.js
       - run: node --check public/sms-review/case-engine.js
+      - run: node --check public/sms-review/reconciliation.js
       - run: node --check lib/sms-intelligence.mjs
       - run: node tests/sms-review.test.js
       - run: node tests/sms-intelligence.test.mjs
+      - run: node tests/sms-reconciliation.test.cjs
+      - run: npm ci
+      - run: npx tsc --noEmit

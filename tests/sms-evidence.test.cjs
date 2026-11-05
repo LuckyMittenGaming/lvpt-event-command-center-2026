@@ -11,8 +11,24 @@ assert.equal(evidence.payoutEvidence.count,2);
 assert.equal(evidence.payoutEvidence.statuses.Planned,1);
 assert.equal(evidence.payoutEvidence.matching[0].ledgerStatus,'Planned');
 assert.equal(evidence.payoutEvidence.matching.length,1);
-const noPayee=payoutCrossCheck({findings:[{excerpt:'$6,233.28 proposed',amounts:['$6,233.28']}]},event,payouts,true);
+const noPayee=payoutCrossCheck({explicitReference:true,findings:[{excerpt:'$6,233.28 proposed',amounts:['$6,233.28']}]},event,payouts,true);
 assert.equal(noPayee.matching.length,0);
 assert.equal(payoutCrossCheck(bundle,event,payouts,false),null);
 assert.equal(inspectBundle({...bundle,explicitReference:false},[event],payouts,true,event).linked,false);
+
+const splitAcrossMessages=payoutCrossCheck({
+  explicitReference:true,
+  findings:[
+    {smsId:50,excerpt:'Streeter is checking the owner distribution today',amounts:[]},
+    {smsId:51,excerpt:'A $6,233.28 distribution may happen next month',amounts:['$6,233.28']}
+  ]
+},event,payouts,true);
+assert.equal(splitAcrossMessages.matching.length,0,'Do not join payee and amount across unrelated SMS');
+const wrongStatus=payoutCrossCheck({
+  explicitReference:true,findings:[{smsId:52,excerpt:'Streeter owner draw $6,233.28 is being discussed',amounts:['$6,233.28']}]
+},event,payouts,true);
+assert.equal(wrongStatus.matching[0].ledgerStatus,'Planned','Planned payout must never be described as Paid');
+assert.equal(wrongStatus.matching[0].smsId,52);
+assert.equal(payoutCrossCheck({...bundle,explicitReference:false},event,payouts,true),null,'Unlinked events must not receive payout matches');
+
 console.log('SMS read-only evidence matching tests passed.');

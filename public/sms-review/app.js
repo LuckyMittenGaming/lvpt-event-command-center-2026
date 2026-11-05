@@ -72,6 +72,11 @@
       return true;
     });
   }
+  function priorityOf(bundle,decision) {
+    const savedCount=savedSourceCounts[bundle.key];
+    const changed=savedCount!==undefined && savedCount!==bundle.count;
+    return reconciliation.prioritizeCase(bundle,connectedRecords,decision,recordsAvailable,changed);
+  }
   function renderCaseBundles() {
     const all = caseBundles;
     const search = $('caseSearch').value.trim().toLowerCase();
@@ -88,7 +93,7 @@
       const decision = caseDecisions[bundle.key] || {status:'Unreviewed'};
       if (eventFilter === 'matched' && !bundle.explicitReference) return false;
       if (eventFilter === 'unmatched' && bundle.explicitReference) return false;
-      const priority = reconciliation.prioritizeCase(bundle,connectedRecords,decision,recordsAvailable);
+      const priority = priorityOf(bundle,decision);
       if (attentionFilter !== 'all' && priority.group !== attentionFilter) return false;
       if (statusFilter !== 'all' && decision.status !== statusFilter) return false;
       if (search && ![bundle.eventLabel,bundle.topic,...bundle.categories].join(' ').toLowerCase().includes(search))
@@ -97,8 +102,8 @@
     }).sort((a,b)=>{
       const da=caseDecisions[a.key]||{status:'Unreviewed'};
       const db=caseDecisions[b.key]||{status:'Unreviewed'};
-      const pa=reconciliation.prioritizeCase(a,connectedRecords,da,recordsAvailable);
-      const pb=reconciliation.prioritizeCase(b,connectedRecords,db,recordsAvailable);
+      const pa=priorityOf(a,da);
+      const pb=priorityOf(b,db);
       return pa.rank-pb.rank || b.latest.localeCompare(a.latest);
     });
     const parent = $('caseList');
@@ -108,7 +113,7 @@
       const review = caseDecisions[bundle.key] || {status:'Unreviewed',note:''};
       const box = makeText('article','case-card','');
       const heading = makeText('div','finding-top','');
-      const priority=reconciliation.prioritizeCase(bundle,connectedRecords,review,recordsAvailable);
+      const priority=priorityOf(bundle,review);
       heading.append(makeText('span','attention-label',priority.label));
       heading.append(
         makeText('span','tag',bundle.explicitReference ? 'Explicit name mentioned' : 'Event not identified'),

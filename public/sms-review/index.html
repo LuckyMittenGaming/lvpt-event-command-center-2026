@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'">
+  <title>SMS Intelligence Review | LVPT Command Center</title>
+  <meta name="description" content="Private, browser-only SMS business intelligence review pilot for Las Vegas Poker Training.">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div><span class="eyebrow">Las Vegas Poker Training · Event Command Center</span>
+        <h1>SMS Intelligence Review</h1>
+        <p>Turn exported business conversations into a human-approved evidence queue. No automatic accounting updates or new tasks.</p>
+      </div>
+      <a class="back" href="/v2/index.html">← Event Command Center</a>
+    </header>
+    <section class="alert" aria-label="Privacy information">
+      <strong>Local-only review pilot</strong>
+      <p>Your SMS file is read inside this browser tab, not uploaded. Raw messages are not written to browser storage or GitHub. Flags can be wrong, and approved findings are exported as a separate decisions file—not posted to live records. This is not yet a multi-user authenticated archive.</p>
+    </section>
+    <section class="panel intro" aria-labelledby="importTitle">
+      <div>
+        <p class="eyebrow">Step 1 · Import and screen</p>
+        <h2 id="importTitle">Choose an SMS export</h2>
+        <p>Use the JSON produced by LVPT SMS Test v0.4. The scan starts with 2026 to prioritize current business activity. Earlier history remains available by changing the date.</p>
+      </div>
+      <div class="import-controls">
+        <label class="file-button" for="smsFile">Choose SMS JSON file</label>
+        <input id="smsFile" class="visually-hidden" type="file" accept=".json,application/json">
+        <label class="date-label" for="afterDate">Include messages from <input id="afterDate" type="date" value="2026-01-01"></label>
+        <button id="clearSession" class="neutral" type="button">Clear session</button>
+      </div>
+      <p id="notice" role="status" aria-live="polite">Choose a file to begin. The raw archive is never sent by this page.</p>
+    </section>
+    <section id="results" hidden>
+      <div class="metrics" id="summary"></div>
+      <section class="panel">
+        <p class="eyebrow">Step 2 · Validate and approve</p>
+        <div class="section-heading"><div><h2>Potential business findings</h2><p id="explainResults"></p></div>
+          <button id="exportDecisions" class="primary" type="button">Export review decisions</button></div>
+        <p class="hint">Choose <strong>Needs verification</strong> for amounts or payment claims until reconciled with invoices and bank records. <strong>Approved for export</strong> means approved for further review/import—not confirmation that an invoice was paid.</p>
+        <div class="filters">
+          <input id="findQuery" type="search" placeholder="Search event, excerpt or source SMS ID" aria-label="Search findings">
+          <select id="findCategory" aria-label="Filter category"></select>
+          <select id="findStatus" aria-label="Filter review status"></select>
+        </div>
+        <p id="shownCount" class="count"></p>
+        <div id="queue" class="findings"></div>
+        <button id="more" type="button" class="neutral" hidden>Show 25 more findings</button>
+      </section>
+    </section>
+    <footer>LVPT SMS Intelligence · Pilot v0.1 · Standard SMS only (RCS, MMS and WhatsApp excluded). No server synchronization.</footer>
+  </main>
+  <script src="./review-engine.js" defer></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>

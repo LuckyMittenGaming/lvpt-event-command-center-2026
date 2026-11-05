@@ -72,7 +72,7 @@
     $('exportDecisions').disabled = !report;
     $('exportCaseDecisions').disabled = !report;
     $('saveCaseDecisions').disabled = !report || report.source !== 'staging' || !sessionToken;
-    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); return; }
+    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); renderAttentionBrief(); return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
     const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
@@ -114,6 +114,53 @@
     const changed=savedCount!==undefined && savedCount!==bundle.count;
     return reconciliation.prioritizeCase(bundle,connectedRecords,decision,recordsAvailable,changed);
   }
+  function renderAttentionBrief() {
+    const section=$('attentionBrief');
+    section.replaceChildren();
+    if(!report) {
+      section.append(makeText('p','hint','Load the staging inbox to see suggested review priorities.'));
+      return;
+    }
+    const first=caseBundles.map(bundle=>{
+      const review=caseDecisions[bundle.key]||{status:'Unreviewed'};
+      return {bundle,review,priority:priorityOf(bundle,review)};
+    }).filter(x=>x.priority.rank<=1).sort((a,b)=>
+      a.priority.rank-b.priority.rank || b.bundle.latest.localeCompare(a.bundle.latest)
+    ).slice(0,5);
+    if(!first.length) {
+      section.append(makeText('p','hint',
+        recordsAvailable ?
+          'No urgent SMS review bundles detected under the current rules. This is not a statement that all work or financial obligations are complete.' :
+          'Current Command Center snapshot unavailable. Reconnect it before prioritizing unresolved work.'));
+      return;
+    }
+    first.forEach((item,i)=>{
+      const line=makeText('div','attention-brief-item','');
+      const title=makeText('div','attention-brief-copy','');
+      title.append(makeText('strong','',String(i+1)+'. '+item.bundle.eventLabel+' — '+item.bundle.topic));
+      title.append(makeText('p','',item.priority.label+' · '+item.bundle.count+
+        ' SMS source'+(item.bundle.count===1?'':'s')));
+      title.append(makeText('p','',item.priority.explanation));
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className='neutral';
+      btn.textContent='Review issue';
+      btn.addEventListener('click',()=>{
+        $('caseSearch').value=item.bundle.eventLabel;
+        $('caseEventFilter').value='all';
+        $('caseAttentionFilter').value='all';
+        $('caseStatusFilter').value='all';
+        bundleLimit=Math.max(12,caseBundles.length);
+        renderCaseBundles();
+        const card=[...document.querySelectorAll('#caseList .case-card')]
+          .find(node=>node.dataset.caseKey===item.bundle.key);
+        if(card) card.scrollIntoView({behavior:'smooth',block:'start'});
+      });
+      line.append(title,btn);
+      section.append(line);
+    });
+  }
+
   function renderCaseBundles() {
     const all = caseBundles;
     const search = $('caseSearch').value.trim().toLowerCase();
@@ -143,12 +190,14 @@
       const pb=priorityOf(b,db);
       return pa.rank-pb.rank || b.latest.localeCompare(a.latest);
     });
+    renderAttentionBrief();
     const parent = $('caseList');
     parent.replaceChildren();
     if (!shown.length) parent.append(makeText('p','empty','No review bundles match this filter.'));
     shown.slice(0,bundleLimit).forEach(bundle => {
       const review = caseDecisions[bundle.key] || {status:'Unreviewed',note:''};
       const box = makeText('article','case-card','');
+      box.dataset.caseKey=bundle.key;
       const heading = makeText('div','finding-top','');
       const priority=priorityOf(bundle,review);
       heading.append(makeText('span','attention-label',priority.label));

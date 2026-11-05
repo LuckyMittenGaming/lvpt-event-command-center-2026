@@ -136,12 +136,38 @@ function lvptListReconciliationEvidence_() {
   }).filter(function(row) {
     return row.eventId && row.payoutId;
   });
+  // Each invoice/payment entry is returned separately. listEvents() currently
+  // exposes only the first Payments row for an event and cannot be used to
+  // conclude whether add-on invoices were settled.
+  var paymentRecords = lvptSheetObjects_('Payments').map(function(item) {
+    function numberOrNull(value) {
+      var text = String(value == null ? '' : value).replace(/[^0-9.-]/g, '');
+      if (!text) return null;
+      var amount = Number(text);
+      return isFinite(amount) ? amount : null;
+    }
+    return {
+      paymentId: String(item.payment_id || '').slice(0, 120),
+      eventId: String(item.event_id || '').slice(0, 120),
+      invoiceNumber: String(item.invoice_number || '').slice(0, 100),
+      invoiceTotal: numberOrNull(item.invoice_total),
+      amountPaid: numberOrNull(item.amount_paid),
+      balanceDue: numberOrNull(item.balance_due),
+      paymentStatus: String(item.payment_status || 'Unknown').slice(0, 80),
+      dueDate: lvptDateString_(item.due_date),
+      paymentDate: lvptDateString_(item.payment_date)
+    };
+  }).filter(function(item) {
+    return item.eventId && item.paymentId;
+  });
   return {
     ok: true,
-    source: 'Event Payouts',
+    source: 'Event Payouts + Payments',
     sourceVerifiedAs: 'Command Center ledger only — not bank settlement evidence',
     payoutCount: rows.length,
     payouts: rows,
+    paymentCount: paymentRecords.length,
+    paymentRecords: paymentRecords,
     serverTime: new Date().toISOString()
   };
 }

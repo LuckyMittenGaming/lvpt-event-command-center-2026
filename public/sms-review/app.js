@@ -5,6 +5,7 @@
   const reconciliation = window.LVPTSMSReconciliation;
   const evidence = window.LVPTSMSEvidence;
   const gmailEngine = window.LVPTGmailIntelligence;
+  const actionQueueEngine = window.LVPTActionQueue;
   const $ = id => document.getElementById(id);
   let raw = null;
   let report = null;
@@ -22,6 +23,7 @@
   let paymentRecords = [];
   let gmailEvidenceRecords = [];
   let gmailEvidenceLoading = false;
+  let showActionMonitoring = false;
   let auditServiceReady = false;
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
 
@@ -71,6 +73,70 @@
     el.textContent = value;
     return el;
   }
+
+  function renderActionQueue() {
+    const holder=$('actionQueueItems');
+    const status=$('actionQueueStatus');
+    const toggle=$('toggleActionMonitoring');
+    holder.replaceChildren();
+    toggle.hidden=true;
+    if(!report || report.source!=='staging') {
+      status.textContent='Load the authenticated staging inbox for cross-source recommendations.';
+      return;
+    }
+    if(!recordsAvailable) {
+      status.textContent='Command Center event records unavailable. No financial or outreach priorities inferred.';
+      return;
+    }
+    const brief=actionQueueEngine.buildQueue({
+      events:connectedRecords,
+      payments:paymentRecords,paymentsConnected:paymentLedgerConnected,
+      payouts:payoutRecords,payoutsConnected:payoutLedgerConnected,
+      gmail:gmailEvidenceRecords
+    },Date.now());
+    const gaps=[];
+    if(!brief.coverage.payments)gaps.push('Payments');
+    if(!brief.coverage.payouts)gaps.push('Event Payouts');
+    if(brief.coverage.gmailConnected<brief.coverage.gmailTotal)
+      gaps.push('Gmail '+brief.coverage.gmailConnected+'/'+brief.coverage.gmailTotal);
+    status.textContent=brief.reviewCount+' items for owner review · '+
+      brief.monitorCount+' monitoring · '+(gaps.length ?
+        'Limited source coverage: '+gaps.join(', ')+'. No missing-source conclusions.' :
+        'Sources connected (Gmail is bounded metadata only).')+
+      ' No changes sent or saved.';
+    const visible=brief.items.filter(item=>item.group==='review'||showActionMonitoring);
+    if(!visible.length)
+      holder.append(makeText('p','hint',
+        'No review candidates in the connected sources under these rules. Other email, bank and CRM work may still exist.'));
+    visible.forEach(item=>{
+      const card=makeText('article','action-queue-card','');
+      const head=makeText('div','action-queue-head','');
+      head.append(makeText('span','action-queue-kind',
+        item.group==='monitor'?'Monitor':item.type==='gmail'?'Correspondence':
+          item.type==='payment'?'Payment verification':'Payout verification'));
+      head.append(makeText('span','secondary',item.eventName));
+      card.append(head);
+      card.append(makeText('h3','',item.title));
+      card.append(makeText('p','action-queue-source','Source: '+item.source));
+      card.append(makeText('p','',item.evidence));
+      card.append(makeText('p','',item.action));
+      const open=document.createElement('button');
+      open.type='button';
+      open.className='neutral';
+      open.textContent='View source section';
+      open.addEventListener('click',()=>{
+        const target=$(item.target);
+        if(target)target.scrollIntoView({behavior:'smooth',block:'start'});
+      });
+      card.append(open);
+      holder.append(card);
+    });
+    toggle.hidden=brief.monitorCount===0;
+    toggle.textContent=showActionMonitoring ?
+      'Hide '+brief.monitorCount+' monitoring item(s)' :
+      'Show '+brief.monitorCount+' monitoring item(s)';
+  }
+
   function renderGmailEvidence() {
     const container=$('gmailEvidenceItems');
     const status=$('gmailEvidenceStatus');
@@ -117,6 +183,7 @@
       if(recent && recent.subject)card.append(makeText('p','gmail-evidence-meta','Latest subject: '+recent.subject));
       container.append(card);
     });
+    renderActionQueue();
   }
 
   async function loadGmailEvidence() {
@@ -238,7 +305,7 @@
     $('exportDecisions').disabled = !report;
     $('exportCaseDecisions').disabled = !report;
     updateSaveControls();
-    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); renderPaymentAudit(); renderAttentionBrief(); return; }
+    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); renderPaymentAudit(); renderAttentionBrief(); renderActionQueue(); return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
     const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
@@ -589,6 +656,7 @@
     renderCaseBundles();
     renderPayoutAudit();
     renderPaymentAudit();
+    renderActionQueue();
   }
   async function loadAuditHealth() {
     auditServiceReady=false;
@@ -858,7 +926,8 @@
   function clear() {
     $('stagingToken').value = '';
     payoutRecords=[]; payoutLedgerConnected=false; paymentLedgerConnected=false; paymentRecords=[]; auditServiceReady=false;
-    gmailEvidenceRecords=[];
+    connectedRecords=[]; recordsAvailable=false;
+    gmailEvidenceRecords=[]; showActionMonitoring=false;
     savedDecisionSignatures=Object.create(null);
     showSaveFeedback('Results cleared. Saved reviews remain securely stored.','neutral');
     raw = null; report = null; decisions = Object.create(null);
@@ -875,6 +944,10 @@
   }
   $('saveCaseDecisions').addEventListener('click',saveDecisions);
   $('refreshGmailEvidence').addEventListener('click',loadGmailEvidence);
+  $('toggleActionMonitoring').addEventListener('click',()=>{
+    showActionMonitoring=!showActionMonitoring;
+    renderActionQueue();
+  });
   $('caseSearch').addEventListener('input',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseEventFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseAttentionFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});

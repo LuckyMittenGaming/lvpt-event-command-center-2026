@@ -5,10 +5,11 @@ const script=fs.readFileSync('apps-script/Code.gs','utf8');
 const manifest=JSON.parse(fs.readFileSync('apps-script/appsscript.json','utf8'));
 const route=fs.readFileSync('app/api/sms/staging/gmail-evidence/route.ts','utf8');
 const ui=fs.readFileSync('public/sms-review/app.js','utf8');
-const start=script.indexOf('function lvptReadOnlyGmailEvidence_(');
-const end=script.indexOf('function lvptListEvents_()',start);
-assert(start>0 && end>start,'Additive Apps Script Gmail function must exist');
-const gmail=script.slice(start,end);
+const gmail=fs.readFileSync('apps-script/GmailEvidence.gs','utf8');
+assert(gmail.includes('function lvptReadOnlyGmailEvidence_('),
+  'Standalone read-only Gmail helper must exist');
+assert(!script.includes('function lvptReadOnlyGmailEvidence_('),
+  'Gmail function must not be duplicated across Apps Script files');
 
 assert(manifest.oauthScopes.includes('https://www.googleapis.com/auth/gmail.readonly'));
 assert.match(script,/if \(action === 'listGmailThreadEvidence'\)/);

@@ -19,3 +19,11 @@
 #caseExplain{margin-top:0}
 
 .case-recommendation{background:#172d43;border-left:3px solid #85bafe;border-radius:0 7px 7px 0;padding:10px 12px;font-size:13px;color:#daecff!important;margin:12px 0!important}
+
+.case-action-buttons{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.source-status{background:#112842;border:1px solid #365474;border-radius:9px;padding:11px 13px;font-size:13px;margin:14px 0 0}
+.reconciliation-detail{background:#152b28;border:1px solid #355a54;border-radius:9px;padding:12px 14px;margin:12px 0;color:#e4f7f0}
+.reconciliation-detail strong{font-size:13px}
+.reconciliation-detail p{font-size:13px;color:#c4dcd7;margin:3px 0 0}
+.case-alert{font-size:13px;color:#ffd6a8!important;border:1px solid #a37736;border-radius:8px;padding:8px 11px}
+@media(max-width:800px){.case-action-buttons{margin-top:15px}.case-action-buttons button{flex:1;min-width:160px}}

@@ -1,51 +1,43 @@
-# LVPT SMS Bridge — Android diagnostic, v0.4.0
+# LVPT SMS Test v0.5 — Owner-only staging sync pilot
 
-**Purpose:** Private prototype on the owner's Android phone. Keep the existing messaging app and number. This app requires user-granted SMS permission and explicit selection of business contacts. It does not upload SMS or send any messages.
+**Build branch:** `feature/lvpt-sms-bridge-prototype`. Never merge to production by accident.
 
-## New in v0.4
+This app does **not** replace Google Messages, cannot read Google Messages RCS, and does not send SMS. It can read Android-stored standard SMS with permission, group several approved numbers under one person, browse messages, export locally and **optionally** synchronize authorized SMS into a separate encrypted staging backend.
 
-- **+ Add monitored contact:** Up to 10 people in the prototype. Each person occupies one slot regardless of their number of approved phone numbers.
-- **+ Number:** Associate up to 10 US phone numbers with one person. For example, add both Mark's old and new numbers to a single Mark record.
-- **Select:** One chosen person is the target for historical browsing and file export.
-- **Monitor:** New incoming and outgoing standard SMS from *all* explicitly added people are counted on the phone.
-- **Browse all saved SMS history:** Read the selected person's historical SMS from all of that person's numbers, 20 messages per page.
-- **Export selected contact's SMS to JSON:** After explicit confirmation, Android's document picker lets the owner write the full SMS history to a local file. This is **plain JSON (not password protected)**. Dates, sender/receiver direction, matched number, Android SMS row ID, and complete message text are included. The program reads message text only after confirming a match to an approved phone number. It processes the full available history without requiring hundreds of page clicks.
+## What changed from v0.4
 
-## Installation and test
+- Optional **Enable staging auto-sync** section, disabled until the owner explicitly enters a staging HTTPS endpoint and an authentication token and checks the authorization box.
+- Credentials are encrypted with AndroidKeyStore and never compiled into the APK.
+- The app sends a maximum of 50 approved SMS at a time with HTTPS and acknowledgments, tracking a cursor so it can resume/retry after network failures.
+- Scheduled jobs run best-effort; outgoing SMS is typically detected by a scheduled scan, not necessarily instantly.
+- **Sync now** provides a manual trigger and reports safe progress or status messages.
+- **Disable staging sync** erases saved server credentials locally. It does not delete messages already staged on the server.
+- Adds the Android INTERNET permission solely for the explicitly enabled staging synchronization.
 
-1. Download the `lvpt-sms-bridge-debug-apk` artifact from the successful branch-specific GitHub Actions workflow. Debug signing is not stable between independent builds, so **uninstall older LVPT SMS Test versions before installing**.
-2. Give SMS reading permission when Android requests it. We do not become the default SMS app.
-3. Enter a person's name and one number; tap **+ Add monitored contact**. Use **+ Number** on that person's row to add their previous/secondary numbers. Repeat for additional people only when authorized.
-4. Tap **Start monitoring** to count future standard SMS across the allowlist.
-5. Select Mark and tap **Browse** to confirm old messages from both numbers can be displayed.
-6. Tap **Export selected contact's SMS to JSON**. Read and accept the plaintext privacy warning. Save the file in a private device folder.
-7. The app displays a local message count when export finishes; do not share the full message file or its contents casually.
+## Owner test steps
 
-## Privacy and security
+1. Keep Google Messages as the default SMS app. Uninstall previous LVPT SMS Test debug APKs before installing a new build: CI debug signing changes on every run. Uninstall does not delete Android's existing messages, but app-private contact settings are lost and must be re-added.
+2. Add one or more approved contacts with **+ Add monitored contact**. Use **+ Number** for additional known numbers for the same person.
+3. Grant SMS permission. Tap **Start monitoring**. Browsing and local JSON export still work without any staging connection.
+4. Wait until the **separate** Supabase staging project, staging server variables, allowlist and Vercel protection bypass (if required) are configured.
+5. Enter the HTTPS `*.vercel.app` preview host, the unique staging sync token (not its SHA256), and any optional Vercel preview bypass token.
+6. Check the opt-in authorization box and tap **Enable staging auto-sync**. This authorizes an initial historical backfill of all available standard SMS for **every** approved contact, not just the currently selected person, followed by scheduled incremental synchronization.
+7. Tap **Sync approved SMS now** to observe progress. Uploads are batched and can take repeated scheduled runs. Incoming/outgoing counts on the monitoring screen are a separate diagnostic and do not equal staged message totals.
+8. Once staging is configured, open the SMS Intelligence Review page on the preview deployment to view authenticated, redacted findings. This does **not** post accounting changes or tasks to live records.
+9. Use **Disable staging sync** to stop network transmission and clear the locally stored credentials. Use **Stop monitoring** to stop both monitoring and staging sync.
 
-- Nothing is automatically uploaded to the LVPT Event Command Center, GitHub, Sheets, or any backend.
-- The app has no INTERNET permission and never sends SMS.
-- App-specific contact settings are stored locally with app backup disabled.
-- Files created through Android's document picker are **not encrypted**; anyone obtaining them can read them. If saved into a cloud-synced folder, the cloud provider might automatically upload them.
-- Only people and aliases the phone owner explicitly authorizes are monitored. Other conversations' message *bodies* are not accessed by the history viewer/exporter.
-- Removing a person stops matching their numbers, but does not delete the original messages from the default messaging app or any exported JSON files.
-- RCS, MMS, WhatsApp, group-message extraction, contact sync, and deleted messages are **not** included.
-- This is a diagnostic build, not production-grade permission/security handling or a public Play Store app.
+## Current limitations
 
-## Product/tier design — not activated
+- Android operating system power and permission restrictions can delay or prevent background capture. No claim of 100% real-time delivery.
+- RCS, MMS, WhatsApp and erased messages are not supported.
+- The phone filters contacts locally before reading message bodies, and the staging server additionally enforces its own allowlisted numbers.
+- The backend stores encrypted SMS using AES-256-GCM. Plaintext is transported over TLS and is temporarily visible to the server during encryption; this is **not** end-to-end encryption.
+- Vercel staging uses separate service credentials; the phone receives only a restricted user-entered sync token, not a database key.
+- Local JSON exports remain **unencrypted** and should be stored securely. Saving a file into a cloud folder may cause that provider to sync it.
+- Debug APKs are not ready for public app-store distribution. Production design must address Play's restricted SMS permissions, verified user entitlements/tiers, multiple accounts/tenants, rate limits, account recovery, audits, key rotation, deleted-message handling, and consent.
 
-The prototype caps the local screen at 10 monitored **people**, each with multiple known phone aliases. In a subscription product, server-verified entitlements must enforce both maximum people and usage quotas. Suggested starting tiers to price-test: Starter 2 people, Team 5, Business 10. **These numbers are hypothetical product packaging, not actual subscriptions.** Account/entitlement controls, team login, billing, secure synchronization, customer data retention, and consent auditing still need to be built.
+## Hosting and cost
 
-**Cost model:** Reading SMS on-device has no per-message SMS-gateway charge. Actual operating cost in a hosted product comes from encrypted storage, cloud bandwidth, security/authentication, and especially AI analysis tokens. Limit AI processing by messages/tokens per month instead of assuming that the number of contacts predicts cost. Track per-account import volume and AI usage before publishing subscription prices.
+Prototype Android SMS reading has no per-message gateway fee. Server requests and storage can have hosting costs; no AI API is used in the sync and deterministic-review pipeline. Proposed 2/5/10-account tiers are only a design concept and are not currently enforced by the server.
 
-## Next product milestones
-
-1. Validate the v0.4 history/export totals against the Android phone.
-2. Add secure customer accounts and a protected staging import (plaintext JSON only with deliberate upload and transport security).
-3. Add review/approval for derived event tasks, expenses, payments, and client follow-ups. Text mentions are *not* evidence of settled payment.
-4. Investigate official, permitted RCS integrations separately; the Android SMS provider is not a complete RCS access method.
-5. Before customer distribution, obtain signing keys, Play Store policy review (SMS permissions are restricted), privacy/legal review, retention/data deletion mechanisms, and third-party participant consent requirements.
-
-## References
-- https://developer.android.com/reference/android/provider/Telephony.Sms
-- https://developer.android.com/reference/android/app/job/JobScheduler
+**Do not upload plaintext test archives, credentials, or personal conversations into public GitHub branches or build artifacts.**

@@ -154,12 +154,21 @@
     if(!brief.coverage.payouts)gaps.push('Event Payouts');
     if(brief.coverage.gmailConnected<brief.coverage.gmailTotal)
       gaps.push('Gmail '+brief.coverage.gmailConnected+'/'+brief.coverage.gmailTotal);
-    status.textContent=brief.reviewCount+' items for owner review · '+
-      brief.monitorCount+' monitoring · '+(gaps.length ?
+    const isPaused=item=>{
+      const record=actionDecisions.get(item.id);
+      return actionQueueEngine.decisionApplies(item,record) &&
+        (record.decision==='hold'||record.decision==='dismissed');
+    };
+    const activeItems=brief.items.filter(item=>item.group==='review'&&!isPaused(item));
+    const backgroundItems=brief.items.filter(item=>item.group!=='review'||isPaused(item));
+    const pausedCount=brief.items.filter(isPaused).length;
+    status.textContent=activeItems.length+' items for owner review · '+
+      backgroundItems.length+' monitoring/held ('+pausedCount+' held or dismissed) · '+
+      (gaps.length ?
         'Limited source coverage: '+gaps.join(', ')+'. No missing-source conclusions.' :
         'Sources connected (Gmail is bounded metadata only).')+
       ' No changes sent or saved.';
-    const visible=brief.items.filter(item=>item.group==='review'||showActionMonitoring);
+    const visible=showActionMonitoring?activeItems.concat(backgroundItems):activeItems;
     if(!visible.length)
       holder.append(makeText('p','hint',
         'No review candidates in the connected sources under these rules. Other email, bank and CRM work may still exist.'));
@@ -167,7 +176,8 @@
       const card=makeText('article','action-queue-card','');
       const head=makeText('div','action-queue-head','');
       head.append(makeText('span','action-queue-kind',
-        item.group==='monitor'?'Monitor':item.type==='gmail'?'Correspondence':
+        isPaused(item)?'Held / dismissed':item.group==='monitor'?'Monitor':
+          item.type==='gmail'?'Correspondence':
           item.type==='payment'?'Payment verification':'Payout verification'));
       head.append(makeText('span','secondary',item.eventName));
       card.append(head);
@@ -214,10 +224,10 @@
       card.append(open);
       holder.append(card);
     });
-    toggle.hidden=brief.monitorCount===0;
+    toggle.hidden=backgroundItems.length===0;
     toggle.textContent=showActionMonitoring ?
-      'Hide '+brief.monitorCount+' monitoring item(s)' :
-      'Show '+brief.monitorCount+' monitoring item(s)';
+      'Hide '+backgroundItems.length+' monitoring/held item(s)' :
+      'Show '+backgroundItems.length+' monitoring/held item(s)';
   }
 
   function renderGmailEvidence() {

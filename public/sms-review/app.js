@@ -2,6 +2,7 @@
   'use strict';
   const engine = window.LVPTSMSReview;
   const caseEngine = window.LVPTSMSCases;
+  const reconciliation = window.LVPTSMSReconciliation;
   const $ = id => document.getElementById(id);
   let raw = null;
   let report = null;
@@ -11,6 +12,11 @@
   let caseBundles = [];
   let caseDecisions = Object.create(null);
   let activeCaseKey = '';
+  let connectedRecords = [];
+  let recordsAvailable = false;
+  let sessionToken = '';
+  let sessionBypass = '';
+  let savedSourceCounts = Object.create(null);
   const STATUS = ['Unreviewed', 'Needs verification', 'Approved for export', 'Dismissed'];
   const CATEGORY = ['All categories', 'Finance', 'Follow-up', 'Lead / sales', 'Event operations', 'Business context'];
   const dateFmt = value => new Date(value).toLocaleString('en-US', { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
@@ -28,6 +34,7 @@
     $('results').hidden = !report;
     $('exportDecisions').disabled = !report;
     $('exportCaseDecisions').disabled = !report;
+    $('saveCaseDecisions').disabled = !report || report.source !== 'staging' || !sessionToken;
     if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
@@ -70,7 +77,7 @@
     const search = $('caseSearch').value.trim().toLowerCase();
     const eventFilter = $('caseEventFilter').value;
     const statusFilter = $('caseStatusFilter').value;
-    const reviewed = Object.values(caseDecisions).filter(v => v.status && v.status !== 'Unreviewed').length;
+    const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
     $('caseExplain').textContent = all.length + ' event/issue review bundles from ' +
       (report?.findings.length || 0) + ' business SMS candidates. ' +
       reviewed + ' bundles reviewed. Grouping is heuristic; no payments or event records have been verified.';
@@ -102,6 +109,19 @@
         'Client name mentioned in a message; event year and official record are not confirmed.' :
         'No unique client/event identifier. These messages may concern different events.'));
       box.append(makeText('p','case-recommendation','Suggested next check: '+bundle.suggestedCheck));
+      if (recordsAvailable) {
+        const result = reconciliation.checkCase(bundle, connectedRecords);
+        const reconciliationLine = makeText('div','reconciliation-detail','');
+        reconciliationLine.append(
+          makeText('strong','',result.label),
+          makeText('p','',result.detail)
+        );
+        box.append(reconciliationLine);
+      }
+      if (savedSourceCounts[bundle.key]!==undefined && savedSourceCounts[bundle.key]!==bundle.count) {
+        box.append(makeText('p','case-alert','New or changed SMS source count since last saved review ('+
+          savedSourceCounts[bundle.key]+' → '+bundle.count+'). Recheck the case.'));
+      }
       const samples = makeText('div','case-samples','');
       bundle.sample.forEach(f => {
         const sample = makeText('div','case-sample','');
@@ -209,6 +229,97 @@
     });
     $('more').hidden = items.length <= visibleLimit;
   }
+  async function getProtected(path, token, bypass, opts={}) {
+    const headers={'x-lvpt-sms-sync-token':token, ...(opts.body ? {'content-type':'application/json'} : {})};
+    if (bypass) headers['x-vercel-protection-bypass']=bypass;
+    const response=await fetch(path,{
+      method:opts.body?'POST':'GET',
+      headers,
+      ...(opts.body?{body:JSON.stringify(opts.body)}:{}),
+      cache:'no-store',
+      credentials:'same-origin'
+    });
+    const payload=await response.json().catch(()=>({ok:false}));
+    if(!response.ok || !payload.ok) {
+      const reason=payload.reason || 'request_failed';
+      throw new Error(reason+' (HTTP '+response.status+')');
+    }
+    return payload;
+  }
+
+  async function loadReferenceData() {
+    if (!sessionToken) return;
+    $('reconciliationStatus').textContent='Checking current Command Center event and payment records (read-only)…';
+    try {
+      const data=await getProtected('/api/sms/staging/reconcile',sessionToken,sessionBypass);
+      if (!Array.isArray(data.events)) throw new Error('Invalid reconciliation response');
+      connectedRecords=data.events;
+      recordsAvailable=true;
+      $('reconciliationStatus').textContent=
+        'Read-only Command Center comparison connected: '+data.recordCount+
+        ' event records. Financial and task data remain unchanged.';
+    }catch(error) {
+      connectedRecords=[];
+      recordsAvailable=false;
+      const reason=error instanceof Error ? error.message : 'unknown error';
+      $('reconciliationStatus').textContent=
+        reason.includes('command_center_source_unconfigured') ?
+          'Command Center read-only sync is not configured for this preview. SMS grouping still works, but payment and task cross-checks are unavailable.' :
+          'Command Center comparison unavailable ('+reason+'). No financial conclusions will be inferred.';
+    }
+    renderCaseBundles();
+  }
+  async function loadSavedDecisions() {
+    if (!sessionToken) return;
+    try {
+      const data=await getProtected('/api/sms/staging/decisions',sessionToken,sessionBypass);
+      caseDecisions=Object.create(null);
+      savedSourceCounts=Object.create(null);
+      for (const d of data.decisions || []) {
+        if (!d || typeof d.key!=='string') continue;
+        caseDecisions[d.key]={status:d.status,note:d.note};
+        savedSourceCounts[d.key]=d.sourceCount;
+      }
+      renderCaseBundles();
+      return (data.decisions || []).length;
+    }catch {
+      setStatus('SMS loaded; saved case decisions could not be retrieved. Do not re-review previously completed cases until this is resolved.',true);
+      return null;
+    }
+  }
+  async function saveDecisions() {
+    if(!report || report.source!=='staging' || !sessionToken) {
+      setStatus('Load the authenticated staging inbox before saving decisions.',true);
+      return;
+    }
+    const toSave=caseBundles.filter(b=>caseDecisions[b.key]?.status &&
+      caseDecisions[b.key].status!=='Unreviewed').map(b=>({
+        key:b.key,status:caseDecisions[b.key].status,
+        note:String(caseDecisions[b.key].note || '').slice(0,500),
+        sourceCount:b.count
+      }));
+    if(!toSave.length) {
+      setStatus('Mark at least one review bundle as Needs verification, Investigating, Reviewed — no action or Candidate for reconciliation.',true);
+      return;
+    }
+    const btn=$('saveCaseDecisions');
+    btn.disabled=true;
+    try {
+      let saved=0;
+      for(let i=0;i<toSave.length;i+=40) {
+        const data=await getProtected('/api/sms/staging/decisions',sessionToken,sessionBypass,{
+          body:{decisions:toSave.slice(i,i+40)}
+        });
+        saved+=data.saved;
+      }
+      for(const item of toSave) savedSourceCounts[item.key]=item.sourceCount;
+      renderCaseBundles();
+      setStatus('Saved '+saved+' encrypted case review decisions to staging. Nothing in live Google Sheets, Gmail or accounting was changed.');
+    }catch(error){
+      setStatus('Unable to save review decisions: '+(error instanceof Error?error.message:'unknown error'),true);
+    }finally{btn.disabled=false;}
+  }
+
   async function loadStaging() {
     const token = $('stagingToken').value.trim();
     const bypass = $('stagingBypass').value.trim();
@@ -245,6 +356,11 @@
         offset = payload.nextOffset;
       }
       raw = null;
+      sessionToken=token;
+      sessionBypass=bypass;
+      recordsAvailable=false;
+      connectedRecords=[];
+      savedSourceCounts=Object.create(null);
       decisions = Object.create(null);
       caseDecisions = Object.create(null);
       activeCaseKey = '';
@@ -262,11 +378,15 @@
       };
       summary(); render();
       setStatus('Staging inbox loaded: '+scanned+' SMS screened; '+
-        findings.length+' findings available for review. No accounting records changed.');
+        findings.length+' findings available for review. Checking saved decisions and current Command Center…');
+      const [decisionResult] = await Promise.all([loadSavedDecisions(), loadReferenceData()]);
+      if (decisionResult !== null)
+        setStatus('Staging ready: '+findings.length+' SMS findings, '+caseBundles.length+
+          ' event/issue bundles; '+decisionResult+' saved reviews restored. No live records changed.');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Staging fetch failed.', true);
     } finally {
-      // The browser never retains or persists the staging token.
+      // Input fields cleared; the protected token remains only in this tab's memory for saving decisions.
       $('stagingToken').value = '';
       $('stagingBypass').value = '';
       btn.disabled = false;
@@ -280,6 +400,10 @@
       setStatus('Reading SMS history locally. Nothing is sent to a server.');
       const content = await file.text();
       raw = engine.asRecord(content);
+      sessionToken=''; sessionBypass='';
+      recordsAvailable=false; connectedRecords=[];
+      savedSourceCounts=Object.create(null);
+      $('reconciliationStatus').textContent='Local file review: live Command Center comparison not connected.';
       decisions = Object.create(null);
       caseDecisions = Object.create(null);
       activeCaseKey = '';
@@ -288,7 +412,10 @@
       scan();
       setStatus('Loaded ' + report.count.toLocaleString() + ' SMS records. This session stays in memory; nothing was uploaded.');
     } catch (error) {
-      raw = null; report = null; decisions = Object.create(null);
+      sessionToken=''; sessionBypass=''; connectedRecords=[]; recordsAvailable=false;
+    savedSourceCounts=Object.create(null);
+    $('reconciliationStatus').textContent='Command Center comparison not loaded.';
+    raw = null; report = null; decisions = Object.create(null);
       summary(); render();
       setStatus(error instanceof Error ? error.message : 'Could not open this export.',true);
     } finally { $('smsFile').value = ''; }
@@ -323,6 +450,7 @@
     summary(); render();
     setStatus('Session cleared. The raw SMS archive was not saved in the browser or sent to a server.');
   }
+  $('saveCaseDecisions').addEventListener('click',saveDecisions);
   $('caseSearch').addEventListener('input',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseEventFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseStatusFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});

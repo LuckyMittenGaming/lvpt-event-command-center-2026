@@ -30,6 +30,25 @@
     return typeof value==='number' && Number.isFinite(value) && value>=0 ?
       value.toLocaleString('en-US',{style:'currency',currency:'USD'}) : 'amount not recorded';
   }
+  // Lightweight source-revision marker for stale-approval invalidation.
+  // This is NOT used for authentication; the server separately authorizes
+  // requests. No email bodies or payment details are stored in the audit table.
+  function sourceFingerprint(item) {
+    const payload=JSON.stringify([
+      item?.id||'',item?.type||'',item?.eventId||'',item?.title||'',
+      item?.source||'',item?.evidence||'',item?.action||''
+    ]);
+    let a=2166136261,b=2779096485;
+    for(let i=0;i<payload.length;i++){
+      const code=payload.charCodeAt(i);
+      a=Math.imul(a^code,16777619)>>>0;
+      b=Math.imul(b^code,2246822519)>>>0;
+    }
+    return a.toString(16).padStart(8,'0')+b.toString(16).padStart(8,'0');
+  }
+  function decisionApplies(item,record) {
+    return Boolean(item&&record&&record.sourceFingerprint===sourceFingerprint(item));
+  }
   function eventMap(events) {
     return new Map((Array.isArray(events)?events:[])
       .filter(e=>e && typeof e.id==='string' && e.id)
@@ -171,5 +190,5 @@
       }
     };
   }
-  return {CLIENT_EVENT_IDS,buildQueue};
+  return {CLIENT_EVENT_IDS,buildQueue,sourceFingerprint,decisionApplies};
 });

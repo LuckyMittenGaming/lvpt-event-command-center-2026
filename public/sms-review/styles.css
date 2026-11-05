@@ -34,3 +34,7 @@
 @media(max-width:800px){.session-controls{grid-template-columns:1fr}.session-controls button{width:100%}}
 
 .attention-label{font-size:12px;font-weight:700;color:#d6e6ff;border:1px solid #3a5276;background:#213853;padding:3px 9px;border-radius:8px}
+
+.evidence-detail{border:1px solid #37526a;background:#14283d;border-radius:9px;padding:11px 14px;margin:10px 0;color:#d9e8f7}
+.evidence-detail strong{font-size:13px}
+.evidence-detail p{font-size:13px;margin:5px 0 0;color:#d0e0f2}

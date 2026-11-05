@@ -19,6 +19,11 @@ type PayoutRecord = {
   payoutId?:string; eventId?:string; payee?:string; payoutType?:string;
   amount?:number|null; status?:string; paidDate?:string;
 };
+type PaymentRecord = {
+  paymentId?:string; eventId?:string; invoiceNumber?:string;
+  invoiceTotal?:number|null; amountPaid?:number|null; balanceDue?:number|null;
+  paymentStatus?:string; dueDate?:string; paymentDate?:string;
+};
 
 function safeText(input:unknown, maxLength=160):string {
   return String(input ?? '')
@@ -85,6 +90,25 @@ function sanitizePayout(raw:PayoutRecord) {
   };
 }
 
+function sanitizePayment(record:PaymentRecord) {
+  const amount=(value:unknown):number|null => {
+    if(value===null || value===undefined || value==='') return null;
+    const n=Number(value);
+    return Number.isFinite(n) && n>=0 && n<1e9 ? n : null;
+  };
+  return {
+    paymentId:safeText(record.paymentId,120),
+    eventId:safeText(record.eventId,120),
+    invoiceNumber:safeText(record.invoiceNumber,100),
+    invoiceTotal:amount(record.invoiceTotal),
+    amountPaid:amount(record.amountPaid),
+    balanceDue:amount(record.balanceDue),
+    paymentStatus:safeText(record.paymentStatus||'Unknown',80),
+    dueDate:safeText(record.dueDate,25),
+    paymentDate:safeText(record.paymentDate,25)
+  };
+}
+
 /** Read-only comparison. Payouts are optional until the Apps Script backend is redeployed. */
 export async function GET(request:Request) {
   if(!ready()) return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);
@@ -94,7 +118,7 @@ export async function GET(request:Request) {
   try {
     const [eventResult,payoutResult]=await Promise.allSettled([
       appsScriptRequest<{events?:EventRecord[];serverTime?:string}>('listEvents'),
-      appsScriptRequest<{payouts?:PayoutRecord[];payoutCount?:number;source?:string}>('listReconciliationEvidence')
+      appsScriptRequest<{payouts?:PayoutRecord[];paymentRecords?:PaymentRecord[];payoutCount?:number;source?:string}>('listReconciliationEvidence')
     ]);
     if(eventResult.status!=='fulfilled'||!Array.isArray(eventResult.value.events))
       return jsonNoStore({ok:false,reason:'command_center_read_failed'},502);
@@ -108,9 +132,18 @@ export async function GET(request:Request) {
       payouts=payoutResult.value.payouts.slice(0,500)
         .map(sanitizePayout).filter(p=>p.payoutId && eventIds.has(p.eventId));
     }
+    let paymentSourceStatus='not_connected';
+    let paymentRecords:ReturnType<typeof sanitizePayment>[]=[];
+    if(payoutResult.status==='fulfilled' && Array.isArray(payoutResult.value.paymentRecords)) {
+      paymentSourceStatus='command_center_all_payments';
+      const eventIds=new Set(events.map(e=>e.id));
+      paymentRecords=payoutResult.value.paymentRecords.slice(0,500)
+        .map(sanitizePayment).filter(p=>p.paymentId && eventIds.has(p.eventId));
+    }
     return jsonNoStore({
       ok:true,source:'official_google_sheets_read_only',recordCount:events.length,
       fetchedAt:new Date().toISOString(),events,payoutSourceStatus,payouts,
+      paymentSourceStatus,paymentRecords,
       gmailEvidenceScope:'command_center_logged_activity_only',
       fullGmailMailboxChecked:false
     },200);

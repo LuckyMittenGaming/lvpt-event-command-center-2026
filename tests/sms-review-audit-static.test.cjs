@@ -27,4 +27,16 @@ assert.match(migration,/insert into public\.lvpt_sms_case_decisions/i);
 assert.match(migration,/insert into public\.lvpt_sms_review_audit/i);
 assert(!/body_ciphertext|sms_plaintext|message_body/i.test(migration),
   'Review audit schema must not contain SMS payload fields');
+const page=fs.readFileSync('public/sms-review/index.html','utf8');
+assert.match(page,/id="caseSaveFeedback"[^>]+role="status"/,
+  'Reviewer save confirmation must appear beside its control');
+assert.match(browser,/function unsavedCaseBundles\(\)/,
+  'Reviewer UI must detect only changed reviews before writing');
+assert.match(browser,/if\(!toSave\.length\)/,
+  'Unchanged saved reviews must not create more audit entries');
+assert.match(browser,/savedDecisionSignatures\[d\.key\]=decisionSignature\(/,
+  'Restored decisions must be recorded as already saved');
+assert.match(browser,/showSaveFeedback\(message,'success'\)/,
+  'Successful review writes must give inline feedback');
+
 console.log('SMS review audit security regression checks passed.');

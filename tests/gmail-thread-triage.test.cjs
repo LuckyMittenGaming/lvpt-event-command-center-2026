@@ -36,4 +36,11 @@ test([
  msg('2026-10-02T00:00:00Z','book@example.test',quoted)
 ],'answered_or_awaiting');
 assert.equal(summarizeThread({messages:[msg('2026-10-01T00:00:00Z','client@test.test','We are not moving forward')],total_messages:1},BUSINESS).state,'declined');
+// Real connected Gmail serializes the sender header as from_, not from.
+assert.equal(summarizeThread({messages:[
+ {email_ts:'2026-10-01T12:00:00Z',from_:'Client <client@test.test>',body:'Please quote the event.'},
+ {email_ts:'2026-10-02T12:00:00Z',from_:'LVPT <book@example.test>',body:'Here is your proposal.'}
+],total_messages:2},BUSINESS).state,'proposal_sent_awaiting',
+  'Gmail provider from_ metadata must distinguish outgoing replies');
+
 console.log('Full-thread Gmail triage tests passed.');

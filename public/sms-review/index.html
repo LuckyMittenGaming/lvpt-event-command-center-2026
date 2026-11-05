@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'">
   <title>SMS Intelligence Review | LVPT Command Center</title>
-  <meta name="description" content="Private, browser-only SMS business intelligence review pilot for Las Vegas Poker Training.">
+  <meta name="description" content="Private, authenticated SMS staging and event-review pilot for Las Vegas Poker Training.">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -31,7 +31,7 @@
         <input id="stagingBypass" type="password" autocomplete="off" placeholder="Optional Vercel preview bypass token" aria-label="Vercel preview bypass token">
         <button class="primary" type="button" id="connectStaging">Load staging inbox</button>
       </div>
-      <p class="hint">Staging stays unavailable until a separate protected database and server credentials have been configured. No messages are sent by this page.</p>
+      <p class="hint">Only authorized staff with the staging token can view redacted findings. This page does not upload SMS or modify live records.</p>
     </section>
     <section class="panel intro" aria-labelledby="importTitle">
       <div>
@@ -75,7 +75,7 @@
         <button id="showMoreCases" class="neutral" hidden type="button">Show more review bundles</button>
       </section>
       <section class="panel">
-        <p class="eyebrow">Step 2 · Validate and approve</p>
+        <p class="eyebrow">Step 3 · Individual SMS evidence</p>
         <div class="section-heading"><div><h2>Potential business findings</h2><p id="explainResults"></p></div>
           <button id="exportDecisions" class="primary" type="button">Export review decisions</button></div>
         <p class="hint">Choose <strong>Needs verification</strong> for amounts or payment claims until reconciled with invoices and bank records. <strong>Approved for export</strong> means approved for further review/import—not confirmation that an invoice was paid.</p>
@@ -89,7 +89,7 @@
         <button id="more" type="button" class="neutral" hidden>Show 25 more findings</button>
       </section>
     </section>
-    <footer>LVPT SMS Intelligence · Pilot v0.1 · Standard SMS only (RCS, MMS and WhatsApp excluded). No server synchronization.</footer>
+    <footer>LVPT SMS Intelligence · Staging Pilot v0.2 · Android synchronizes standard SMS only (RCS, MMS and WhatsApp excluded). No live accounting synchronization.</footer>
   </main>
   <script src="./review-engine.js" defer></script>
   <script src="./case-engine.js" defer></script>

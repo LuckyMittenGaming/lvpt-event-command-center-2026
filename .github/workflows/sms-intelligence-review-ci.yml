@@ -9,6 +9,8 @@ on:
       - 'tests/sms-review.test.js'
       - 'tests/sms-intelligence.test.mjs'
       - 'tests/sms-reconciliation.test.cjs'
+      - 'tests/sms-evidence.test.cjs'
+      - 'apps-script/Code.gs'
       - 'tests/sms-review-session.test.mjs'
       - 'lib/sms-review-session.mjs'
       - 'app/api/sms/staging/_review-auth.ts'
@@ -35,11 +37,13 @@ jobs:
       - run: node --check public/sms-review/app.js
       - run: node --check public/sms-review/case-engine.js
       - run: node --check public/sms-review/reconciliation.js
+      - run: node --check public/sms-review/evidence-overlap.js
       - run: node --check lib/sms-intelligence.mjs
       - run: node --check lib/sms-review-session.mjs
       - run: node tests/sms-review.test.js
       - run: node tests/sms-intelligence.test.mjs
       - run: node tests/sms-reconciliation.test.cjs
+      - run: node tests/sms-evidence.test.cjs
       - run: node tests/sms-review-session.test.mjs
       - run: npm ci
       - run: npx tsc --noEmit

@@ -1,7 +1,8 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import {
-  authorized, jsonNoStore, ready, supabaseEndpoint, supabaseHeaders
+  jsonNoStore, ready, supabaseEndpoint, supabaseHeaders
 } from '../_lib';
+import { allowedReviewMutation, authorizedReviewer } from '../_review-auth';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -64,7 +65,7 @@ function decrypt(row:DecisionRow):string {
 
 export async function GET(request:Request) {
   if(!ready()) return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);
-  if(!authorized(request)) return jsonNoStore({ok:false,reason:'unauthorized'},401);
+  if(!authorizedReviewer(request)) return jsonNoStore({ok:false,reason:'unauthorized'},401);
   try {
     const params=new URLSearchParams({
       select:'case_key,case_status,source_count,note_nonce,note_ciphertext,updated_at',
@@ -89,8 +90,9 @@ export async function GET(request:Request) {
 }
 
 export async function POST(request:Request) {
+  if(!allowedReviewMutation(request)) return jsonNoStore({ok:false,reason:'same_origin_required'},403);
   if(!ready()) return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);
-  if(!authorized(request)) return jsonNoStore({ok:false,reason:'unauthorized'},401);
+  if(!authorizedReviewer(request)) return jsonNoStore({ok:false,reason:'unauthorized'},401);
   const length=Number(request.headers.get('content-length')||'0');
   if(length>50000) return jsonNoStore({ok:false,reason:'payload_too_large'},413);
   if(!/^application\/json(?:;|$)/i.test(request.headers.get('content-type')||''))

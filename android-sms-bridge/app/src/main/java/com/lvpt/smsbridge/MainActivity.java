@@ -2,6 +2,7 @@ package com.lvpt.smsbridge;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
@@ -16,6 +17,7 @@ import android.widget.TextView;
 public class MainActivity extends Activity {
     private static final int SMS_PERMISSION_REQUEST = 801;
     private ContactsPanel contactsPanel;
+    private LocalExportUi exportUi;
     private TextView status;
     private TextView lastAction;
     private TextView messagePreview;
@@ -44,9 +46,9 @@ public class MainActivity extends Activity {
         box.addView(heading);
 
         TextView explanation = new TextView(this);
-        explanation.setText("\nPrivate, read-only test. Choose ONE business contact. " +
+        explanation.setText("\nPrivate SMS-only test. Add up to ten authorized business contacts. " +
             "New incoming and manually sent SMS messages will be counted when Android exposes " +
-            "them in its SMS database. You can browse older saved SMS. Nothing is forwarded or uploaded.\n" +
+            "them in its SMS database. You can browse old messages and export them locally. Nothing is automatically uploaded.\n" +
             "\nThis does not include Google Messages RCS or WhatsApp.\n");
         explanation.setTextSize(16);
         box.addView(explanation);
@@ -125,6 +127,8 @@ public class MainActivity extends Activity {
             loadHistoryPage(nextHistoryBeforeId, historyPage + 1, previewGeneration);
         });
 
+        exportUi = new LocalExportUi(this, box);
+
         Button stop = button("Stop monitoring (keep contacts)", box);
         stop.setOnClickListener(v -> {
             hidePreview();
@@ -144,6 +148,12 @@ public class MainActivity extends Activity {
 
         setContentView(scroll);
         refresh();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (exportUi != null) exportUi.onResult(requestCode, resultCode, data);
     }
 
     private Button button(String title, LinearLayout parent) {

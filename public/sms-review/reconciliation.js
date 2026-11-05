@@ -45,5 +45,53 @@
     return typeof value==='number' && Number.isFinite(value)?
       value.toLocaleString('en-US',{style:'currency',currency:'USD'}) : 'unavailable';
   }
-  return {checkCase};
+  // Recommended attention order only. These labels never mutate a task, payment
+  // or saved review decision. A paid-in-full client payment says nothing about
+  // a separate vendor invoice or an owner's distribution.
+  function prioritizeCase(bundle, events, decision, sourceConnected) {
+    const reviewedStatus=String(decision && decision.status || 'Unreviewed');
+    const isManuallyClosed=reviewedStatus==='Reviewed — no action';
+    const check=sourceConnected ? checkCase(bundle,events) : null;
+    const hasManualConcern=reviewedStatus==='Needs verification' ||
+      reviewedStatus==='Investigating' ||
+      reviewedStatus==='Candidate for reconciliation';
+    if (isManuallyClosed) return {
+      group:'reviewed',rank:4,label:'Reviewed — no action',
+      explanation:'A human reviewer previously marked this bundle as no action. Recheck if new SMS sources are added.'
+    };
+    if (hasManualConcern) return {
+      group:'review-first',rank:0,label:'Your open review',
+      explanation:'Previously flagged by a reviewer. Keep it visible even when the client invoice is marked paid.'
+    };
+    if (!sourceConnected) return {
+      group:'unverified',rank:2,label:'Comparison unavailable',
+      explanation:'Live Command Center records were not connected. Do not assume payment or task status.'
+    };
+    if (check.state==='ledger-settled') return {
+      group:'likely-resolved',rank:3,label:'Historical payment — likely settled',
+      explanation:'The linked client invoice is marked Paid In Full. Check whether the SMS mentions a separate invoice before closing.'
+    };
+    if (check.state==='verify-payment') return {
+      group:'review-first',rank:0,label:'Payment discrepancy to verify',
+      explanation:'Compare this message with the current invoice and bank evidence; do not assume it is unpaid.'
+    };
+    if (check.state==='verify-finance') return {
+      group:'review-first',rank:0,label:'Financial detail to verify',
+      explanation:'A vendor expense or owner distribution needs its own payout/receipt check, separate from client payment status.'
+    };
+    if (check.state==='check-duplicate') return {
+      group:'review-first',rank:1,label:'Check before contacting',
+      explanation:'Compare current Gmail and task records to avoid duplicating client follow-up.'
+    };
+    if (check.state==='unlinked'||check.state==='unmatched') return {
+      group:'unverified',rank:2,label:'Event identity unverified',
+      explanation:'No confirmed event record is linked. Identify the client before taking action.'
+    };
+    return {
+      group:'unverified',rank:2,label:'Compare with event plan',
+      explanation:'A historical conversation needs review against the current event record.'
+    };
+  }
+
+  return {checkCase, prioritizeCase};
 });

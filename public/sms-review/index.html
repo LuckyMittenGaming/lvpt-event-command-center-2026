@@ -64,6 +64,18 @@
         <p class="hint">Suggestions only. Gmail Activity is an incomplete log, not a full mailbox search. Bank statements and vendor invoices are not connected. No emails are sent, tasks created, or payments changed.</p>
         <div id="attentionBrief" class="attention-brief" aria-live="polite"></div>
       </section>
+      <section class="panel" aria-labelledby="gmailBriefTitle">
+        <p class="eyebrow">Owner brief · Client conversation checks</p>
+        <div class="section-heading">
+          <div>
+            <h2 id="gmailBriefTitle">Verified Gmail correspondence</h2>
+            <p class="hint">Read-only, limited client-domain searches of the LVPT business mailbox. Last-message direction helps avoid duplicate outreach; it does not prove a client needs a reply or that an event is booked.</p>
+          </div>
+          <button type="button" id="refreshGmailEvidence" class="neutral">Refresh Gmail evidence</button>
+        </div>
+        <p id="gmailEvidenceStatus" class="source-status" role="status" aria-live="polite">Direct Gmail metadata source not yet activated. Command Center Gmail Activity is incomplete.</p>
+        <div id="gmailEvidenceItems" class="gmail-evidence-items"></div>
+      </section>
       <section class="panel" aria-labelledby="payoutAuditTitle">
         <p class="eyebrow">Owner brief · Financial exceptions</p>
         <h2 id="payoutAuditTitle">Planned payouts &amp; independent verification</h2>
@@ -121,12 +133,13 @@
         <button id="more" type="button" class="neutral" hidden>Show 25 more findings</button>
       </section>
     </section>
-    <footer>LVPT SMS Intelligence · Staging Pilot v0.6 · Android synchronizes standard SMS only (RCS, MMS and WhatsApp excluded). No live accounting synchronization.</footer>
+    <footer>LVPT SMS Intelligence · Staging Pilot v0.8 · Android synchronizes standard SMS only (RCS, MMS and WhatsApp excluded). No live accounting synchronization.</footer>
   </main>
   <script src="./review-engine.js" defer></script>
   <script src="./case-engine.js" defer></script>
   <script src="./reconciliation.js" defer></script>
   <script src="./evidence-overlap.js" defer></script>
+  <script src="./gmail-intelligence.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

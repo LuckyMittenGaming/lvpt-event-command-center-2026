@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -17,6 +18,9 @@ public class MainActivity extends Activity {
     private EditText number;
     private TextView status;
     private TextView lastAction;
+    private TextView messagePreview;
+    private Button previewToggle;
+    private volatile boolean previewShown = false;
 
     @Override
     public void onCreate(Bundle state) {
@@ -77,8 +81,34 @@ public class MainActivity extends Activity {
             }, "lvpt-manual-check").start();
         });
 
+        previewToggle = button("4. Preview last 5 SMS messages (local only)", box);
+        previewToggle.setOnClickListener(v -> {
+            if (previewShown) {
+                hidePreview();
+                return;
+            }
+            previewShown = true;
+            previewToggle.setText("Hide SMS preview");
+            messagePreview.setVisibility(View.VISIBLE);
+            messagePreview.setText("Loading local SMS preview…");
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            new Thread(() -> {
+                String body = SmsMonitor.previewSelectedSms(getApplicationContext());
+                runOnUiThread(() -> {
+                    if (previewShown && !isFinishing()) messagePreview.setText(body);
+                });
+            }, "lvpt-local-preview").start();
+        });
+
+        messagePreview = new TextView(this);
+        messagePreview.setTextSize(16);
+        messagePreview.setTextIsSelectable(false);
+        messagePreview.setVisibility(View.GONE);
+        box.addView(messagePreview);
+
         Button stop = button("Stop and erase test settings", box);
         stop.setOnClickListener(v -> {
+            hidePreview();
             SmsMonitor.stopAndClear(this);
             number.setText("");
             lastAction.setText("Stopped. Contact selection and counters erased.");
@@ -107,6 +137,12 @@ public class MainActivity extends Activity {
 
     private void refresh() {
         status.setText("\n" + SmsMonitor.status(this));
+    }
+
+    @Override
+    protected void onPause() {
+        hidePreview();
+        super.onPause();
     }
 
     @Override

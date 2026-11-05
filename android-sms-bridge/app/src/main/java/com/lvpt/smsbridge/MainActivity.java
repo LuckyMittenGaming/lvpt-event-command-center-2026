@@ -135,6 +135,17 @@ public class MainActivity extends Activity {
         return result;
     }
 
+    private void hidePreview() {
+        previewShown = false;
+        if (messagePreview != null) {
+            messagePreview.setText("");
+            messagePreview.setVisibility(View.GONE);
+        }
+        if (previewToggle != null)
+            previewToggle.setText("4. Preview last 5 SMS messages (local only)");
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+    }
+
     private void refresh() {
         status.setText("\n" + SmsMonitor.status(this));
     }

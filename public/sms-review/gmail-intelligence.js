@@ -55,15 +55,18 @@
         explanation:'Search coverage is limited and may miss earlier conversations, other email addresses or calls.',
         rank:3,threads:[]};
     const threads=rows.map(t=>({...t,...classifyThread(t,nowMs)}));
-    const urgent=threads.filter(t=>t.kind==='inbox-review').sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
+    // Never elevate an older, potentially resolved inbound thread over a
+    // newer outbound message in another thread for the same customer.
     const mostRecent=threads.slice().sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)))[0];
-    const chosen=urgent[0]||mostRecent;
+    const chosen=mostRecent;
+    const olderInboundThreads=threads.filter(t=>t!==chosen && t.kind==='inbox-review').length;
     return {
       eventKey,clientLabel:CLIENTS[eventKey],status:chosen.kind,rank:chosen.rank,
       label:chosen.label,explanation:chosen.explanation,
       lastMessageAt:chosen.lastMessageAt||null,
       lastDirection:chosen.lastDirection||'unknown',
       threadCount:rows.length,
+      olderInboundThreads,
       partial:Boolean(record.partial),
       threads
     };

@@ -21,6 +21,38 @@
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
 
   let savedSourceCounts = Object.create(null);
+  let savedDecisionSignatures = Object.create(null);
+  let savingInProgress = false;
+  function decisionSignature(status,note,sourceCount) {
+    return JSON.stringify([String(status||'Unreviewed'),String(note||''),sourceCount]);
+  }
+  function unsavedCaseBundles() {
+    return caseBundles.filter(bundle=>{
+      const item=caseDecisions[bundle.key];
+      return item && item.status && item.status!=='Unreviewed' &&
+        savedDecisionSignatures[bundle.key] !==
+          decisionSignature(item.status,item.note,bundle.count);
+    });
+  }
+  function showSaveFeedback(message,type='neutral') {
+    const el=$('caseSaveFeedback');
+    el.textContent=message;
+    el.dataset.state=type;
+  }
+  function updateSaveControls() {
+    const btn=$('saveCaseDecisions');
+    const pending=unsavedCaseBundles().length;
+    const ready=Boolean(report && report.source==='staging' &&
+      sessionToken && auditServiceReady);
+    btn.disabled=!ready || savingInProgress || pending===0;
+    btn.textContent=savingInProgress ? 'Saving reviewed cases…' :
+      pending ? 'Save '+pending+' changed review'+(pending===1?'':'s') :
+      'All reviews saved';
+    if(ready && pending===0 &&
+       $('caseSaveFeedback').dataset.state==='neutral') {
+      showSaveFeedback('All saved reviews are up to date. No new changes to write.');
+    }
+  }
   const STATUS = ['Unreviewed', 'Needs verification', 'Approved for export', 'Dismissed'];
   const CATEGORY = ['All categories', 'Finance', 'Follow-up', 'Lead / sales', 'Event operations', 'Business context'];
   const dateFmt = value => new Date(value).toLocaleString('en-US', { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
@@ -76,7 +108,7 @@
     $('results').hidden = !report;
     $('exportDecisions').disabled = !report;
     $('exportCaseDecisions').disabled = !report;
-    $('saveCaseDecisions').disabled = !report || report.source !== 'staging' || !sessionToken || !auditServiceReady;
+    updateSaveControls();
     if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); renderAttentionBrief(); return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
@@ -196,6 +228,7 @@
       return pa.rank-pb.rank || b.latest.localeCompare(a.latest);
     });
     renderAttentionBrief();
+    updateSaveControls();
     const parent = $('caseList');
     parent.replaceChildren();
     if (!shown.length) parent.append(makeText('p','empty','No review bundles match this filter.'));
@@ -289,6 +322,7 @@
           ...(caseDecisions[bundle.key]||{note:''}),
           status:select.value
         };
+        showSaveFeedback('Review status changed. Save to preserve the update.','pending');
         renderCaseBundles();
       });
       const note = document.createElement('input');
@@ -303,6 +337,8 @@
           ...(caseDecisions[bundle.key]||{status:'Unreviewed'}),
           note:note.value
         };
+        showSaveFeedback('Review note changed. Save to preserve the update.','pending');
+        updateSaveControls();
       });
       controls.append(select,note);
       box.append(controls);
@@ -443,50 +479,74 @@
       const data=await getProtected('/api/sms/staging/decisions');
       caseDecisions=Object.create(null);
       savedSourceCounts=Object.create(null);
+      savedDecisionSignatures=Object.create(null);
       for (const d of data.decisions || []) {
         if (!d || typeof d.key!=='string') continue;
         caseDecisions[d.key]={status:d.status,note:d.note};
         savedSourceCounts[d.key]=d.sourceCount;
+        savedDecisionSignatures[d.key]=decisionSignature(d.status,d.note,d.sourceCount);
       }
       renderCaseBundles();
+      showSaveFeedback('Previous saved reviews restored. Nothing new needs saving.','success');
       return (data.decisions || []).length;
     }catch {
       setStatus('SMS loaded; saved case decisions could not be retrieved. Do not re-review previously completed cases until this is resolved.',true);
+      showSaveFeedback('Could not restore saved reviews. Do not save new decisions until this is resolved.','error');
       return null;
     }
   }
   async function saveDecisions() {
-    if(!report || report.source!=='staging' || !sessionToken) {
-      setStatus('Load the authenticated staging inbox before saving decisions.',true);
+    if(!report || report.source!=='staging' || !sessionToken || !auditServiceReady) {
+      showSaveFeedback('Audited saving is unavailable. Your existing decisions are unchanged.','error');
       return;
     }
-    const toSave=caseBundles.filter(b=>caseDecisions[b.key]?.status &&
-      caseDecisions[b.key].status!=='Unreviewed').map(b=>({
-        key:b.key,status:caseDecisions[b.key].status,
-        note:String(caseDecisions[b.key].note || '').slice(0,500),
-        sourceCount:b.count
-      }));
+    if(savingInProgress) return;
+    const toSave=unsavedCaseBundles().map(b=>({
+      key:b.key,status:caseDecisions[b.key].status,
+      note:String(caseDecisions[b.key].note||'').slice(0,500),
+      sourceCount:b.count
+    }));
     if(!toSave.length) {
-      setStatus('Mark at least one review bundle as Needs verification, Investigating, Reviewed — no action or Candidate for reconciliation.',true);
+      showSaveFeedback('Everything is already saved. No duplicate audit entry was created.','success');
+      updateSaveControls();
       return;
     }
-    const btn=$('saveCaseDecisions');
-    btn.disabled=true;
+    savingInProgress=true;
+    updateSaveControls();
+    showSaveFeedback('Saving '+toSave.length+' changed review'+
+      (toSave.length===1?'':'s')+' with protected audit history…','pending');
     try {
       let saved=0;
       for(let i=0;i<toSave.length;i+=40) {
+        const batch=toSave.slice(i,i+40);
         const data=await getProtected('/api/sms/staging/decisions',{
-          body:{decisions:toSave.slice(i,i+40)}
+          body:{decisions:batch}
         });
-        if(data.audited!==true || !Number.isInteger(data.saved)) throw new Error('Review was not acknowledged by the append-only audit service.');
+        if(data.audited!==true || !Number.isInteger(data.saved) ||
+           data.saved!==batch.length)
+          throw new Error('Review was not acknowledged by the append-only audit service.');
         saved+=data.saved;
+        // Mark only acknowledged batches saved, including partial batch failures.
+        batch.forEach(item=>{
+          savedSourceCounts[item.key]=item.sourceCount;
+          savedDecisionSignatures[item.key]=decisionSignature(
+            item.status,item.note,item.sourceCount);
+        });
       }
-      for(const item of toSave) savedSourceCounts[item.key]=item.sourceCount;
       renderCaseBundles();
-      setStatus('Saved '+saved+' encrypted review decisions with append-only audit history. Nothing in live Google Sheets, Gmail or accounting was changed.');
-    }catch(error){
-      setStatus('Unable to save review decisions: '+(error instanceof Error?error.message:'unknown error'),true);
-    }finally{btn.disabled=false;}
+      const message='Saved '+saved+' changed review'+(saved===1?'':'s')+
+        ' securely with audit history. No live business records changed.';
+      showSaveFeedback(message,'success');
+      setStatus(message);
+    }catch(error) {
+      const message='Save failed: '+(error instanceof Error?error.message:'unknown error')+
+        '. Your previous saved reviews are preserved.';
+      showSaveFeedback(message,'error');
+      setStatus(message,true);
+    }finally {
+      savingInProgress=false;
+      updateSaveControls();
+    }
   }
 
   function showSession(active) {
@@ -579,6 +639,8 @@
       payoutLedgerConnected=false;
       payoutRecords=[];
       savedSourceCounts=Object.create(null);
+      savedDecisionSignatures=Object.create(null);
+      showSaveFeedback('Loading saved reviews…','neutral');
       decisions = Object.create(null);
       caseDecisions = Object.create(null);
       activeCaseKey = '';
@@ -658,6 +720,8 @@
   function clear() {
     $('stagingToken').value = '';
     payoutRecords=[]; payoutLedgerConnected=false; auditServiceReady=false;
+    savedDecisionSignatures=Object.create(null);
+    showSaveFeedback('Results cleared. Saved reviews remain securely stored.','neutral');
     raw = null; report = null; decisions = Object.create(null);
     caseDecisions = Object.create(null); activeCaseKey = ''; bundleLimit = 12;
     visibleLimit = 25;

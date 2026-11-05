@@ -7,6 +7,9 @@ on:
     paths:
       - 'public/sms-review/**'
       - 'tests/sms-review.test.js'
+      - 'tests/sms-intelligence.test.mjs'
+      - 'lib/sms-intelligence.mjs'
+      - 'app/api/sms/staging/review/route.ts'
       - '.github/workflows/sms-intelligence-review-ci.yml'
   pull_request:
     paths:
@@ -23,4 +26,7 @@ jobs:
           node-version: '22'
       - run: node --check public/sms-review/review-engine.js
       - run: node --check public/sms-review/app.js
+      - run: node --check public/sms-review/case-engine.js
+      - run: node --check lib/sms-intelligence.mjs
       - run: node tests/sms-review.test.js
+      - run: node tests/sms-intelligence.test.mjs

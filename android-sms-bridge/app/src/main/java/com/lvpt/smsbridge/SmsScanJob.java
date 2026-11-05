@@ -47,6 +47,10 @@ public class SmsScanJob extends JobService {
         new Thread(() -> {
             try {
                 SmsMonitor.scan(getApplicationContext());
+                if (SyncConfig.enabled(getApplicationContext())) {
+                    StagingSync.Result result = StagingSync.sync(getApplicationContext(), 3);
+                    if (result.hasMore) scheduleSoon(getApplicationContext());
+                }
             } finally {
                 jobFinished(params, false);
             }

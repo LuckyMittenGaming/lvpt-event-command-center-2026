@@ -24,7 +24,7 @@
   });
 
   function text(value,max=160) {
-    return String(value==null?'':value).replace(/\\s+/g,' ').trim().slice(0,max);
+    return String(value==null?'':value).replace(/\s+/g,' ').trim().slice(0,max);
   }
   function money(value) {
     return typeof value==='number' && Number.isFinite(value) && value>=0 ?
@@ -52,9 +52,9 @@
         const eventId=text(p?.eventId,120);
         if(!id || !events.has(eventId))return;
         const status=text(p.paymentStatus||'Unknown',80);
-        const settled=/^paid[\\s-]*in[\\s-]*full$/i.test(status);
-        const initiated=/(?:payment\\s+initiated|processing|in\\s+progress)/i.test(status);
-        const sent=/(?:invoice\\s+sent|awaiting\\s+(?:deposit|payment))/i.test(status);
+        const settled=/^paid[\s-]*in[\s-]*full$/i.test(status);
+        const initiated=/(?:payment\s+initiated|processing|in\s+progress)/i.test(status);
+        const sent=/(?:invoice\s+sent|awaiting\s+(?:deposit|payment))/i.test(status);
         const uninvoiced=/^not invoiced$/i.test(status);
         const positiveBalance=typeof p.balanceDue==='number' && p.balanceDue>0;
         const recordedPaid=typeof p.amountPaid==='number' && p.amountPaid>0;

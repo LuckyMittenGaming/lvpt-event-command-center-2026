@@ -18,6 +18,7 @@ on:
       - 'app/api/sms/staging/_review-auth.ts'
       - 'app/api/sms/staging/session/route.ts'
       - 'app/api/sms/staging/decisions/route.ts'
+      - 'app/api/sms/staging/audit-health/route.ts'
       - 'app/api/sms/staging/reconcile/route.ts'
       - 'lib/sms-intelligence.mjs'
       - 'app/api/sms/staging/review/route.ts'

@@ -1,5 +1,19 @@
 # LVPT SMS Staging — secure owner-only sync pilot (not production)
 
+
+## November 5 v0.7 — actionable owner brief, audit and reconciliation boundaries
+
+- **Top five owner reviews** appear above the full SMS queue and link to supporting messages. Advisory only; never create tasks, contact clients, or alter ledger entries.
+- **Payout exceptions** distinguish the authoritative Command Center's Paid, Planned and Other statuses, calculate exact-cent Planned totals only when every amount is present, and display a count of recorded Paid entries without dates. A Planned distribution is not necessarily currently payable; a Paid ledger status is not independent bank evidence.
+- **False-positive safeguards:** a payout link requires the same unique event ID plus the exact amount, payee surname and payout context in **one** redacted SMS; amounts/names across separate messages cannot combine into a false match. A 2025 Mosaic/NEO reference cannot be linked to the 2026 event payment record. Website valuations and preliminary sales pricing are not treated as client receivables; explicit developer/vendor payments are vendor-cost topics.
+- **Sales priority:** specifically named potential leads and follow-ups are ranked for CRM/Gmail verification even when no authoritative event ID is linked. Do not automatically send follow-ups or infer a live opportunity from historical SMS.
+- **Source coverage:** Command Center Gmail Activity is **not** a full business-mailbox search. Connector-based spot checks found substantially more message threads than the six Gmail Activity rows in the spreadsheet; a missing entry does not establish an unanswered inquiry. Bank records, vendor invoice ledger and RCS/MMS remain unconnected.
+- **Atomic reviewer audit:** on Nov 5 the **isolated staging Supabase** project received an append-only \`lvpt_sms_review_audit\` table and \`lvpt_save_sms_decisions_with_audit\` service-role-only RPC. Future review saves update latest encrypted notes and append a keyed note-fingerprint audit entry **in a single database transaction**. Notes and raw SMS are not recorded in the audit table. No anonymous/authenticated DB read or RPC permissions. The historical NIUM review predates the audit and is preserved but **not falsely backfilled**.
+- **Health gate:** the authenticated dashboard checks the RPC using a zero-record batch, returning 0 without writing any data. **Save reviewed cases stays disabled** when the audit health check is unavailable; each successful save must explicitly acknowledge that auditing occurred. Testing with a synthetic one-record transaction verified both writes, then a rollback verified no test records persisted.
+- **QA:** GitHub Actions runs JavaScript/TypeScript, finance/lead classification, cross-year mapping, payout evidence, cookie, and audit security regression checks. Vercel staging previews build from the feature branch; user login remains an HttpOnly seven-day browser session.
+- **Production:** GitHub draft PR #6 stays unmerged. Only the user-approved read-only payout action was manually deployed to the existing Google Apps Script backend; no automatic email, invoice, task or accounting writes were enabled.
+
+
 ## Evidence matching v0.5 — task, email and payout signals
 
 The staging reviewer now compares candidate SMS bundles with the existing Apps Script `listEvents` output **read-only**. The API supplies bounded, sanitized task titles/statuses and Gmail Activity subjects (not mailbox contents), and the browser identifies **possible** overlaps only when at least two distinctive non-generic words agree. The UI never treats a similar email subject as proof that someone replied or a task as completed.

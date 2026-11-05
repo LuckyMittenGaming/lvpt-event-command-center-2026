@@ -1,5 +1,6 @@
 import { createDecipheriv } from 'node:crypto';
 import { authorized, jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
+import { classifyBusinessSms } from '../../../../../lib/sms-intelligence.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,38 +11,6 @@ type EncryptedRow = {
   body_nonce: string; body_ciphertext: string;
 };
 
-const categories = {
-  Finance: /\b(?:paid|payment|invoice|deposit|balance|owed|owe|expense|receipt|reimburs|refund|draws?|transfer|vendor|profit|cost|pricing|split|payout|fee|ach|venmo|zelle)\b|\$\s?[\d,]+/i,
-  'Follow-up': /\b(?:follow.up|waiting|remind|haven.t heard|no response|tomorrow|please (?:call|send)|still need|check email|asap)\b/i,
-  'Lead / sales': /\b(?:client|lead|inquiry|request|prospect|quote|proposal|rebooking|referral|potential)\b/i,
-  'Event operations': /\b(?:event|tournament|staff|booking|training|pro|dealers?|venue|transportation|tables?|equipment|confirmed|run.of.show)\b/i
-};
-const business = /\b(?:poker|lvpt|nium|mosaic|neo\b|ows|aws|allegiant|certapro|venetian|bellagio|palms|21\s?fun|event|client|customer|invoice|tournament|training|dealer|kenna|madsen|jeff|business|booking|quote|proposal|vendor|transportation|corporate|decks?|cards?|chips?|staffing)\b/i;
-const unrelatedPersonal = /\b(?:wife|girlfriend|dating|stock market|share price|doctor|surgery|my kids?|personal lawsuit)\b/i;
-const events: Array<[string, RegExp]> = [
-  ['NIUM', /\bnium\b/i],
-  ['Mosaic / NEO', /\b(?:mosaic|neo\s?2026|ritz.carlton)\b/i],
-  ['OWS / AWS', /\b(?:ows|allegiant|aws\s?re.invent)\b/i],
-  ['CertaPro', /\bcertapro\b/i],
-  ['Venetian', /\bvenetian\b/i],
-  ['Palms', /\bpalms\b/i]
-];
-
-function redact(source: string): string {
-  return source.replace(/https?:\/\/\S+/ig, '[link]')
-    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/ig, '[email]')
-    .replace(/(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g, '[phone]')
-    .replace(/\b\d{8,17}\b/g, '[number]')
-    .replace(/\s+/g,' ').trim().slice(0,180);
-}
-function classify(text: string): {category:string; eventHint:string; excerpt:string} | null {
-  if (text.length < 10 || !business.test(text)) return null;
-  if (unrelatedPersonal.test(text) && !/\b(?:invoice|poker|client|event|payment|vendor)\b/i.test(text))
-    return null;
-  const category = Object.entries(categories).find(([,pattern]) => pattern.test(text))?.[0] || 'Business context';
-  const eventHint = events.find(([,pattern]) => pattern.test(text))?.[0] || 'Unmatched — verify event';
-  return { category, eventHint, excerpt: redact(text) };
-}
 function decrypt(row: EncryptedRow): string {
   const key = Buffer.from(process.env.LVPT_SMS_STAGING_DATA_KEY_BASE64 || '', 'base64');
   const nonce = Buffer.from(row.body_nonce, 'base64');
@@ -51,7 +20,7 @@ function decrypt(row: EncryptedRow): string {
   const decipher = createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAAD(Buffer.from('lvpt-owner-pilot:' + row.device_id + ':' + row.sms_id, 'utf8'));
   decipher.setAuthTag(combined.subarray(combined.length-16));
-  return Buffer.concat([decipher.update(combined.subarray(0,combined.length-16)),decipher.final()]).toString('utf8');
+  return Buffer.concat([decipher.update(combined.subarray(0, combined.length-16)), decipher.final()]).toString('utf8');
 }
 
 export async function GET(request: Request) {
@@ -80,9 +49,10 @@ export async function GET(request: Request) {
     if (!response.ok) return jsonNoStore({ok:false,reason:'staging_read_failed'},502);
     const rows = await response.json() as EncryptedRow[];
     const findings: Array<Record<string,unknown>> = [];
+    let invalidCipherCount = 0;
     for (const row of rows) {
       try {
-        const match = classify(decrypt(row));
+        const match = classifyBusinessSms(decrypt(row));
         if (!match) continue;
         findings.push({
           id:'sms-'+row.device_id+'-'+row.sms_id,
@@ -90,21 +60,20 @@ export async function GET(request: Request) {
           deviceId:row.device_id,
           date:new Date(row.timestamp_ms).toISOString(),
           direction:row.direction,
-          category:match.category,
-          eventHint:match.eventHint,
-          excerpt:match.excerpt,
-          amounts:[],
-          reviewAction:match.category === 'Finance' ?
-            'Check bank, invoice and vendor records before financial changes.' :
-            'Verify this historical detail against current event records.'
+          ...match,
+          reviewAction: match.category === 'Finance' ?
+            'Compare with bank and invoice evidence; SMS financial claims do not establish settlement.' :
+            'Verify historical statements against current records before any change.'
         });
       } catch {
-        // Malformed cipher must not be returned as plaintext or halt the entire response.
+        // Decryption errors must not disclose ciphertext or plaintext.
+        invalidCipherCount++;
       }
     }
     return jsonNoStore({
       ok:true, staging:true, after, scanned:rows.length, offset,
       nextOffset:rows.length === limit ? offset+limit : null,
+      invalidCipherCount,
       findings
     },200);
   } catch {

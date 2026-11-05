@@ -53,5 +53,7 @@ const ownerDraw=prioritizeCase({...payment,topic:'Owner draws / distributions'},
 assert.equal(ownerDraw.group,'review-first','Paid-in-full client payment does not settle owner draws');
 const manuallyClosed=prioritizeCase(payment,records,{status:'Reviewed — no action'},true);
 assert.equal(manuallyClosed.group,'reviewed','Manual closure preserved');
+const newMessages=prioritizeCase(payment,records,{status:'Reviewed — no action'},true,true);
+assert.equal(newMessages.group,'review-first','New SMS sources must reopen attention without changing saved reviewer decision');
 
 console.log('SMS read-only reconciliation tests passed.');

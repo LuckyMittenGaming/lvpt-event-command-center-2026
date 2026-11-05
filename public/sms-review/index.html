@@ -58,6 +58,14 @@
     </section>
     <section id="results" hidden>
       <div class="metrics" id="summary"></div>
+      <section class="panel" aria-labelledby="actionQueueTitle">
+        <p class="eyebrow">Owner brief · Cross-source next steps</p>
+        <h2 id="actionQueueTitle">Action required — owner review queue</h2>
+        <p class="hint">Read-only, evidence-linked suggestions from the connected Command Center, individual invoices, payouts and bounded Gmail headers. No email is drafted or sent, no payment is marked cleared and no CRM record is changed. Final action requires your review.</p>
+        <p id="actionQueueStatus" class="source-status" role="status" aria-live="polite">Awaiting authenticated source checks…</p>
+        <div id="actionQueueItems" class="action-queue-items" aria-live="polite"></div>
+        <button id="toggleActionMonitoring" class="neutral" type="button" hidden>Show monitoring items</button>
+      </section>
       <section class="panel" aria-labelledby="attentionBriefTitle">
         <p class="eyebrow">Owner brief · What needs your attention</p>
         <h2 id="attentionBriefTitle">Your five highest-priority review items</h2>
@@ -147,6 +155,7 @@
   <script src="./reconciliation.js" defer></script>
   <script src="./evidence-overlap.js" defer></script>
   <script src="./gmail-intelligence.js" defer></script>
+  <script src="./action-queue.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

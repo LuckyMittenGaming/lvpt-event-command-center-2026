@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import {
   jsonNoStore, ready, supabaseEndpoint, supabaseHeaders
 } from '../_lib';
@@ -53,6 +53,12 @@ function encrypt(keyValue:string,note:string) {
     note_ciphertext:Buffer.concat([encrypted,cipher.getAuthTag()]).toString('base64')
   };
 }
+function auditNoteMac(caseKey:string,note:string):string {
+  // Keyed digest avoids exposing short reviewer notes via ordinary SHA256 guessing.
+  return createHmac('sha256',key())
+    .update('lvpt-review-note-v1\\0'+TENANT+'\\0'+caseKey+'\\0'+note,'utf8')
+    .digest('hex');
+}
 function decrypt(row:DecisionRow):string {
   const nonce=Buffer.from(row.note_nonce,'base64');
   const combined=Buffer.from(row.note_ciphertext,'base64');
@@ -106,13 +112,17 @@ export async function POST(request:Request) {
     const timestamp=new Date().toISOString();
     const rows=validated.map(v=>({
       tenant_id:TENANT,case_key:v.key,case_status:v.status,source_count:v.sourceCount,
-      ...encrypt(v.key,v.note),updated_at:timestamp
+      ...encrypt(v.key,v.note),note_mac:auditNoteMac(v.key,v.note),updated_at:timestamp
     }));
-    const resp=await fetch(supabaseEndpoint('lvpt_sms_case_decisions?on_conflict=tenant_id,case_key'),{
-      method:'POST',headers:supabaseHeaders('resolution=merge-duplicates,return=minimal'),
-      body:JSON.stringify(rows),cache:'no-store',signal:AbortSignal.timeout(15000)
+    // DB function atomically updates latest decision AND appends an audit record.
+    // A failed audit also rolls back the decision update, preventing silent gaps.
+    const resp=await fetch(supabaseEndpoint('rpc/lvpt_save_sms_decisions_with_audit'),{
+      method:'POST',headers:supabaseHeaders(),
+      body:JSON.stringify({p_rows:rows}),cache:'no-store',signal:AbortSignal.timeout(15000)
     });
-    if(!resp.ok) return jsonNoStore({ok:false,reason:'review_write_failed'},502);
-    return jsonNoStore({ok:true,saved:rows.length,staging:true},200);
+    if(!resp.ok) return jsonNoStore({ok:false,reason:'review_atomic_write_failed'},502);
+    const saved=await resp.json().catch(()=>null);
+    if(saved!==rows.length) return jsonNoStore({ok:false,reason:'review_audit_count_mismatch'},502);
+    return jsonNoStore({ok:true,saved,staging:true,audited:true},200);
   }catch {return jsonNoStore({ok:false,reason:'review_write_failed'},500);}
 }

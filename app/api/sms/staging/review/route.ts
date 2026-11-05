@@ -87,6 +87,7 @@ export async function GET(request: Request) {
         findings.push({
           id:'sms-'+row.device_id+'-'+row.sms_id,
           smsId:row.sms_id,
+          deviceId:row.device_id,
           date:new Date(row.timestamp_ms).toISOString(),
           direction:row.direction,
           category:match.category,

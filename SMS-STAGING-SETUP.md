@@ -1,5 +1,21 @@
 # LVPT SMS Staging — secure owner-only sync pilot (not production)
 
+## SMS Review v0.3 — persistent browser session (staging only)
+
+**Preferred stable preview host:** `https://lvpt-event-command-git-9d0b2b-matt-carpenters-projects-7f34c5ab.vercel.app/sms-review/index.html`.
+
+Use this *same host* after every branch deployment; changing to a deployment-specific host creates a separate browser cookie scope. Leave Vercel Authentication enabled and sign in to Vercel if prompted.
+
+1. First visit: enter the existing Device Token **once**. The token is exchanged server-side for a signed, seven-day `Secure; HttpOnly; SameSite=Strict; Path=/` browser cookie.
+2. Subsequent visits from the same browser and stable preview host: the page automatically checks this cookie, loads staged SMS findings, restores encrypted case decisions and performs a read-only Command Center comparison. There is no Device Token field when the review session is already active.
+3. **Sign out of review session** clears the browser cookie. **Clear results only** does not log the owner out. Cookie is host-bound, expires automatically and becomes invalid if the Device Token hash or server encryption key changes.
+4. The Vercel Automation Bypass Token is intentionally **not saved by the browser**. Vercel SSO handles owner browsing; Android already stores the bypass secret encrypted with AndroidKeyStore so it can continue sending SMS. An app-generated session cookie cannot bypass Vercel's deployment-protection edge for a browser that isn't signed in.
+5. No device token, bypass token, service key or encryption key is committed to GitHub or stored in browser localStorage, sessionStorage or JavaScript state. A one-time unlock briefly places the Device Token in a password field/request body; it is cleared immediately after the login attempt. Cookie includes only a timestamp and an HMAC.
+6. The review cookie authorizes `review`, `reconcile` and `decisions` endpoints **only**, not Android `ingest`. Mutating review decisions requires same-origin HTTPS, and all data remains in isolated staging.
+
+**Automated developer checks:** GitHub Actions runs session-signature, token rotation, expiration and tampering unit tests, SMS grouping/reconciliation tests, JavaScript syntax checks and TypeScript checks. Vercel CI builds deploy staging previews. The assistant can independently inspect these and query permitted Supabase metadata without access to browser credentials. Real authenticated user/browser session testing still requires the owner to unlock once.
+
+
 ## Status
 
 **Code implemented, backend secrets not provisioned, uploads disabled by default.**

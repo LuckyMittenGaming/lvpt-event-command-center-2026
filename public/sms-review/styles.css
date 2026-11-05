@@ -69,3 +69,9 @@
 .action-queue-card button{font-size:13px;margin-top:7px;min-height:38px}
 #toggleActionMonitoring{margin-top:15px}
 @media(max-width:700px){.action-queue-card button{width:100%}}
+
+/* Separate, explicit owner decision controls (staging audit only). */
+.action-queue-controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:12px 0 5px}
+.action-queue-controls button{font-size:13px;min-height:38px;padding:8px 11px}
+.action-queue-decision{border-left:2px solid #6987a9;padding-left:10px;color:#d1e2f5!important}
+@media(max-width:700px){.action-queue-controls{display:grid;grid-template-columns:1fr}.action-queue-controls button{width:100%}}

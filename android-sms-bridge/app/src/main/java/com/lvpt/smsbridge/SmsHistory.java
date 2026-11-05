@@ -8,6 +8,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.provider.Telephony;
 import android.text.format.DateFormat;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * On-device, user-initiated SMS history browser.
@@ -64,19 +66,18 @@ public final class SmsHistory {
         return digits.length() == 10 ? digits : "";
     }
 
-    private static String approvedNumber(Context context) {
+    private static Set<String> approvedNumbers(Context context) {
         if (context.checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED)
             throw new SecurityException("SMS reading permission isn't granted.");
-        if (!SmsMonitor.isActive(context))
-            throw new IllegalStateException("Start monitoring your approved contact first.");
-        String phone = normalize(SmsMonitor.savedPhone(context));
-        if (phone.isEmpty()) throw new IllegalStateException("No approved contact selected.");
-        return phone;
+        MonitoredContacts.Contact selected = MonitoredContacts.selected(context);
+        if (selected == null)
+            throw new IllegalStateException("Select an approved contact first.");
+        return new HashSet<>(selected.numbers);
     }
 
     public static Counts count(Context context) {
         try {
-            String allowed = approvedNumber(context);
+            Set<String> allowed = approvedNumbers(context);
             String[] fields = { Telephony.Sms.ADDRESS, Telephony.Sms.TYPE };
             int incoming = 0;
             int outgoing = 0;
@@ -85,7 +86,7 @@ public final class SmsHistory {
                 if (cursor == null) return new Counts(0, 0, "SMS history isn't available.");
                 while (cursor.moveToNext()) {
                     // Check allowlist locally before counting.
-                    if (!allowed.equals(normalize(cursor.getString(0)))) continue;
+                    if (!allowed.contains(normalize(cursor.getString(0)))) continue;
                     int type = cursor.getInt(1);
                     if (type == Telephony.Sms.MESSAGE_TYPE_INBOX) incoming++;
                     if (type == Telephony.Sms.MESSAGE_TYPE_SENT) outgoing++;
@@ -107,7 +108,7 @@ public final class SmsHistory {
      */
     public static Page readPage(Context context, long beforeId) {
         try {
-            String allowed = approvedNumber(context);
+            Set<String> allowed = approvedNumbers(context);
             if (beforeId < 0) return new Page("No older SMS messages.", -1L, 0, null);
 
             String[] fields = {
@@ -130,7 +131,7 @@ public final class SmsHistory {
                     String number = cursor.getString(1);
                     int type = cursor.getInt(2);
                     long timestamp = cursor.getLong(3);
-                    if (!allowed.equals(normalize(number))) continue;
+                    if (!allowed.contains(normalize(number))) continue;
                     if (type != Telephony.Sms.MESSAGE_TYPE_INBOX &&
                         type != Telephony.Sms.MESSAGE_TYPE_SENT) continue;
 

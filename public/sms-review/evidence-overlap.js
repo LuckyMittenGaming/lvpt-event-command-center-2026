@@ -85,8 +85,13 @@
     };
   }
   function payoutBrief(payouts,connected,events) {
-    if(!connected)return {connected:false,total:0,paid:0,planned:0,other:0,exceptions:[]};
+    if(!connected)return {connected:false,total:0,paid:0,planned:0,other:0,plannedTotalCents:null,paidMissingDate:0,exceptions:[]};
     const rows=Array.isArray(payouts)?payouts:[];
+    const plannedRows=rows.filter(p=>/^planned$/i.test(String(p.status||'')));
+    const paidRows=rows.filter(p=>/^paid$/i.test(String(p.status||'')));
+    const plannedTotalCents=plannedRows.every(p=>typeof p.amount==='number'&&Number.isFinite(p.amount)) ?
+      plannedRows.reduce((sum,p)=>sum+Math.round(p.amount*100),0) : null;
+    const paidMissingDate=paidRows.filter(p=>!String(p.paidDate||'').trim()).length;
     const eventNames=new Map((events||[]).map(e=>[e.id,e.eventName||e.company||e.id]));
     const exceptions=rows.filter(p=>!/^paid$/i.test(String(p.status||'')))
       .slice(0,30).map(p=>({
@@ -99,7 +104,9 @@
     return {
       connected:true,total:rows.length,
       paid:rows.filter(p=>/^paid$/i.test(String(p.status||''))).length,
-      planned:rows.filter(p=>/^planned$/i.test(String(p.status||''))).length,
+      planned:plannedRows.length,
+      plannedTotalCents,
+      paidMissingDate,
       other:rows.filter(p=>!/^(?:paid|planned)$/i.test(String(p.status||''))).length,
       exceptions
     };

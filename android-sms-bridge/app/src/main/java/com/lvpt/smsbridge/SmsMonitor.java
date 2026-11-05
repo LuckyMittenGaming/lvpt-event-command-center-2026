@@ -180,7 +180,7 @@ public final class SmsMonitor {
             if (t > 0) b.append(" / ").append(android.text.format.DateFormat.format("MMM d, h:mm a", t));
         }
         b.append("\n\nRCS and WhatsApp are NOT covered by this test.");
-        b.append("\nNo message bodies leave your phone or enter the Command Center.");
+        b.append("\nNo automatic message uploads. Local exports are unencrypted and may sync if saved to a cloud folder.");
         return b.toString();
     }
 

@@ -191,10 +191,10 @@ public final class SmsMonitor {
                     if (body == null) body = "";
                     if (body.length() > 500) body = body.substring(0, 500) + "…";
 
-                    if (found > 0) result.append("\\n\\n");
+                    if (found > 0) result.append("\n\n");
                     result.append(label).append(" / ")
                         .append(android.text.format.DateFormat.format("MMM d, h:mm a", when))
-                        .append("\\n").append(body);
+                        .append("\n").append(body);
                     found++;
                 }
             } catch (RuntimeException ex) {

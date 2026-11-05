@@ -184,6 +184,7 @@ function lvptReadOnlyGmailEvidence_(eventKey) {
     if(item && item.threadId && ids.indexOf(item.threadId)<0 && ids.length<8) ids.push(item.threadId);
   });
   var threads=[];
+  var failedThreads=0;
   ids.forEach(function(threadId) {
     try {
       var thread=lvptGmailMetaGet_(
@@ -233,7 +234,8 @@ function lvptReadOnlyGmailEvidence_(eventKey) {
         fullThreadEnumerated:(thread.messages||[]).length<=150
       });
     }catch(ignore) {
-      // One inaccessible thread does not invalidate all other verified metadata.
+      // One inaccessible thread must reduce coverage, never become 'no reply'.
+      failedThreads++;
     }
   });
   threads.sort(function(a,b){return String(b.lastMessageAt).localeCompare(String(a.lastMessageAt));});
@@ -241,7 +243,8 @@ function lvptReadOnlyGmailEvidence_(eventKey) {
     ok:true,connected:true,eventKey:eventKey,clientLabel:labels[eventKey],
     gmailEvidenceScope:'bounded_domain_matched_message_headers_only',
     fullMailboxChecked:false,
-    partial:Boolean(listing.nextPageToken)||ids.length>=8,
+    partial:Boolean(listing.nextPageToken)||ids.length>=8||failedThreads>0,
+    metadataFailures:failedThreads,
     checkedAt:new Date().toISOString(),
     threads:threads
   };

@@ -9,6 +9,8 @@ import android.graphics.Typeface;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.text.InputType;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -18,6 +20,10 @@ public class MainActivity extends Activity {
     private static final int SMS_PERMISSION_REQUEST = 801;
     private ContactsPanel contactsPanel;
     private LocalExportUi exportUi;
+    private EditText endpointField;
+    private EditText tokenField;
+    private EditText bypassField;
+    private CheckBox syncConsent;
     private TextView status;
     private TextView lastAction;
     private TextView messagePreview;
@@ -48,7 +54,7 @@ public class MainActivity extends Activity {
         TextView explanation = new TextView(this);
         explanation.setText("\nPrivate SMS-only test. Add up to ten authorized business contacts. " +
             "New incoming and manually sent SMS messages will be counted when Android exposes " +
-            "them in its SMS database. You can browse old messages and export them locally. Nothing is automatically uploaded.\n" +
+            "them in its SMS database. You can browse old messages, export locally, or explicitly enable a staging-only sync.\n" +
             "\nThis does not include Google Messages RCS or WhatsApp.\n");
         explanation.setTextSize(16);
         box.addView(explanation);
@@ -129,11 +135,97 @@ public class MainActivity extends Activity {
 
         exportUi = new LocalExportUi(this, box);
 
+
+        TextView syncDescription = new TextView(this);
+        syncDescription.setText("\nOPTIONAL AUTOMATIC STAGING SYNC (v0.5)\n" +
+            "Disabled until you approve and configure a protected staging server. " +
+            "Only approved contacts' standard SMS will be sent by HTTPS. " +
+            "Message bodies are encrypted before storage on the staging server. " +
+            "Never enter secrets into GitHub or email them. RCS and MMS are not included.\n");
+        syncDescription.setTextSize(16);
+        box.addView(syncDescription);
+
+        endpointField = new EditText(this);
+        endpointField.setHint("Staging HTTPS preview URL (*.vercel.app)");
+        endpointField.setSingleLine(true);
+        endpointField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        endpointField.setText(SyncConfig.host(this));
+        box.addView(endpointField);
+
+        tokenField = new EditText(this);
+        tokenField.setHint("Private staging sync token (32+ characters)");
+        tokenField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        tokenField.setSingleLine(true);
+        box.addView(tokenField);
+
+        bypassField = new EditText(this);
+        bypassField.setHint("Optional Vercel deployment protection bypass token");
+        bypassField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        bypassField.setSingleLine(true);
+        box.addView(bypassField);
+
+        syncConsent = new CheckBox(this);
+        syncConsent.setText("I authorize automatic HTTPS transfer of the approved business " +
+            "contacts' saved SMS to the specified private staging database. " +
+            "I understand this may include full historical SMS messages.");
+        syncConsent.setChecked(false);
+        box.addView(syncConsent);
+
+        Button enableSync = button("6. Enable staging auto-sync", box);
+        enableSync.setOnClickListener(v -> {
+            if (!syncConsent.isChecked()) {
+                lastAction.setText("You must explicitly authorize SMS transmission first.");
+                return;
+            }
+            try {
+                if (!SmsMonitor.isActive(this))
+                    throw new IllegalStateException("Tap Start monitoring first.");
+                SyncConfig.configure(this, endpointField.getText().toString(),
+                    tokenField.getText().toString(), bypassField.getText().toString());
+                tokenField.setText("");
+                bypassField.setText("");
+                syncConsent.setChecked(false);
+                lastAction.setText("Staging auto-sync enabled. Android will run best-effort " +
+                    "periodic sync; use Sync now to test. No accounting records changed.");
+                SmsScanJob.scheduleSoon(this);
+            } catch (Exception ex) {
+                lastAction.setText("Unable to enable sync: " + ex.getMessage());
+            }
+            refresh();
+        });
+
+        Button syncNow = button("7. Sync approved SMS now", box);
+        syncNow.setOnClickListener(v -> {
+            syncNow.setEnabled(false);
+            lastAction.setText("Testing the protected staging connection and syncing…");
+            new Thread(() -> {
+                StagingSync.Result result = StagingSync.sync(getApplicationContext(), 3);
+                runOnUiThread(() -> {
+                    lastAction.setText(result.status);
+                    syncNow.setEnabled(true);
+                    if (result.hasMore) SmsScanJob.scheduleSoon(this);
+                    refresh();
+                });
+            }, "lvpt-manual-staging-sync").start();
+        });
+
+        Button disableSync = button("Disable staging sync and erase its credentials", box);
+        disableSync.setOnClickListener(v -> {
+            SyncConfig.disable(this);
+            syncConsent.setChecked(false);
+            tokenField.setText("");
+            bypassField.setText("");
+            lastAction.setText("Staging sync disabled; local contacts and messages unchanged. " +
+                "Already synchronized records remain in staging until deleted there.");
+            refresh();
+        });
+
         Button stop = button("Stop monitoring (keep contacts)", box);
         stop.setOnClickListener(v -> {
             hidePreview();
             SmsMonitor.stopMonitoring(this);
-            lastAction.setText("Monitoring stopped. Your approved contacts remain saved.");
+            SyncConfig.disable(this);
+            lastAction.setText("Monitoring and staging sync stopped. Your approved contacts remain saved.");
             refresh();
         });
 
@@ -202,7 +294,7 @@ public class MainActivity extends Activity {
     }
 
     private void refresh() {
-        status.setText("\n" + SmsMonitor.status(this));
+        status.setText("\n" + SmsMonitor.status(this) + "\n\n" + SyncConfig.status(this));
     }
 
     @Override

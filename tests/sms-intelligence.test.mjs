@@ -6,6 +6,8 @@ const cases = require('../public/sms-review/case-engine.js');
 
 assert.equal(matchEvent('Our NIUM planning meeting is tomorrow.').eventKey,'nium');
 assert.equal(matchEvent('Mosaic NEO event this fall.').eventKey,'mosaic-neo');
+assert.equal(matchEvent('Mosaic NEO 2025 payment discussion').eventKey,'mosaic-neo-2025','Old event year must not inherit 2026 paid status');
+assert.equal(matchEvent('NEO 2026 payment discussion').eventKey,'mosaic-neo');
 assert.equal(matchEvent('Kirkland & Ellis poker training').eventKey,'kirkland');
 assert.equal(matchEvent('Venetian Poker Room, confirmed tables').eventKey,'unmatched',
   'Venue does not identify a client');

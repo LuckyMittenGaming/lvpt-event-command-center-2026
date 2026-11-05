@@ -231,7 +231,7 @@
     });
     $('more').hidden = items.length <= visibleLimit;
   }
-  async function getProtected(path, token, bypass, opts={}) {
+  async function getProtected(path, opts={}) {
     const headers=opts.body ? {'content-type':'application/json'} : {};
     const response=await fetch(path,{
       method:opts.body?'POST':'GET',
@@ -252,7 +252,7 @@
     if (!sessionToken) return;
     $('reconciliationStatus').textContent='Checking current Command Center event and payment records (read-only)…';
     try {
-      const data=await getProtected('/api/sms/staging/reconcile',sessionToken,'');
+      const data=await getProtected('/api/sms/staging/reconcile');
       if (!Array.isArray(data.events)) throw new Error('Invalid reconciliation response');
       connectedRecords=data.events;
       recordsAvailable=true;
@@ -273,7 +273,7 @@
   async function loadSavedDecisions() {
     if (!sessionToken) return;
     try {
-      const data=await getProtected('/api/sms/staging/decisions',sessionToken,'');
+      const data=await getProtected('/api/sms/staging/decisions');
       caseDecisions=Object.create(null);
       savedSourceCounts=Object.create(null);
       for (const d of data.decisions || []) {
@@ -308,7 +308,7 @@
     try {
       let saved=0;
       for(let i=0;i<toSave.length;i+=40) {
-        const data=await getProtected('/api/sms/staging/decisions',sessionToken,'',{
+        const data=await getProtected('/api/sms/staging/decisions',{
           body:{decisions:toSave.slice(i,i+40)}
         });
         saved+=data.saved;
@@ -392,7 +392,6 @@
       let offset = 0;
       let scanned = 0;
       let findings = [];
-      const headers = {};
       for (let i = 0; i < 50; i++) {
         setStatus('Loading protected staging results: ' + scanned + ' SMS screened…');
         const url = '/api/sms/staging/review?after=' +

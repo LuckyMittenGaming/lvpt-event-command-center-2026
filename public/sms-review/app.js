@@ -460,11 +460,12 @@
         const data=await getProtected('/api/sms/staging/decisions',{
           body:{decisions:toSave.slice(i,i+40)}
         });
+        if(data.audited!==true || !Number.isInteger(data.saved)) throw new Error('Review was not acknowledged by the append-only audit service.');
         saved+=data.saved;
       }
       for(const item of toSave) savedSourceCounts[item.key]=item.sourceCount;
       renderCaseBundles();
-      setStatus('Saved '+saved+' encrypted case review decisions to staging. Nothing in live Google Sheets, Gmail or accounting was changed.');
+      setStatus('Saved '+saved+' encrypted review decisions with append-only audit history. Nothing in live Google Sheets, Gmail or accounting was changed.');
     }catch(error){
       setStatus('Unable to save review decisions: '+(error instanceof Error?error.message:'unknown error'),true);
     }finally{btn.disabled=false;}

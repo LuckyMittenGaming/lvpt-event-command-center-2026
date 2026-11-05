@@ -48,7 +48,11 @@
   // Recommended attention order only. These labels never mutate a task, payment
   // or saved review decision. A paid-in-full client payment says nothing about
   // a separate vendor invoice or an owner's distribution.
-  function prioritizeCase(bundle, events, decision, sourceConnected) {
+  function prioritizeCase(bundle, events, decision, sourceConnected, newSources = false) {
+    if(newSources) return {
+      group:'review-first',rank:0,label:'New SMS — recheck case',
+      explanation:'This review bundle has a different number of source SMS since its saved decision. The existing decision was preserved, but the case needs a fresh look.'
+    };
     const reviewedStatus=String(decision && decision.status || 'Unreviewed');
     const isManuallyClosed=reviewedStatus==='Reviewed — no action';
     const check=sourceConnected ? checkCase(bundle,events) : null;

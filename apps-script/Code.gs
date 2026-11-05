@@ -15,6 +15,7 @@ function doPost(e) {
     var action = String(payload.action || '').trim();
     if (action === 'status') return lvptJson_(lvptStatus_());
     if (action === 'listEvents') return lvptJson_({ ok: true, events: lvptListEvents_(), serverTime: new Date().toISOString() });
+    if (action === 'listReconciliationEvidence') return lvptJson_(lvptListReconciliationEvidence_());
     if (action === 'saveAllEvents') return lvptJson_(lvptSaveAllEvents_(payload));
     if (action === 'uploadDocument') return lvptJson_(lvptUploadDocument_(payload));
     if (action === 'deleteDocument') return lvptJson_(lvptDeleteDocument_(payload));
@@ -112,6 +113,37 @@ function lvptBool_(value) {
 }
 
 function lvptNumber_(value) { var number = Number(value); return isNaN(number) ? 0 : number; }
+
+
+// Read-only evidence for LVPT SMS reconciliation.
+// Do not infer that a planned payout cleared; the sheet's recorded status is authoritative
+// about what the Command Center says, but bank confirmation is still independent.
+function lvptListReconciliationEvidence_() {
+  var raw = lvptSheetObjects_('Event Payouts');
+  var rows = raw.map(function(row) {
+    var value = String(row.amount || '').replace(/[^0-9.-]/g, '');
+    var numericAmount = value === '' ? null : Number(value);
+    return {
+      payoutId: String(row.payout_id || '').slice(0, 120),
+      eventId: String(row.event_id || '').slice(0, 120),
+      payee: String(row.payee || '').slice(0, 120),
+      payoutType: String(row.payout_type || '').slice(0, 80),
+      amount: numericAmount !== null && isFinite(numericAmount) ? numericAmount : null,
+      status: String(row.status || 'Unknown').slice(0, 50),
+      paidDate: lvptDateString_(row.paid_date)
+    };
+  }).filter(function(row) {
+    return row.eventId && row.payoutId;
+  });
+  return {
+    ok: true,
+    source: 'Event Payouts',
+    sourceVerifiedAs: 'Command Center ledger only — not bank settlement evidence',
+    payoutCount: rows.length,
+    payouts: rows,
+    serverTime: new Date().toISOString()
+  };
+}
 
 function lvptListEvents_() {
   var eventRows = lvptSheetObjects_('Events');

@@ -154,6 +154,58 @@ public final class SmsMonitor {
         return b.toString();
     }
 
+
+    /**
+     * Explicit, on-demand local preview of SMS for the approved contact only.
+     * Never persists message bodies, writes logs, or performs a network request.
+     */
+    public static String previewSelectedSms(Context context) {
+        synchronized (LOCK) {
+            SharedPreferences s = settings(context);
+            if (!s.getBoolean(ACTIVE, false)) return "Start monitoring your approved contact first.";
+            if (!hasReadPermission(context)) return "Grant SMS read permission before previewing.";
+            final String phone = s.getString(PHONE, "");
+            if (phone == null || phone.isEmpty()) return "No approved contact selected.";
+            String[] fields = {
+                Telephony.Sms.ADDRESS, Telephony.Sms.TYPE,
+                Telephony.Sms.DATE, Telephony.Sms.BODY
+            };
+            StringBuilder result = new StringBuilder();
+            int found = 0;
+            try (Cursor c = context.getContentResolver().query(
+                Telephony.Sms.CONTENT_URI,
+                fields, null, null, Telephony.Sms.DATE + " DESC")) {
+                if (c == null) return "The SMS database is unavailable.";
+                while (c.moveToNext() && found < 5) {
+                    // Read body ONLY after the phone number and direction match.
+                    String address = c.getString(0);
+                    int type = c.getInt(1);
+                    if (!phone.equals(usLocalNumber(address))) continue;
+                    if (type != Telephony.Sms.MESSAGE_TYPE_INBOX &&
+                        type != Telephony.Sms.MESSAGE_TYPE_SENT) continue;
+
+                    String label = type == Telephony.Sms.MESSAGE_TYPE_INBOX
+                        ? "Incoming SMS" : "Outgoing SMS";
+                    long when = c.getLong(2);
+                    String body = c.getString(3);
+                    if (body == null) body = "";
+                    if (body.length() > 500) body = body.substring(0, 500) + "…";
+
+                    if (found > 0) result.append("\\n\\n");
+                    result.append(label).append(" / ")
+                        .append(android.text.format.DateFormat.format("MMM d, h:mm a", when))
+                        .append("\\n").append(body);
+                    found++;
+                }
+            } catch (RuntimeException ex) {
+                return "Unable to preview messages: " + ex.getClass().getSimpleName();
+            }
+            if (found == 0)
+                return "No SMS found for this contact. RCS messages won't appear here.";
+            return result.toString();
+        }
+    }
+
     public static String savedPhone(Context context) {
         return settings(context).getString(PHONE, "");
     }

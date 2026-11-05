@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const {buildQueue,CLIENT_EVENT_IDS}=require('../public/sms-review/action-queue.js');
+const {buildQueue,CLIENT_EVENT_IDS,sourceFingerprint,decisionApplies}=require('../public/sms-review/action-queue.js');
 const now=Date.parse('2026-11-05T20:00:00Z');
 const events=[
   {id:'evt-nium-2026',eventName:'NIUM',eventStatus:'Completed'},
@@ -84,4 +84,24 @@ assert.match(app,/actionQueueEngine\.buildQueue/);
 assert.match(app,/renderActionQueue\(\);/);
 assert(!/sendEmail|saveAllEvents|createTask/.test(fs.readFileSync(require('node:path').join(__dirname,'../public/sms-review/action-queue.js'),'utf8')),
   'Queue engine must not trigger downstream writes or message sends');
-console.log('Read-only Action Required queue regression tests passed.');
+const fixture=byId('payment:decks');
+const fingerprint=sourceFingerprint(fixture);
+assert.match(fingerprint,/^[a-f0-9]{16}$/,'Fingerprint is a compact opaque source revision marker');
+const saved={actionKey:fixture.id,decision:'verify_requested',sourceFingerprint:fingerprint};
+assert.equal(decisionApplies(fixture,saved),true,'An identical source may reuse the same owner review');
+assert.equal(decisionApplies({...fixture,evidence:fixture.evidence+' Updated balance'},saved),false,
+  'Changed evidence must invalidate the old decision without mutating history');
+const route=fs.readFileSync(require('node:path').join(
+  __dirname,'../app/api/sms/staging/action-decisions/route.ts'),'utf8');
+assert.match(route,/hasReviewSession\(request\)/,'Decision changes require an authenticated browser cookie');
+assert.match(route,/allowedReviewMutation\(request\)/,'Writes require same-origin HTTPS');
+assert.match(route,/return=representation/,'Append-only audit insert must be confirmed');
+assert.match(route,/request_id/,'Repeated submissions must be idempotent');
+assert.match(route,/decision==='draft_requested' && type==='gmail'/,
+  'Draft approval must never apply to a payment or payout');
+assert(!/gmail\.send|GmailApp\.send|saveAllEvents\(|sendEmail\(/.test(route),
+  'Decision API must not send messages or update business records');
+assert.match(app,/loadActionDecisions\(/,'Existing audit decisions must load before approval buttons activate');
+assert.match(app,/saveOwnerActionDecision\(item,decision\)/,'Review buttons must use authenticated audit endpoint');
+assert.match(html,/id="actionDecisionStatus"/,'Separate audit status must be visible');
+console.log('Action Required queue and non-sending, append-only approval controls tests passed.');

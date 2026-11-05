@@ -16,7 +16,8 @@
       .replace(/https?:\/\/\S+/g,'[link]').trim().slice(0,5000);
   }
   function senderMatches(message,businessAddresses) {
-    const from=String(message.from||'').toLowerCase();
+    // Gmail connector serializes the provider's From header as from_.
+    const from=String(message.from_||message.from||'').toLowerCase();
     return (businessAddresses||[]).some(address=>{
       const email=String(address).toLowerCase().trim();
       return email && (from===email||from.includes('<'+email+'>'));

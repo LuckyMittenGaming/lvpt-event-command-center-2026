@@ -17,6 +17,7 @@
   let recordsAvailable = false;
   let payoutLedgerConnected = false;
   let payoutRecords = [];
+  let auditServiceReady = false;
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
 
   let savedSourceCounts = Object.create(null);
@@ -75,7 +76,7 @@
     $('results').hidden = !report;
     $('exportDecisions').disabled = !report;
     $('exportCaseDecisions').disabled = !report;
-    $('saveCaseDecisions').disabled = !report || report.source !== 'staging' || !sessionToken;
+    $('saveCaseDecisions').disabled = !report || report.source !== 'staging' || !sessionToken || !auditServiceReady;
     if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); renderAttentionBrief(); return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
@@ -419,6 +420,23 @@
     renderCaseBundles();
     renderPayoutAudit();
   }
+  async function loadAuditHealth() {
+    auditServiceReady=false;
+    $('auditHealthStatus').textContent='Verifying protected audit service (zero-write test)…';
+    try {
+      const data=await getProtected('/api/sms/staging/audit-health');
+      auditServiceReady=data.auditReady===true &&
+        data.checkedWithEmptyBatch===true && data.noRecordsWritten===true;
+      $('auditHealthStatus').textContent=auditServiceReady
+        ? 'Encrypted review audit service verified. Decisions can be safely saved with audit history.'
+        : 'Audit service is not verified. Review saving is disabled.';
+    }catch {
+      auditServiceReady=false;
+      $('auditHealthStatus').textContent='Audit service unavailable. Review saving is disabled until connectivity is restored.';
+    }
+    if(report) summary();
+    return auditServiceReady;
+  }
   async function loadSavedDecisions() {
     if (!sessionToken) return;
     try {
@@ -557,6 +575,7 @@
       raw = null;
       recordsAvailable=false;
       connectedRecords=[];
+      auditServiceReady=false;
       payoutLedgerConnected=false;
       payoutRecords=[];
       savedSourceCounts=Object.create(null);
@@ -578,10 +597,14 @@
       summary(); render();
       setStatus('Staging inbox loaded: '+scanned+' SMS screened; '+
         findings.length+' findings available for review. Checking saved decisions and current Command Center…');
-      const [decisionResult] = await Promise.all([loadSavedDecisions(), loadReferenceData()]);
-      if (decisionResult !== null)
+      const [decisionResult, , auditReady] = await Promise.all([
+        loadSavedDecisions(),loadReferenceData(),loadAuditHealth()
+      ]);
+      if(decisionResult!==null && auditReady)
         setStatus('Staging ready: '+findings.length+' SMS findings, '+caseBundles.length+
-          ' event/issue bundles; '+decisionResult+' saved reviews restored. No live records changed.');
+          ' event/issue bundles; '+decisionResult+' saved reviews restored. Audited saving verified; no live records changed.');
+      else if(!auditReady)
+        setStatus('Staging findings loaded. Review saving disabled: protected audit service is unavailable.',true);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Staging fetch failed.', true);
     } finally {
@@ -634,7 +657,7 @@
   }
   function clear() {
     $('stagingToken').value = '';
-    payoutRecords=[]; payoutLedgerConnected=false;
+    payoutRecords=[]; payoutLedgerConnected=false; auditServiceReady=false;
     raw = null; report = null; decisions = Object.create(null);
     caseDecisions = Object.create(null); activeCaseKey = ''; bundleLimit = 12;
     visibleLimit = 25;

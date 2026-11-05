@@ -33,12 +33,46 @@
     el.textContent = value;
     return el;
   }
+  function renderPayoutAudit() {
+    const status=$('payoutAuditStatus');
+    const rows=$('payoutAuditItems');
+    rows.replaceChildren();
+    if(!report || report.source!=='staging') {
+      status.textContent='Load authenticated staging findings to compare current payouts.';
+      return;
+    }
+    if(!recordsAvailable) {
+      status.textContent='Command Center source unavailable. No payout conclusions can be made.';
+      return;
+    }
+    const brief=evidence.payoutBrief(payoutRecords,payoutLedgerConnected,connectedRecords);
+    if(!brief.connected) {
+      status.textContent='Event Payouts ledger not connected. No status or balance assumptions will be made.';
+      return;
+    }
+    status.textContent='Current Event Payouts ledger: '+brief.total+' entries — '+
+      brief.paid+' recorded Paid, '+brief.planned+' Planned, '+brief.other+
+      ' Other. Bank settlement not independently verified.';
+    if(!brief.exceptions.length) {
+      rows.append(makeText('p','hint',
+        'No Planned or Other payout entries recorded. This does not establish that all outside vendor bills have been paid.'));
+      return;
+    }
+    brief.exceptions.forEach(p=>{
+      const row=makeText('div','payout-exception','');
+      row.append(makeText('strong','',p.eventName+' · '+p.payee));
+      const label=p.amount===null?'amount not recorded':p.amount.toLocaleString('en-US',{style:'currency',currency:'USD'});
+      row.append(makeText('p','',p.payoutType+' · '+label+' · ledger status: '+p.status));
+      rows.append(row);
+    });
+  }
+
   function summary() {
     $('results').hidden = !report;
     $('exportDecisions').disabled = !report;
     $('exportCaseDecisions').disabled = !report;
     $('saveCaseDecisions').disabled = !report || report.source !== 'staging' || !sessionToken;
-    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; return; }
+    if (!report) { caseBundles = []; $('caseList').replaceChildren(); $('caseExplain').textContent = 'Load staging findings to see consolidated cases.'; renderPayoutAudit(); return; }
     caseBundles = caseEngine.createBundles(report.findings);
     if (!report) return;
     const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
@@ -330,6 +364,7 @@
           'Command Center comparison unavailable ('+reason+'). No financial conclusions will be inferred.';
     }
     renderCaseBundles();
+    renderPayoutAudit();
   }
   async function loadSavedDecisions() {
     if (!sessionToken) return;

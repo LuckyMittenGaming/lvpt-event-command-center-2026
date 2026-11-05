@@ -110,7 +110,9 @@ export async function GET(request:Request) {
     }
     return jsonNoStore({
       ok:true,source:'official_google_sheets_read_only',recordCount:events.length,
-      fetchedAt:new Date().toISOString(),events,payoutSourceStatus,payouts
+      fetchedAt:new Date().toISOString(),events,payoutSourceStatus,payouts,
+      gmailEvidenceScope:'command_center_logged_activity_only',
+      fullGmailMailboxChecked:false
     },200);
   }catch {
     return jsonNoStore({ok:false,reason:'command_center_read_failed'},502);

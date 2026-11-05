@@ -117,7 +117,12 @@
       if(!Number.isFinite(lastMs)||lastMs<=0||lastMs>nowMs)continue;
       const days=Math.floor((nowMs-lastMs)/86400000);
       const direction=text(latest.lastDirection,20);
-      const stage=text(event.eventStatus,80);
+      // OWS currently has a second Cabo Wabo event. A single domain-level
+      // thread is organization evidence, never proof about either event.
+      const ambiguousOrganization=key==='ows-aws' &&
+        events.has('evt-ows-20261202-cabo-wabo');
+      const stage=ambiguousOrganization?'multiple OWS events':
+        text(event.eventStatus,80);
       const proposal=/proposal\s+sent/i.test(stage);
       const newLead=/new\s+lead/i.test(stage);
       const completed=/completed|cancelled|declined|lost|closed/i.test(stage);
@@ -125,6 +130,7 @@
       // reply status. Metadata excludes message bodies, calls and CRM notes.
       const reviewInbound=direction==='inbound';
       const reviewTiming=direction==='outbound' && !completed &&
+        !ambiguousOrganization &&
         ((proposal && days>=10) || (newLead && days>=7));
       const group=reviewInbound||reviewTiming?'review':'monitor';
       add({
@@ -133,10 +139,12 @@
         title:reviewInbound?'Read most recent client message':
           reviewTiming?'Review proposal/lead follow-up timing':
             'Monitor recent correspondence',
-        eventId:event.id,eventName:CLIENT_LABELS[key],
+        eventId:ambiguousOrganization?'':event.id,
+        eventName:ambiguousOrganization?'OWS (multiple events)':CLIENT_LABELS[key],
         source:'Bounded Gmail thread headers · '+threads.length+' checked thread(s)',
         evidence:'Last indexed '+(direction==='inbound'?'client message':direction==='outbound'?'LVPT message':'message of unknown direction')+
           ' '+days+' day(s) ago · event stage: '+(stage||'not recorded')+
+          (ambiguousOrganization?' · specific event not established':'')+
           (record.partial?' · Gmail search incomplete':'')+'.',
         action:reviewInbound?
           'Read the full conversation, including attachments and CRM notes, before preparing a reply for approval.':

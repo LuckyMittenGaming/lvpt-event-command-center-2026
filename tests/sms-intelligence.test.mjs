@@ -34,6 +34,22 @@ const redacted=redactSmsExcerpt('Email business@example.com, call 616-745-7148, 
 for (const sensitive of ['business@example.com','616-745-7148','1234567890','http://example.com'])
   assert(!redacted.includes(sensitive), 'Sensitive contact information omitted');
 
+
+const websiteValuation=classifyBusinessSms('Mosaic NEO URL and website development might be worth $40,000.');
+assert.equal(websiteValuation.category,'Business context');
+assert.match(websiteValuation.topic,/website strategy/);
+assert.equal(websiteValuation.financialSignal,'not_an_obligation');
+const proposalPricing=classifyBusinessSms('Lithic client proposal pricing estimate is $20,000 for their tournament.');
+assert.equal(proposalPricing.category,'Lead / sales');
+assert.equal(proposalPricing.eventKey,'lithic');
+const paidVendor=classifyBusinessSms('Mosaic website developer was paid $2,400 by ACH for the custom site.');
+assert.equal(paidVendor.category,'Finance','Actual payment claims remain financial');
+const futureDraw=classifyBusinessSms('Mosaic partner distributions of $6,233.28 were planned, not paid.');
+assert.equal(futureDraw.topic,'Owner draws / distributions');
+assert.equal(futureDraw.financialSignal,'historical_claim_unverified');
+const namedClientWithoutPoker=classifyBusinessSms('Quinn Emanuel asked for updated arrival details at noon.');
+assert.equal(namedClientWithoutPoker.eventKey,'quinn-emanuel');
+
 const findings=[
   {id:'sms-dev-1', smsId:1, deviceId:'device-test', date:'2026-08-02T15:00:00Z', category:'Finance',
    eventKey:'nium',eventHint:'NIUM',matchConfidence:'explicit_reference_unverified',

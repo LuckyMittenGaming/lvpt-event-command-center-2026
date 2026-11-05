@@ -10,6 +10,8 @@ on:
       - 'tests/sms-intelligence.test.mjs'
       - 'tests/sms-reconciliation.test.cjs'
       - 'tests/sms-evidence.test.cjs'
+      - 'tests/gmail-thread-triage.test.cjs'
+      - 'public/sms-review/gmail-thread-triage.js'
       - 'tests/sms-gmail-intelligence.test.cjs'
       - 'tests/sms-gmail-scope-static.test.cjs'
       - 'apps-script/appsscript.json'
@@ -46,6 +48,7 @@ jobs:
       - run: node --check public/sms-review/case-engine.js
       - run: node --check public/sms-review/reconciliation.js
       - run: node --check public/sms-review/evidence-overlap.js
+      - run: node --check public/sms-review/gmail-thread-triage.js
       - run: node --check public/sms-review/gmail-intelligence.js
       - run: node --check lib/sms-intelligence.mjs
       - run: node --check < apps-script/GmailEvidence.gs
@@ -54,6 +57,7 @@ jobs:
       - run: node tests/sms-intelligence.test.mjs
       - run: node tests/sms-reconciliation.test.cjs
       - run: node tests/sms-evidence.test.cjs
+      - run: node tests/gmail-thread-triage.test.cjs
       - run: node tests/sms-gmail-intelligence.test.cjs
       - run: node tests/sms-gmail-scope-static.test.cjs
       - run: node tests/sms-review-audit-static.test.cjs

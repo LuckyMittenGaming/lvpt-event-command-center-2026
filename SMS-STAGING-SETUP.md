@@ -1,5 +1,27 @@
 # LVPT SMS Staging — secure owner-only sync pilot (not production)
 
+## v0.8 — Direct business Gmail evidence (approval-gated, read-only)
+
+**State:** The GitHub development branch and protected Vercel preview are built and tested. Gmail's new action is NOT DEPLOYED in the currently live Apps Script. Until the owner enables it, the dashboard must show Gmail metadata as unavailable. No inbox writes occur.
+
+### When owner explicitly approves the backend update
+1. In the existing **LVPT Event Command Center Backend** Apps Script editor, add a new script file named **GmailEvidence.gs**. Copy the complete contents of [the standalone source file](apps-script/GmailEvidence.gs). Leave Code.gs untouched except for step 2.
+2. Inside Code.gs doPost(e), immediately after listReconciliationEvidence, add one line: `if (action === 'listGmailThreadEvidence') return lvptJson_(lvptReadOnlyGmailEvidence_(String(payload.eventKey || '')));`
+3. Save. The source manifest includes gmail.readonly and script.external_request; confirm active Apps Script scopes if prompted.
+4. Update the EXISTING Apps Script deployment using Manage deployments > Edit > New version, preserving execute-as Me, Anyone access, same URL and shared-secret guard. Review any consent screens.
+5. Reload the protected staging dashboard with the existing 7-day browser login.
+
+### Data minimization and safety
+- Fixed corporate domains only: lithic.com, quinnemanuel.com, kirkland.com, ows.com.co, imperativex.com. No arbitrary mailbox queries supplied by a browser.
+- Google Gmail REST API under existing gmail.readonly scope; format=metadata. Maximum 60 matching messages and 8 distinct threads per client, cached within Apps Script for up to 10 minutes.
+- Returned only: sanitized subject, opaque thread ID, last message timestamp/direction, bounded message count, and coverage flags. No email bodies, snippets, attachments, or correspondent addresses returned or persisted in Supabase/GitHub.
+- Direction indicates suggested review, not an automatic unanswered-email determination. No reply or booking status is ever inferred from one thread without owner review.
+- Search truncation or provider failures show limited/incomplete coverage; missing matches are not proof of no response.
+- The existing Apps Script secret check guards the action. The Vercel staging endpoint additionally requires the owner's Device Token or seven-day HttpOnly review session.
+- No Gmail messages sent, drafts created, inbox labels changed, CRM tasks created, or money moved.
+- Regressions: sms-gmail-intelligence.test.cjs, sms-gmail-scope-static.test.cjs, and JavaScript, Apps Script, TypeScript and existing SMS tests.
+
+
 
 ## November 5 v0.7 — actionable owner brief, audit and reconciliation boundaries
 

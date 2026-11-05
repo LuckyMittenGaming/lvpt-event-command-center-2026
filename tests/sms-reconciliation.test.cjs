@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const {checkCase}=require('../public/sms-review/reconciliation.js');
+const {checkCase,prioritizeCase}=require('../public/sms-review/reconciliation.js');
 const records=[
   {id:'evt-nium-2026',eventStatus:'Completed',paymentStatus:'Paid In Full',
    ledgerPaidInFull:true,recordedAmountPaid:50578.38,completedTaskCount:9,openTaskCount:1,
@@ -37,5 +37,21 @@ assert.equal(other.state,'unlinked');
 
 const absent=checkCase({...payment,eventKey:'nium'},[]);
 assert.equal(absent.state,'unlinked');
+
+
+const settled=prioritizeCase(payment,records,{status:'Unreviewed'},true);
+assert.equal(settled.group,'likely-resolved');
+assert.equal(settled.rank,3);
+const existingReview=prioritizeCase(payment,records,{status:'Needs verification'},true);
+assert.equal(existingReview.group,'review-first');
+assert.equal(existingReview.rank,0,'Manually flagged cases remain prominent');
+const unverified=prioritizeCase(payment,[],{status:'Unreviewed'},false);
+assert.equal(unverified.group,'unverified','No stale fallback when ledger unavailable');
+const unidentified=prioritizeCase(venue,records,{status:'Unreviewed'},true);
+assert.equal(unidentified.group,'unverified','Venue-only SMS never auto matches');
+const ownerDraw=prioritizeCase({...payment,topic:'Owner draws / distributions'},records,{status:'Unreviewed'},true);
+assert.equal(ownerDraw.group,'review-first','Paid-in-full client payment does not settle owner draws');
+const manuallyClosed=prioritizeCase(payment,records,{status:'Reviewed — no action'},true);
+assert.equal(manuallyClosed.group,'reviewed','Manual closure preserved');
 
 console.log('SMS read-only reconciliation tests passed.');

@@ -76,6 +76,7 @@
     const all = caseBundles;
     const search = $('caseSearch').value.trim().toLowerCase();
     const eventFilter = $('caseEventFilter').value;
+    const attentionFilter = $('caseAttentionFilter').value;
     const statusFilter = $('caseStatusFilter').value;
     const reviewed = caseBundles.filter(b=>caseDecisions[b.key]?.status && caseDecisions[b.key].status !== 'Unreviewed').length;
     const reviewMetric=document.querySelector('#summary .metric:nth-child(4) .metric-number');
@@ -87,10 +88,18 @@
       const decision = caseDecisions[bundle.key] || {status:'Unreviewed'};
       if (eventFilter === 'matched' && !bundle.explicitReference) return false;
       if (eventFilter === 'unmatched' && bundle.explicitReference) return false;
+      const priority = reconciliation.prioritizeCase(bundle,connectedRecords,decision,recordsAvailable);
+      if (attentionFilter !== 'all' && priority.group !== attentionFilter) return false;
       if (statusFilter !== 'all' && decision.status !== statusFilter) return false;
       if (search && ![bundle.eventLabel,bundle.topic,...bundle.categories].join(' ').toLowerCase().includes(search))
         return false;
       return true;
+    }).sort((a,b)=>{
+      const da=caseDecisions[a.key]||{status:'Unreviewed'};
+      const db=caseDecisions[b.key]||{status:'Unreviewed'};
+      const pa=reconciliation.prioritizeCase(a,connectedRecords,da,recordsAvailable);
+      const pb=reconciliation.prioritizeCase(b,connectedRecords,db,recordsAvailable);
+      return pa.rank-pb.rank || b.latest.localeCompare(a.latest);
     });
     const parent = $('caseList');
     parent.replaceChildren();
@@ -99,6 +108,8 @@
       const review = caseDecisions[bundle.key] || {status:'Unreviewed',note:''};
       const box = makeText('article','case-card','');
       const heading = makeText('div','finding-top','');
+      const priority=reconciliation.prioritizeCase(bundle,connectedRecords,review,recordsAvailable);
+      heading.append(makeText('span','attention-label',priority.label));
       heading.append(
         makeText('span','tag',bundle.explicitReference ? 'Explicit name mentioned' : 'Event not identified'),
         makeText('span','secondary',bundle.count+' SMS source'+(bundle.count===1?'':'s')),
@@ -111,6 +122,7 @@
         'Client name mentioned in a message; event year and official record are not confirmed.' :
         'No unique client/event identifier. These messages may concern different events.'));
       box.append(makeText('p','case-recommendation','Suggested next check: '+bundle.suggestedCheck));
+      box.append(makeText('p','guidance',priority.explanation));
       if (recordsAvailable) {
         const result = reconciliation.checkCase(bundle, connectedRecords);
         const reconciliationLine = makeText('div','reconciliation-detail','');
@@ -489,6 +501,7 @@
     $('findQuery').value = '';
     $('caseSearch').value = '';
     $('caseEventFilter').value = 'all';
+    $('caseAttentionFilter').value = 'all';
     $('caseStatusFilter').value = 'all';
     $('afterDate').value = '2026-01-01';
     summary(); render();
@@ -497,6 +510,7 @@
   $('saveCaseDecisions').addEventListener('click',saveDecisions);
   $('caseSearch').addEventListener('input',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseEventFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
+  $('caseAttentionFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseStatusFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
   $('showMoreCases').addEventListener('click',()=>{bundleLimit+=12;renderCaseBundles();});
   $('clearCaseFilter').addEventListener('click',()=>{

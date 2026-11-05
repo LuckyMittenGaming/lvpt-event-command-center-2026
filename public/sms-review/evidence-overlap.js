@@ -111,5 +111,39 @@
       exceptions
     };
   }
-  return {inspectBundle,similarity,tokens,payoutCrossCheck,sameMessagePaymentReference,payoutBrief};
+  // Each Payment ledger row is a separate obligation/receipt report. Do not
+  // collapse by event: one NIUM event may have a paid main invoice and an
+  // independently outstanding deck add-on.
+  function paymentBrief(payments,connected,events) {
+    if(!connected)return {connected:false,total:0,exceptions:[],settled:0,initiated:0,invoiceSent:0,unknown:0};
+    const rows=Array.isArray(payments)?payments:[];
+    const eventNames=new Map((events||[]).map(e=>[e.id,e.eventName||e.company||e.id]));
+    const result={connected:true,total:rows.length,exceptions:[],settled:0,initiated:0,invoiceSent:0,unknown:0};
+    for(const p of rows) {
+      const rawStatus=String(p.paymentStatus||'Unknown');
+      let kind='unknown';
+      if(/^paid[\s-]*in[\s-]*full$/i.test(rawStatus))kind='settled';
+      else if(/payment\s+initiated|processing|in\s+progress/i.test(rawStatus))kind='initiated';
+      else if(/invoice\s+sent|awaiting\s+(?:deposit|payment)/i.test(rawStatus))kind='invoiceSent';
+      else if(/^not invoiced$/i.test(rawStatus))continue;
+      result[kind]++;
+      if(kind==='settled')continue;
+      result.exceptions.push({
+        paymentId:p.paymentId,
+        eventName:eventNames.get(p.eventId)||'Event not identified',
+        invoiceNumber:p.invoiceNumber||'Invoice number not recorded',
+        invoiceTotal:typeof p.invoiceTotal==='number'?p.invoiceTotal:null,
+        amountPaid:typeof p.amountPaid==='number'?p.amountPaid:null,
+        balanceDue:typeof p.balanceDue==='number'?p.balanceDue:null,
+        paymentStatus:rawStatus,
+        kind,
+        dueDate:p.dueDate||null
+      });
+    }
+    const rank={initiated:0,invoiceSent:1,unknown:2};
+    result.exceptions.sort((a,b)=>(rank[a.kind]??3)-(rank[b.kind]??3)||
+      a.eventName.localeCompare(b.eventName));
+    return result;
+  }
+  return {inspectBundle,similarity,tokens,payoutCrossCheck,sameMessagePaymentReference,payoutBrief,paymentBrief};
 });

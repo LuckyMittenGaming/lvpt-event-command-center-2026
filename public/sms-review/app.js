@@ -4,6 +4,7 @@
   const caseEngine = window.LVPTSMSCases;
   const reconciliation = window.LVPTSMSReconciliation;
   const evidence = window.LVPTSMSEvidence;
+  const gmailEngine = window.LVPTGmailIntelligence;
   const $ = id => document.getElementById(id);
   let raw = null;
   let report = null;
@@ -17,6 +18,8 @@
   let recordsAvailable = false;
   let payoutLedgerConnected = false;
   let payoutRecords = [];
+  let gmailEvidenceRecords = [];
+  let gmailEvidenceLoading = false;
   let auditServiceReady = false;
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
 
@@ -66,6 +69,89 @@
     el.textContent = value;
     return el;
   }
+  function renderGmailEvidence() {
+    const container=$('gmailEvidenceItems');
+    const status=$('gmailEvidenceStatus');
+    container.replaceChildren();
+    const checked=gmailEvidenceRecords.filter(x=>x.connected===true).length;
+    const clients=Object.keys(gmailEngine.CLIENTS);
+    const list=gmailEngine.buildBrief(
+      clients.map(key=>gmailEvidenceRecords.find(x=>x.eventKey===key) ||
+        {eventKey:key,connected:false}),Date.now()
+    );
+    $('refreshGmailEvidence').disabled=!sessionToken || gmailEvidenceLoading;
+    if(!report || report.source!=='staging') {
+      status.textContent='Load the authenticated staging inbox to check limited Gmail metadata.';
+      return;
+    }
+    if(gmailEvidenceLoading)
+      status.textContent='Checking client Gmail thread headers, without reading message bodies…';
+    else if(!checked)
+      status.textContent='Direct Gmail metadata source not activated or temporarily unavailable. No outreach conclusions can be drawn.';
+    else
+      status.textContent='Limited verified Gmail metadata for '+checked+'/'+clients.length+
+        ' client accounts. This is not a complete inbox, calendar, CRM, or phone-call audit.';
+    list.forEach(item=>{
+      const card=makeText('div','gmail-evidence-card','');
+      card.append(makeText('strong','',item.clientLabel));
+      card.append(makeText('p','gmail-evidence-label',item.label));
+      card.append(makeText('p','gmail-evidence-explain',item.explanation));
+      if(item.lastMessageAt) {
+        const dt=new Date(item.lastMessageAt);
+        if(!Number.isNaN(dt.getTime()))
+          card.append(makeText('p','gmail-evidence-meta','Most recent indexed message: '+dateFmt(item.lastMessageAt)+
+            ' · '+item.threadCount+' checked thread'+(item.threadCount===1?'':'s')));
+      }
+      if(item.olderInboundThreads>0)
+        card.append(makeText('p','gmail-evidence-meta',
+          item.olderInboundThreads+' older thread(s) end with client messages. Check separately before deciding.'));
+      if(item.partial)
+        card.append(makeText('p','gmail-evidence-meta',
+          'Search reached its safety limit; additional threads may exist.'));
+      // Show limited verified subject only. Thread bodies and sender emails
+      // are never requested by this UI and aren't saved to the staging DB.
+      const recent=item.threads?.slice().sort((a,b)=>
+        String(b.lastMessageAt||'').localeCompare(String(a.lastMessageAt||'')))[0];
+      if(recent && recent.subject)card.append(makeText('p','gmail-evidence-meta','Latest subject: '+recent.subject));
+      container.append(card);
+    });
+  }
+
+  async function loadGmailEvidence() {
+    if(!sessionToken || !report || report.source!=='staging') {
+      renderGmailEvidence();
+      return;
+    }
+    if(gmailEvidenceLoading) return;
+    gmailEvidenceLoading=true;
+    gmailEvidenceRecords=[];
+    renderGmailEvidence();
+    const keys=Object.keys(gmailEngine.CLIENTS);
+    try {
+      // Probe a single known client first: if backend isn't deployed, avoid
+      // five redundant failing Apps Script requests on every refresh.
+      const first=await getProtected('/api/sms/staging/gmail-evidence?eventKey='+keys[0]);
+      if(!first.connected || first.eventKey!==keys[0])
+        throw new Error('gmail_source_unavailable');
+      gmailEvidenceRecords.push(first);
+      renderGmailEvidence();
+      const rest=await Promise.allSettled(keys.slice(1).map(key=>
+        getProtected('/api/sms/staging/gmail-evidence?eventKey='+encodeURIComponent(key))
+      ));
+      rest.forEach((r,i)=>{
+        const key=keys[i+1];
+        if(r.status==='fulfilled' && r.value?.connected && r.value.eventKey===key)
+          gmailEvidenceRecords.push(r.value);
+      });
+    }catch {
+      // Never fall back to the incomplete Command Center Gmail Activity sheet
+      // to assert that a client has (or has not) replied.
+    }finally {
+      gmailEvidenceLoading=false;
+      renderGmailEvidence();
+    }
+  }
+
   function renderPayoutAudit() {
     const status=$('payoutAuditStatus');
     const rows=$('payoutAuditItems');
@@ -638,6 +724,7 @@
       auditServiceReady=false;
       payoutLedgerConnected=false;
       payoutRecords=[];
+      gmailEvidenceRecords=[];
       savedSourceCounts=Object.create(null);
       savedDecisionSignatures=Object.create(null);
       showSaveFeedback('Loading saved reviews…','neutral');
@@ -662,6 +749,7 @@
       const [decisionResult, , auditReady] = await Promise.all([
         loadSavedDecisions(),loadReferenceData(),loadAuditHealth()
       ]);
+      void loadGmailEvidence();
       if(decisionResult!==null && auditReady)
         setStatus('Staging ready: '+findings.length+' SMS findings, '+caseBundles.length+
           ' event/issue bundles; '+decisionResult+' saved reviews restored. Audited saving verified; no live records changed.');
@@ -720,6 +808,7 @@
   function clear() {
     $('stagingToken').value = '';
     payoutRecords=[]; payoutLedgerConnected=false; auditServiceReady=false;
+    gmailEvidenceRecords=[];
     savedDecisionSignatures=Object.create(null);
     showSaveFeedback('Results cleared. Saved reviews remain securely stored.','neutral');
     raw = null; report = null; decisions = Object.create(null);
@@ -735,6 +824,7 @@
     setStatus('Results cleared; secure review login remains active until you sign out.');
   }
   $('saveCaseDecisions').addEventListener('click',saveDecisions);
+  $('refreshGmailEvidence').addEventListener('click',loadGmailEvidence);
   $('caseSearch').addEventListener('input',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseEventFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
   $('caseAttentionFilter').addEventListener('change',()=>{bundleLimit=12;renderCaseBundles();});
@@ -787,6 +877,6 @@
   });
   CATEGORY.forEach(v => $('findCategory').add(new Option(v,v)));
   ['All statuses',...STATUS].forEach(v => $('findStatus').add(new Option(v,v)));
-  summary();render();
+  summary();render();renderGmailEvidence();
   checkSession();
 })();

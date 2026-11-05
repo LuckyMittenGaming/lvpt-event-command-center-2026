@@ -36,7 +36,7 @@
     }
     if(bundle.topic.includes('follow-up')||bundle.topic.includes('Lead')){
       return {state:'check-duplicate',label:'Check CRM and Gmail before creating work',
-        detail:'Command Center lists '+record.completedTaskCount+' completed task(s), '+record.openTaskCount+' open task(s) and '+record.recordedGmailActivityCount+' logged email(s). These counts do not prove that this SMS request was resolved.',record};
+        detail:'Command Center lists '+record.completedTaskCount+' completed task(s), '+record.openTaskCount+' open task(s) and '+record.recordedGmailActivityCount+' logged email(s). These counts do not prove that this SMS request was resolved; the Gmail Activity sheet is not a complete search of the business mailbox.',record};
     }
     return {state:'compare-plan',label:'Compare with current event plan',
       detail:'Current Command Center event status: '+record.eventStatus+'. Check whether the SMS describes an already completed activity.',record};

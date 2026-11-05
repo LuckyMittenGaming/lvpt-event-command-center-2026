@@ -50,9 +50,13 @@
       status.textContent='Event Payouts ledger not connected. No status or balance assumptions will be made.';
       return;
     }
+    const plannedAmount=brief.plannedTotalCents===null?' (total unavailable)' :
+      ' ('+(brief.plannedTotalCents/100).toLocaleString('en-US',{style:'currency',currency:'USD'})+
+      ' recorded planned, not necessarily due)';
     status.textContent='Current Event Payouts ledger: '+brief.total+' entries — '+
-      brief.paid+' recorded Paid, '+brief.planned+' Planned, '+brief.other+
-      ' Other. Bank settlement not independently verified.';
+      brief.paid+' recorded Paid, '+brief.planned+' Planned'+plannedAmount+
+      ', '+brief.other+' Other. '+brief.paidMissingDate+
+      ' Paid entry/entries lack a recorded paid date. Bank settlement not independently verified.';
     if(!brief.exceptions.length) {
       rows.append(makeText('p','hint',
         'No Planned or Other payout entries recorded. This does not establish that all outside vendor bills have been paid.'));

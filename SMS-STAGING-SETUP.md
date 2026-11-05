@@ -1,5 +1,19 @@
 # LVPT SMS Staging — secure owner-only sync pilot (not production)
 
+
+## November 5 v0.8 — full-thread Gmail triage and full Payments tab (prepared)
+
+**Gmail:** the connected business mailbox revealed that the current \`Gmail Activity\` sheet covers only a fraction of real conversations. A read-only, standalone, synthetic-tested \`public/sms-review/gmail-thread-triage.js\` classifier now handles complete-thread messages with the actual Gmail connector \`from_\` metadata. It distinguishes explicit client declines (closed for the specific proposal), proposal sent without reply, agreement signed plus invoice sent (fulfillment check), outgoing reply sent, incoming-last message, and insufficient/truncated evidence. It excludes quoted older messages before evaluating acceptance/decline language and requires timestamps/complete thread data. **The classifier does not yet query Gmail autonomously in the deployed dashboard.** The assistant can use the connected business Gmail plugin for independent read-only audits. Do not copy raw Gmail bodies to GitHub or a public endpoint; no auto-sending or automatic lead closure.
+
+**Important client examples from live Gmail review (not committed as sensitive fixtures):** BlackEdge and Odysseys declined their prior events and were acknowledged, Lorna received an introduction Nov 4, Quinn Emanuel and Kirkland received proposals, CertaPro contract and invoice were sent. An email in a SENT label does not prove client interest, payment, or a closed sales outcome.
+
+**Payments:** \`listEvents\` currently takes \`(paymentByEvent[eventId] || [])[0]\` and therefore may hide a **second invoice on a paid main event**. This is particularly relevant for NIUM's separately recorded $1,353.39 add-on decks invoice, which was marked \`Payment Initiated\` on Nov 4, and OWS's $21,183.50 invoice, also \`Payment Initiated\`, plus CertaPro's $11,281.50 \`Invoice Sent\` entry. Initiated is **not** received; the payment stage must be verified independently before posting Paid In Full.
+
+The feature branch prepares a **read-only additive change** to the already-deployed Apps Script \`listReconciliationEvidence\`: \`paymentRecords\` enumerates every Payments row separately, reporting only event ID, payment ID, invoice number, totals, amounts, statuses and dates. A new staging dashboard section \`Invoice-by-invoice payment exceptions\` will show it when connected. **It is deliberately unavailable until the owner explicitly deploys this updated Apps Script function.** Do not infer payment records from a single event summary or the existing payout ledger. The optional endpoint returns \`paymentSourceStatus: not_connected\` until this happens.
+
+The updated response excludes payment notes, PO numbers, contact data, private email bodies and raw SMS. All UI remains read-only. Synthetic tests verify that a Paid In Full main event invoice does not settle a separate add-on payment, and that Payment Initiated stays unverified.
+
+
 ## v0.8 — Direct business Gmail evidence (approval-gated, read-only)
 
 **State:** The GitHub development branch and protected Vercel preview are built and tested. Gmail's new action is NOT DEPLOYED in the currently live Apps Script. Until the owner enables it, the dashboard must show Gmail metadata as unavailable. No inbox writes occur.

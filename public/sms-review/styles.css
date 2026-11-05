@@ -27,3 +27,8 @@
 .reconciliation-detail p{font-size:13px;color:#c4dcd7;margin:3px 0 0}
 .case-alert{font-size:13px;color:#ffd6a8!important;border:1px solid #a37736;border-radius:8px;padding:8px 11px}
 @media(max-width:800px){.case-action-buttons{margin-top:15px}.case-action-buttons button{flex:1;min-width:160px}}
+
+/* One-time credential entry uses two columns; controls collapse on phones. */
+.session-controls{grid-template-columns:minmax(220px,1fr) auto;max-width:780px}
+.session-controls button{min-width:235px}
+@media(max-width:800px){.session-controls{grid-template-columns:1fr}.session-controls button{width:100%}}

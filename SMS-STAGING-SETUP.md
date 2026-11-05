@@ -1,5 +1,16 @@
 # LVPT SMS Staging — secure owner-only sync pilot (not production)
 
+## Evidence matching v0.5 — task, email and payout signals
+
+The staging reviewer now compares candidate SMS bundles with the existing Apps Script `listEvents` output **read-only**. The API supplies bounded, sanitized task titles/statuses and Gmail Activity subjects (not mailbox contents), and the browser identifies **possible** overlaps only when at least two distinctive non-generic words agree. The UI never treats a similar email subject as proof that someone replied or a task as completed.
+
+A new **optional** Apps Script action `listReconciliationEvidence` is prepared in this GitHub development branch. It reads the authoritative `Event Payouts` tab and returns only event ID, payout ID, payee, type, amount, ledger status, and date. **Important:** the GitHub version of Apps Script is NOT automatically deployed to the active Apps Script project. Until the user explicitly approves and deploys the matching backend script, the review API reports `payoutSourceStatus: not_connected`. The UI must never invent payout totals or mark distributions settled when this endpoint is unavailable.
+
+When connected, a payout candidate requires the **same verified event ID, matching amount to the cent, and an identifiable payee surname/name** in SMS excerpts. It remains a provisional match. A `Planned` payout must stay **Planned**, never be reported as Paid, and a `Paid` ledger status is not independent proof of a bank transfer. Event-wide counts are grouped by recorded status, including Paid, Planned and Other.
+
+Developer QA includes synthetic unit tests for generic-word false positives, event isolation, payee-plus-amount matching, payout-ledger availability, and the Planned-vs-Paid boundary. No user SMS or real payout data is committed to GitHub. No live Sheets, Gmail or accounting mutations are triggered by this code.
+
+
 ## SMS Review v0.3 — persistent browser session (staging only)
 
 **Preferred stable preview host:** `https://lvpt-event-command-git-9d0b2b-matt-carpenters-projects-7f34c5ab.vercel.app/sms-review/index.html`.

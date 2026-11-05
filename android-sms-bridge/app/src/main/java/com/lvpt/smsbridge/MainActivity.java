@@ -21,6 +21,11 @@ public class MainActivity extends Activity {
     private TextView messagePreview;
     private Button previewToggle;
     private volatile boolean previewShown = false;
+    private volatile int previewGeneration = 0;
+    private long nextHistoryBeforeId = -1L;
+    private TextView historyTotals;
+    private Button olderHistory;
+    private int historyPage = 0;
 
     @Override
     public void onCreate(Bundle state) {
@@ -41,7 +46,7 @@ public class MainActivity extends Activity {
         TextView explanation = new TextView(this);
         explanation.setText("\nPrivate, read-only test. Choose ONE business contact. " +
             "New incoming and manually sent SMS messages will be counted when Android exposes " +
-            "them in its SMS database. Nothing is forwarded or uploaded.\n" +
+            "them in its SMS database. You can browse older saved SMS. Nothing is forwarded or uploaded.\n" +
             "\nThis does not include Google Messages RCS or WhatsApp.\n");
         explanation.setTextSize(16);
         box.addView(explanation);
@@ -81,30 +86,46 @@ public class MainActivity extends Activity {
             }, "lvpt-manual-check").start();
         });
 
-        previewToggle = button("4. Preview last 5 SMS messages (local only)", box);
+        previewToggle = button("4. Browse all saved SMS history (local only)", box);
         previewToggle.setOnClickListener(v -> {
             if (previewShown) {
                 hidePreview();
                 return;
             }
             previewShown = true;
-            previewToggle.setText("Hide SMS preview");
-            messagePreview.setVisibility(View.VISIBLE);
-            messagePreview.setText("Loading local SMS preview…");
+            int generation = ++previewGeneration;
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            previewToggle.setText("Hide SMS history");
+            messagePreview.setVisibility(View.VISIBLE);
+            historyTotals.setVisibility(View.VISIBLE);
+            historyTotals.setText("Counting saved SMS history for approved contact…");
+            loadHistoryPage(0L, 1, generation);
             new Thread(() -> {
-                String body = SmsMonitor.previewSelectedSms(getApplicationContext());
+                SmsHistory.Counts totals = SmsHistory.count(getApplicationContext());
                 runOnUiThread(() -> {
-                    if (previewShown && !isFinishing()) messagePreview.setText(body);
+                    if (previewShown && generation == previewGeneration && !isFinishing())
+                        historyTotals.setText(totals.display() + "\nBrowse 20 messages at a time below.");
                 });
-            }, "lvpt-local-preview").start();
+            }, "lvpt-history-count").start();
         });
+
+        historyTotals = new TextView(this);
+        historyTotals.setTextSize(16);
+        historyTotals.setVisibility(View.GONE);
+        box.addView(historyTotals);
 
         messagePreview = new TextView(this);
         messagePreview.setTextSize(16);
         messagePreview.setTextIsSelectable(false);
         messagePreview.setVisibility(View.GONE);
         box.addView(messagePreview);
+
+        olderHistory = button("Show 20 older SMS messages", box);
+        olderHistory.setVisibility(View.GONE);
+        olderHistory.setOnClickListener(v -> {
+            if (!previewShown || nextHistoryBeforeId <= 0L) return;
+            loadHistoryPage(nextHistoryBeforeId, historyPage + 1, previewGeneration);
+        });
 
         Button stop = button("Stop and erase test settings", box);
         stop.setOnClickListener(v -> {
@@ -135,14 +156,41 @@ public class MainActivity extends Activity {
         return result;
     }
 
+    private void loadHistoryPage(long beforeId, int pageNumber, int generation) {
+        olderHistory.setEnabled(false);
+        olderHistory.setVisibility(View.GONE);
+        messagePreview.setText("Loading stored SMS messages…");
+        new Thread(() -> {
+            SmsHistory.Page page = SmsHistory.readPage(getApplicationContext(), beforeId);
+            runOnUiThread(() -> {
+                if (!previewShown || generation != previewGeneration || isFinishing()) return;
+                nextHistoryBeforeId = page.nextBeforeId;
+                historyPage = pageNumber;
+                if (page.error != null) messagePreview.setText(page.error);
+                else messagePreview.setText("Page " + pageNumber + " • " +
+                    page.shown + " SMS messages\n\n" + page.text);
+                olderHistory.setVisibility(page.hasOlder() ? View.VISIBLE : View.GONE);
+                olderHistory.setEnabled(true);
+            });
+        }, "lvpt-history-page").start();
+    }
+
     private void hidePreview() {
         previewShown = false;
+        ++previewGeneration;
+        nextHistoryBeforeId = -1L;
+        historyPage = 0;
+        if (olderHistory != null) olderHistory.setVisibility(View.GONE);
+        if (historyTotals != null) {
+            historyTotals.setText("");
+            historyTotals.setVisibility(View.GONE);
+        }
         if (messagePreview != null) {
             messagePreview.setText("");
             messagePreview.setVisibility(View.GONE);
         }
         if (previewToggle != null)
-            previewToggle.setText("4. Preview last 5 SMS messages (local only)");
+            previewToggle.setText("4. Browse all saved SMS history (local only)");
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
     }
 

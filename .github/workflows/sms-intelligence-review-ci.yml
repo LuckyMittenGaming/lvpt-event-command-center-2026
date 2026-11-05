@@ -10,6 +10,8 @@ on:
       - 'tests/sms-intelligence.test.mjs'
       - 'tests/sms-reconciliation.test.cjs'
       - 'tests/sms-evidence.test.cjs'
+      - 'tests/sms-review-audit-static.test.cjs'
+      - 'docs/staging-migrations/**'
       - 'apps-script/Code.gs'
       - 'tests/sms-review-session.test.mjs'
       - 'lib/sms-review-session.mjs'
@@ -44,6 +46,7 @@ jobs:
       - run: node tests/sms-intelligence.test.mjs
       - run: node tests/sms-reconciliation.test.cjs
       - run: node tests/sms-evidence.test.cjs
+      - run: node tests/sms-review-audit-static.test.cjs
       - run: node tests/sms-review-session.test.mjs
       - run: npm ci
       - run: npx tsc --noEmit

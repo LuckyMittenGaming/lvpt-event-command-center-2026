@@ -101,6 +101,7 @@
       box.append(makeText('p','guidance',bundle.explicitReference ?
         'Client name mentioned in a message; event year and official record are not confirmed.' :
         'No unique client/event identifier. These messages may concern different events.'));
+      box.append(makeText('p','case-recommendation','Suggested next check: '+bundle.suggestedCheck));
       const samples = makeText('div','case-samples','');
       bundle.sample.forEach(f => {
         const sample = makeText('div','case-sample','');
@@ -315,6 +316,9 @@
     caseDecisions = Object.create(null); activeCaseKey = ''; bundleLimit = 12;
     visibleLimit = 25;
     $('findQuery').value = '';
+    $('caseSearch').value = '';
+    $('caseEventFilter').value = 'all';
+    $('caseStatusFilter').value = 'all';
     $('afterDate').value = '2026-01-01';
     summary(); render();
     setStatus('Session cleared. The raw SMS archive was not saved in the browser or sent to a server.');

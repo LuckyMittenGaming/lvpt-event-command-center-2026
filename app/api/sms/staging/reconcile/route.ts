@@ -1,4 +1,5 @@
-import { authorized, jsonNoStore, ready } from '../_lib';
+import { jsonNoStore, ready } from '../_lib';
+import { authorizedReviewer } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
 
 export const runtime = 'nodejs';
@@ -49,7 +50,7 @@ function sanitize(event: EventRecord) {
 /** Read-only historical cross-check. NEVER writes to Google Sheets or Gmail. */
 export async function GET(request: Request) {
   if (!ready()) return jsonNoStore({ok:false, reason:'staging_unconfigured'},503);
-  if (!authorized(request)) return jsonNoStore({ok:false, reason:'unauthorized'},401);
+  if (!authorizedReviewer(request)) return jsonNoStore({ok:false, reason:'unauthorized'},401);
   if (!syncConfigured())
     return jsonNoStore({ok:false, reason:'command_center_source_unconfigured'},503);
   try {

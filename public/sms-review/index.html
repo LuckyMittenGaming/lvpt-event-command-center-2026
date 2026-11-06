@@ -63,6 +63,11 @@
         <h2 id="actionQueueTitle">Action required — owner review queue</h2>
         <p class="hint">Evidence-linked suggestions from individual invoices, payouts and bounded Gmail headers. Approve for Drafting permits a separate read-only conversation preview and an editable starter draft; nothing is sent, and no Gmail draft is created. Hold and Dismiss only update a separate staging review audit; accounting, CRM, and tasks stay unchanged.</p>
         <p id="actionQueueStatus" class="source-status" role="status" aria-live="polite">Awaiting authenticated source checks…</p>
+        <div class="ai-synthetic-test">
+          <button id="runSyntheticAiTest" class="neutral" type="button" disabled>Run AI connection test (fictional client)</button>
+          <p id="syntheticAiStatus" role="status" aria-live="polite">Sign in to run an optional AI connection test. This uses fictional data only and may incur a small model usage charge.</p>
+          <div id="syntheticAiResult" class="action-draft-panel" hidden></div>
+        </div>
         <p id="actionDecisionStatus" class="case-save-feedback" role="status" aria-live="polite">Checking the separate approval audit log…</p>
         <div id="actionQueueItems" class="action-queue-items" aria-live="polite"></div>
         <button id="toggleActionMonitoring" class="neutral" type="button" hidden>Show monitoring items</button>

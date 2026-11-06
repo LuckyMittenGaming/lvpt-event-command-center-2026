@@ -57,7 +57,7 @@ const script=repoFile('apps-script/GmailDraftContext.gs');
 const vm=require('node:vm');
 const scriptCtx={};vm.runInNewContext(script,scriptCtx);
 const extracted=scriptCtx.lvptGmailDraftVisibleBody_(
-  'Thanks for the update.\\n\\nOn Fri, Oct 23, 2026, 11:36 AM Travis wrote:\\n'+
+  'Thanks for the update.\n\nOn Fri, Oct 23, 2026, 11:36 AM Travis wrote:\n'+
     'Old quoted conversation '.repeat(1300));
 assert.equal(extracted.body,'Thanks for the update.',
   'Long reply quotes must not consume the authored-message budget');
@@ -66,7 +66,7 @@ const veryLong=scriptCtx.lvptGmailDraftVisibleBody_('A'.repeat(8500));
 assert.equal(veryLong.body.length,1600);
 assert.equal(veryLong.truncated,true);
 const twelve=Array.from({length:12},(_,i)=>
-  scriptCtx.lvptGmailDraftVisibleBody_('Recent message '+i+'\\n\\nOn Oct 12, 2026 wrote:\\n'+'x'.repeat(16000))
+  scriptCtx.lvptGmailDraftVisibleBody_('Recent message '+i+'\n\nOn Oct 12, 2026 wrote:\n'+'x'.repeat(16000))
 );
 assert(twelve.every(m=>m.body.startsWith('Recent message')),
   'The most recent of 12 messages must remain available with very long quoted history');

@@ -89,8 +89,10 @@ const fingerprint=sourceFingerprint(fixture);
 assert.match(fingerprint,/^[a-f0-9]{16}$/,'Fingerprint is a compact opaque source revision marker');
 const saved={actionKey:fixture.id,decision:'verify_requested',sourceFingerprint:fingerprint};
 assert.equal(decisionApplies(fixture,saved),true,'An identical source may reuse the same owner review');
-assert.equal(decisionApplies({...fixture,evidence:fixture.evidence+' Updated balance'},saved),false,
-  'Changed evidence must invalidate the old decision without mutating history');
+assert.equal(decisionApplies({...fixture,evidence:fixture.evidence+' aged another day'},saved),true,
+  'Relative display text must not invalidate an approval without new source data');
+assert.equal(decisionApplies({...fixture,sourceRevision:[...fixture.sourceRevision,'Updated balance']},saved),false,
+  'Changed source data must invalidate the old decision without mutating history');
 const route=fs.readFileSync(require('node:path').join(
   __dirname,'../app/api/sms/staging/action-decisions/route.ts'),'utf8');
 assert.match(route,/hasReviewSession\(request\)/,'Decision changes require an authenticated browser cookie');

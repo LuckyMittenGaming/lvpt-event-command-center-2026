@@ -15,7 +15,8 @@ assert.match(route,/noGmailRead:true,noEmailSent:true,noGmailDraftCreated:true,n
 assert(!/readApprovedContext|listEvents|listGmail|GmailApp|saveAllEvents|createDraft\(/.test(route),
  'Synthetic test must not touch real source records or mutate email');
 assert.match(app,/runSyntheticAiTest/);
-assert.match(app,/getProtected\('\/api\/sms\/staging\/ai-smoke-test'/);
+assert.match(app,/fetch\('\/api\/sms\/staging\/ai-smoke-test'/,
+  'Synthetic smoke test should parse safe diagnostic response from fetch');
 assert.match(html,/id="runSyntheticAiTest"/);
 assert.match(html,/fictional data only/);
 assert.match(route,/customer_verification_required/,

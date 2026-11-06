@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.join(__dirname,'..');
+const route=fs.readFileSync(path.join(root,'app/api/sms/staging/ai-smoke-test/route.ts'),'utf8');
+const app=fs.readFileSync(path.join(root,'public/sms-review/app.js'),'utf8');
+const html=fs.readFileSync(path.join(root,'public/sms-review/index.html'),'utf8');
+assert.match(route,/hasReviewSession\(request\)/);
+assert.match(route,/allowedReviewMutation\(request\)/);
+assert.match(route,/mode!=='synthetic_only'/);
+assert.match(route,/SampleWorks/);
+assert.match(route,/Vercel AI Gateway|ai-gateway\.vercel\.sh/);
+assert.match(route,/response_format:\{type:'json_object'\}/);
+assert.match(route,/noGmailRead:true,noEmailSent:true,noGmailDraftCreated:true,noSheetChanged:true/);
+assert(!/readApprovedContext|listEvents|listGmail|GmailApp|saveAllEvents|createDraft\(/.test(route),
+ 'Synthetic test must not touch real source records or mutate email');
+assert.match(app,/runSyntheticAiTest/);
+assert.match(app,/getProtected\('\/api\/sms\/staging\/ai-smoke-test'/);
+assert.match(html,/id="runSyntheticAiTest"/);
+assert.match(html,/fictional data only/);
+console.log('Signed-in, synthetic-only AI Gateway smoke-test safeguards passed.');

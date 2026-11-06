@@ -1,4 +1,5 @@
 import { jsonNoStore, ready } from '../_lib';
+import { getAiGatewayCredential } from '../../../../../lib/lvpt-ai-gateway-auth';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { GET as readApprovedContext } from '../draft-context/route';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
@@ -125,8 +126,10 @@ export async function POST(request:Request) {
     const days=(Date.now()-Date.parse(lastMessageAt))/86400000;
     if(days<10)return jsonNoStore({ok:false,reason:'proposal_followup_too_early'},409);
   }
-  const token=process.env.AI_GATEWAY_API_KEY||process.env.VERCEL_OIDC_TOKEN||'';
-  if(!token)return jsonNoStore({ok:false,reason:'ai_gateway_not_configured'},503);
+  const auth=getAiGatewayCredential(request);
+  if(!auth)return jsonNoStore({ok:false,reason:'ai_gateway_not_configured',
+    detail:'No configured API key or runtime Vercel OIDC token available.'},503);
+  const token=auth.token;
   const model=process.env.LVPT_EMAIL_DRAFT_MODEL||'openai/gpt-5.6-sol';
   if(!/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.-]*$/i.test(model))
     return jsonNoStore({ok:false,reason:'ai_model_not_configured'},503);

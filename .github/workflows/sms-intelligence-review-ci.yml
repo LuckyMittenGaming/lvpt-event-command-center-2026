@@ -13,6 +13,8 @@ on:
       - 'tests/sms-action-queue.test.cjs'
       - 'tests/sms-draft-preview.test.cjs'
       - 'tests/sms-personalized-draft.test.cjs'
+      - 'tests/sms-ai-smoke-test.test.cjs'
+      - 'app/api/sms/staging/ai-smoke-test/route.ts'
       - 'app/api/sms/staging/personalized-draft/route.ts'
       - 'lib/lvpt-personalized-policy.mjs'
       - 'apps-script/GmailDraftContext.gs'
@@ -73,6 +75,7 @@ jobs:
       - run: node tests/sms-action-queue.test.cjs
       - run: node tests/sms-draft-preview.test.cjs
       - run: node tests/sms-personalized-draft.test.cjs
+      - run: node tests/sms-ai-smoke-test.test.cjs
       - run: node tests/gmail-thread-triage.test.cjs
       - run: node tests/sms-gmail-intelligence.test.cjs
       - run: node tests/sms-gmail-scope-static.test.cjs

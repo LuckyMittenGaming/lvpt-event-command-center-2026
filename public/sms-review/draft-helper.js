@@ -28,7 +28,14 @@
     const stage=String(event?.eventStatus||'');
     const latestInbound=context.messages.slice().reverse().find(m=>m.direction==='inbound');
     const latestClientText=previewBody(latestInbound?.body||'',1500);
-    const outOfOffice=/\b(?:out of (?:town|the office)|on vacation|away for (?:a few|several|two|three) weeks|when i.m back|once i.m back)\b/i.test(latestClientText);
+    const latestOutboundText=previewBody(last.body||'',1200);
+    // Never suggest a generic follow-up when the newest authored message
+    // could not be decoded, or the most recent client reply is missing.
+    const missingContext=!latestOutboundText ||
+      (latestInbound && !latestClientText) ||
+      context.messages.slice(-4).some(m=>!previewBody(m?.body||'',1200));
+    const waitingOnClient=/\b(?:out of town|out of (?:the )?office|on vacation|on holiday|away for (?:a few|several|two|three) weeks|once i.m back|when i.m back|back in (?:the )?office|you.ll likely hear from me|hear from me once|share with leadership|in front of leadership|run it by (?:our )?(?:ceo|leadership))\b/i
+      .test(latestClientText);
     const isOWS=context.eventKey==='ows-aws';
     const offer= /proposal/i.test(stage) ? 'proposal' : 'corporate poker experience inquiry';
     const header={
@@ -45,8 +52,12 @@
       header.warning='The client wrote last. Review the full message and answer their specific request; no generic response was generated.';
       return header;
     }
-    if(outOfOffice && days<21) {
-      header.warning='Client indicated time away from the office. Avoid an immediate follow-up; verify their return timing.';
+    if(missingContext) {
+      header.warning='Some recent email excerpts are missing. A generic reply would be unreliable. Open the original Gmail thread before drafting.';
+      return header;
+    }
+    if(waitingOnClient) {
+      header.warning='Client indicated travel or leadership review and will reconnect. Hold the follow-up until their availability or decision is confirmed.';
       return header;
     }
     const minDays=/proposal/i.test(stage)?10:7;

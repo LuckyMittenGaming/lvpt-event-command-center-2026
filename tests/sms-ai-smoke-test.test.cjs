@@ -31,4 +31,10 @@ assert.match(app,/data\.gatewayStatus/,
   'Diagnostic UI must display the upstream HTTP status');
 assert.match(app,/data\.gatewayCode/,
   'Diagnostic UI must display a whitelisted upstream error code');
+assert.match(route,/access_denied/,
+  'The gateway may return access_denied as an error type without code');
+assert.match(route,/x-vercel-id/,
+  'An opaque Vercel request ID should be preserved for support');
+assert.match(app,/data\.supportRequestId/,
+  'The owner should see the request ID if available without credentials');
 console.log('Signed-in, synthetic-only AI Gateway smoke-test safeguards passed.');

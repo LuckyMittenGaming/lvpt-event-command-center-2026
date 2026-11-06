@@ -92,15 +92,38 @@
     result.hidden=true;result.replaceChildren();
     status.textContent='Sending fictional test details to Vercel AI Gateway. No live client messages are accessed.';
     try {
-      const data=await getProtected('/api/sms/staging/ai-smoke-test',{
-        body:{mode:'synthetic_only'}
+      // Preserve the diagnostic details intentionally whitelisted by the
+      // synthetic test endpoint. Other protected endpoints remain unchanged.
+      const response=await fetch('/api/sms/staging/ai-smoke-test',{
+        method:'POST',cache:'no-store',credentials:'same-origin',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({mode:'synthetic_only'})
       });
+      const data=await response.json().catch(()=>({ok:false,reason:'invalid_response'}));
+      if(!response.ok||data.ok!==true) {
+        if(response.status===401)showSession(false);
+        const method=data.authentication==='vercel_oidc'?'Vercel OIDC':
+          data.authentication==='api_key'?'AI Gateway API key':'unknown';
+        const code=String(data.gatewayCode||'unknown').slice(0,75);
+        const codeInfo=data.gatewayStatus?
+          ' · upstream HTTP '+data.gatewayStatus+' · code '+code+
+          ' · authentication '+method:'';
+        const guidance=data.reason==='ai_gateway_account_verification_required'?
+          ' Vercel may require account/payment-method verification in AI Gateway.':
+          data.gatewayStatus===401?
+          ' The gateway rejected the credential.':
+          data.gatewayStatus===403?
+          ' The gateway denied access. Its code distinguishes verification from an invalid credential.':'';
+        throw new Error((data.reason||'request_failed')+
+          ' (HTTP '+response.status+')'+codeInfo+'.'+guidance);
+      }
       if(data.source!=='fictional_ai_gateway_smoke_test' ||
          data.noEmailSent!==true || data.noGmailRead!==true ||
          typeof data.body!=='string'||typeof data.subject!=='string')
         throw new Error('The test response did not satisfy the synthetic-only checks.');
       status.textContent='AI Gateway responded successfully using fictional data · '+
-        data.model+'. No emails sent and no records changed.';
+        data.model+' · Authentication: '+data.authentication+
+        '. No emails sent and no records changed.';
       result.append(makeText('strong','',data.subject));
       result.append(makeText('p','action-draft-status',
         'Fictional client demo only — not addressed to anyone.'));

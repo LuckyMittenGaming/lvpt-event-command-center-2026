@@ -75,3 +75,16 @@
 .action-queue-controls button{font-size:13px;min-height:38px;padding:8px 11px}
 .action-queue-decision{border-left:2px solid #6987a9;padding-left:10px;color:#d1e2f5!important}
 @media(max-width:700px){.action-queue-controls{display:grid;grid-template-columns:1fr}.action-queue-controls button{width:100%}}
+
+/* Ephemeral, read-only Gmail conversation and editable no-send email draft. */
+.action-draft-panel{margin-top:16px;padding:17px;border:1px solid #486486;border-radius:12px;background:#0e2035;display:grid;gap:12px}
+.action-draft-panel>strong{font-size:15px;color:#e1ecfa}
+.action-draft-panel input,.action-draft-panel textarea{width:100%;font:inherit;border:1px solid #4b617c;background:#0b1829;color:#fff;border-radius:8px;padding:11px;min-height:42px}
+.action-draft-panel textarea{min-height:180px;resize:vertical;white-space:pre-wrap}
+.action-draft-panel .action-draft-status,.action-draft-panel .action-draft-meta{font-size:12px;color:#c9d9e9;margin:3px 0}
+.action-draft-thread{border:1px solid #3b516a;border-radius:9px;padding:11px;background:#12243a}
+.action-draft-thread summary{cursor:pointer;font-weight:700;font-size:13px}
+.action-draft-message{border-top:1px solid #304764;padding-top:9px;margin-top:9px}
+.action-draft-message strong{font-size:12px;color:#c9e2ff}
+.action-draft-message p{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto}
+@media(max-width:700px){.action-draft-panel{padding:12px}.action-draft-panel>input,.action-draft-panel>textarea{max-width:100%}}

@@ -82,6 +82,42 @@
     return el;
   }
 
+  async function runSyntheticAiTest() {
+    const button=$('runSyntheticAiTest');
+    const status=$('syntheticAiStatus');
+    const result=$('syntheticAiResult');
+    if(!sessionToken)return;
+    button.disabled=true;
+    button.textContent='Testing AI model connection…';
+    result.hidden=true;result.replaceChildren();
+    status.textContent='Sending fictional test details to Vercel AI Gateway. No live client messages are accessed.';
+    try {
+      const data=await getProtected('/api/sms/staging/ai-smoke-test',{
+        body:{mode:'synthetic_only'}
+      });
+      if(data.source!=='fictional_ai_gateway_smoke_test' ||
+         data.noEmailSent!==true || data.noGmailRead!==true ||
+         typeof data.body!=='string'||typeof data.subject!=='string')
+        throw new Error('The test response did not satisfy the synthetic-only checks.');
+      status.textContent='AI Gateway responded successfully using fictional data · '+
+        data.model+'. No emails sent and no records changed.';
+      result.append(makeText('strong','',data.subject));
+      result.append(makeText('p','action-draft-status',
+        'Fictional client demo only — not addressed to anyone.'));
+      const body=makeText('p','',data.body);
+      body.style.whiteSpace='pre-wrap';
+      result.append(body);
+      result.hidden=false;
+    }catch(error) {
+      status.textContent='AI connection test not verified: '+
+        (error instanceof Error?error.message:'Unknown diagnostic error')+
+        '. No client action was attempted.';
+    }finally {
+      button.disabled=!sessionToken;
+      button.textContent='Run AI connection test (fictional client)';
+    }
+  }
+
   async function loadActionDecisions() {
     actionAuditReady=false;
     actionDecisions=new Map();
@@ -1063,6 +1099,7 @@
 
   function showSession(active) {
     sessionToken=active ? 'review-cookie-active' : '';
+    $('runSyntheticAiTest').disabled=!active;
     $('sessionLogin').hidden=Boolean(active);
     $('sessionReady').hidden=!active;
     $('sessionStatus').textContent=active
@@ -1257,6 +1294,7 @@
     setStatus('Results cleared; secure review login remains active until you sign out.');
   }
   $('saveCaseDecisions').addEventListener('click',saveDecisions);
+  $('runSyntheticAiTest').addEventListener('click',runSyntheticAiTest);
   $('refreshGmailEvidence').addEventListener('click',loadGmailEvidence);
   $('toggleActionMonitoring').addEventListener('click',()=>{
     showActionMonitoring=!showActionMonitoring;

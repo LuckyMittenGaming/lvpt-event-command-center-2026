@@ -6,6 +6,7 @@
   const evidence = window.LVPTSMSEvidence;
   const gmailEngine = window.LVPTGmailIntelligence;
   const actionQueueEngine = window.LVPTActionQueue;
+  const draftHelper = window.LVPTDraftHelper;
   const $ = id => document.getElementById(id);
   let raw = null;
   let report = null;
@@ -27,6 +28,9 @@
   let actionDecisions = new Map();
   let actionAuditReady = false;
   let savingActionId = '';
+  let draftState = null;
+  let draftLoadingId = '';
+  let draftFeedback = '';
   let auditServiceReady = false;
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
 
@@ -114,6 +118,7 @@
       });
       if(data.audited!==true || data.saved!==1)
         throw new Error('Approval change was not confirmed by the audit service.');
+      if(item.id===draftState?.itemId && decision!=='draft_requested')draftState=null;
       actionDecisions.set(item.id,{
         actionKey:item.id,decision,sourceFingerprint,
         recordedAt:data.recordedAt||new Date().toISOString()
@@ -127,6 +132,132 @@
       savingActionId='';
       renderActionQueue();
     }
+  }
+
+
+  function verifiedLatestThread(item) {
+    if(!item||item.type!=='gmail'||!item.id.startsWith('gmail:'))return null;
+    const key=item.id.slice(6);
+    const record=gmailEvidenceRecords.find(r=>r.eventKey===key&&r.connected===true);
+    const threads=record&&Array.isArray(record.threads)?record.threads:[];
+    const latest=threads.slice().filter(t=>t&&t.lastMessageAt)
+      .sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)))[0];
+    return latest&&latest.threadId?{key,latest}:null;
+  }
+
+  async function openApprovedDraftPreview(item) {
+    const approval=actionDecisions.get(item.id);
+    const live=verifiedLatestThread(item);
+    if(!sessionToken||!actionAuditReady||!live||item.type!=='gmail'||
+       !actionQueueEngine.decisionApplies(item,approval)||
+       approval.decision!=='draft_requested'||draftLoadingId)return;
+    draftLoadingId=item.id;
+    draftState=null;draftFeedback='';
+    renderActionQueue();
+    try {
+      const params=new URLSearchParams({
+        eventKey:live.key,
+        sourceFingerprint:actionQueueEngine.sourceFingerprint(item),
+        lastMessageAt:live.latest.lastMessageAt
+      });
+      const context=await getProtected('/api/sms/staging/draft-context?'+params.toString());
+      if(context.source!=='approved_read_only_gmail_draft_context'||
+         context.eventKey!==live.key||context.lastMessageAt!==live.latest.lastMessageAt)
+        throw new Error('Gmail draft preview could not verify the reviewed thread.');
+      const event=connectedRecords.find(e=>e.id===item.eventId);
+      const starter=draftHelper.buildStarter(context,event,Date.now());
+      if(!starter.ready)throw new Error(starter.warning||'Draft source is incomplete.');
+      draftState={
+        itemId:item.id,fingerprint:actionQueueEngine.sourceFingerprint(item),
+        to:starter.to,subject:starter.subject,body:starter.body,
+        context,warning:starter.warning
+      };
+      draftFeedback='Read-only conversation loaded. Review the client message, timing, and any attachments before copying.';
+    }catch(error) {
+      draftFeedback=error instanceof Error?error.message:'Draft preview unavailable.';
+    }finally {
+      draftLoadingId='';
+      renderActionQueue();
+    }
+  }
+
+  function renderApprovedDraftPreview(card,item) {
+    const stored=actionDecisions.get(item.id);
+    const valid=actionQueueEngine.decisionApplies(item,stored);
+    const canPreview=item.type==='gmail' && valid && stored.decision==='draft_requested';
+    if(!canPreview)return;
+    const btn=document.createElement('button');
+    btn.type='button';btn.className='neutral';
+    btn.textContent=draftLoadingId===item.id?'Loading verified Gmail conversation…':
+      'Preview conversation & starter draft';
+    btn.disabled=Boolean(draftLoadingId)||!actionAuditReady;
+    btn.addEventListener('click',()=>openApprovedDraftPreview(item));
+    card.append(btn);
+    if(draftLoadingId===item.id)
+      card.append(makeText('p','action-draft-status','Loading read-only conversation; no emails are sent or stored.'));
+    if((!draftState || draftState.itemId!==item.id) && draftFeedback)
+      card.append(makeText('p','action-draft-status',draftFeedback));
+    if(!draftState||draftState.itemId!==item.id ||
+       draftState.fingerprint!==actionQueueEngine.sourceFingerprint(item))return;
+    const panel=makeText('section','action-draft-panel','');
+    panel.append(makeText('strong','', 'Editable starter draft — not sent'));
+    panel.append(makeText('p','action-draft-status',
+      'Verified recipient: '+draftState.to+' · '+draftState.context.observedMessages+
+      ' messages in Gmail thread'+(draftState.context.partial?' (limited/truncated)':'')));
+    if(draftState.warning)
+      panel.append(makeText('p','case-alert',draftState.warning));
+    const recent=makeText('details','action-draft-thread','');
+    recent.append(makeText('summary','', 'Inspect the most recent verified messages'));
+    draftState.context.messages.slice(-4).forEach(msg=>{
+      const block=makeText('div','action-draft-message','');
+      block.append(makeText('strong','',
+        (msg.direction==='inbound'?'Client':'LVPT')+' · '+dateFmt(msg.at)));
+      block.append(makeText('p','',draftHelper.previewBody(msg.body,1250)+
+        (msg.truncated?' [message truncated]':'')));
+      recent.append(block);
+    });
+    panel.append(recent);
+    const to=makeText('p','action-draft-meta','To: '+draftState.to);
+    panel.append(to);
+    const subject=document.createElement('input');
+    subject.type='text';subject.maxLength=180;
+    subject.setAttribute('aria-label','Review email subject for '+item.eventName);
+    subject.value=draftState.subject;
+    subject.addEventListener('input',()=>{draftState.subject=subject.value;});
+    panel.append(subject);
+    const body=document.createElement('textarea');
+    body.rows=8;body.maxLength=5000;
+    body.setAttribute('aria-label','Editable email draft for '+item.eventName);
+    body.placeholder='Review the latest client message and write a specific reply here. Nothing is sent.';
+    body.value=draftState.body;
+    body.addEventListener('input',()=>{draftState.body=body.value;});
+    panel.append(body);
+    const actions=makeText('div','action-queue-controls','');
+    const copy=document.createElement('button');
+    copy.type='button';copy.className='primary';
+    copy.textContent='Copy reviewed draft';
+    copy.disabled=!draftState.body.trim();
+    body.addEventListener('input',()=>{copy.disabled=!draftState.body.trim();});
+    copy.addEventListener('click',async()=>{
+      const draft=draftState;
+      if(!draft||!draft.body.trim())return;
+      try {
+        await navigator.clipboard.writeText('To: '+draft.to+'\nSubject: '+
+          draft.subject+'\n\n'+draft.body);
+        draftFeedback='Draft copied for manual review. No email has been sent or saved.';
+        panel.append(makeText('p','action-draft-status',draftFeedback));
+      }catch {
+        panel.append(makeText('p','case-alert','Clipboard unavailable. Select and copy the draft manually.'));
+      }
+    });
+    actions.append(copy);
+    const close=document.createElement('button');
+    close.type='button';close.className='neutral';close.textContent='Close and clear preview';
+    close.addEventListener('click',()=>{
+      draftState=null;draftFeedback='';renderActionQueue();
+    });
+    actions.append(close);panel.append(actions);
+    card.append(panel);
   }
 
   function renderActionQueue() {
@@ -149,6 +280,12 @@
       payouts:payoutRecords,payoutsConnected:payoutLedgerConnected,
       gmail:gmailEvidenceRecords
     },Date.now());
+    if(draftState) {
+      const active=brief.items.find(i=>i.id===draftState.itemId);
+      if(!active||actionQueueEngine.sourceFingerprint(active)!==draftState.fingerprint ||
+         !actionQueueEngine.decisionApplies(active,actionDecisions.get(active.id)) ||
+         actionDecisions.get(active.id)?.decision!=='draft_requested') draftState=null;
+    }
     const gaps=[];
     if(!brief.coverage.payments)gaps.push('Payments');
     if(!brief.coverage.payouts)gaps.push('Event Payouts');
@@ -222,6 +359,7 @@
         if(target)target.scrollIntoView({behavior:'smooth',block:'start'});
       });
       card.append(open);
+      renderApprovedDraftPreview(card,item);
       holder.append(card);
     });
     toggle.hidden=backgroundItems.length===0;
@@ -936,6 +1074,7 @@
       paymentLedgerConnected=false;
       paymentRecords=[];
       gmailEvidenceRecords=[];
+      draftState=null; draftFeedback=''; draftLoadingId='';
       actionDecisions=new Map();actionAuditReady=false;
       savedSourceCounts=Object.create(null);
       savedDecisionSignatures=Object.create(null);
@@ -1023,6 +1162,7 @@
     connectedRecords=[]; recordsAvailable=false;
     gmailEvidenceRecords=[]; showActionMonitoring=false;
     actionDecisions=new Map(); actionAuditReady=false; savingActionId='';
+    draftState=null;draftFeedback='';draftLoadingId='';
     savedDecisionSignatures=Object.create(null);
     showSaveFeedback('Results cleared. Saved reviews remain securely stored.','neutral');
     raw = null; report = null; decisions = Object.create(null);

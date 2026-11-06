@@ -30,6 +30,7 @@
   let savingActionId = '';
   let draftState = null;
   let draftLoadingId = '';
+  let personalizedLoadingId = '';
   let draftFeedback = '';
   let auditServiceReady = false;
   let sessionToken = ''; // Non-secret session flag; credentials are HttpOnly and server-side.
@@ -170,13 +171,62 @@
       draftState={
         itemId:item.id,fingerprint:actionQueueEngine.sourceFingerprint(item),
         to:starter.to,subject:starter.subject,body:starter.body,
-        context,warning:starter.warning
+        context,warning:starter.warning,generatedBy:'starter',needsReview:[],rationale:''
       };
       draftFeedback='Read-only conversation loaded. Review the client message, timing, and any attachments before copying.';
     }catch(error) {
       draftFeedback=error instanceof Error?error.message:'Draft preview unavailable.';
     }finally {
       draftLoadingId='';
+      renderActionQueue();
+    }
+  }
+
+
+  async function generatePersonalizedDraft(item) {
+    const live=verifiedLatestThread(item);
+    const approval=actionDecisions.get(item.id);
+    const state=draftState;
+    if(!live||!sessionToken||!actionAuditReady||!state||
+       state.itemId!==item.id||personalizedLoadingId||
+       state.fingerprint!==actionQueueEngine.sourceFingerprint(item)||
+       !actionQueueEngine.decisionApplies(item,approval)||
+       approval.decision!=='draft_requested')return;
+    const permitted=state.context.lastDirection==='inbound' ||
+      (state.context.lastDirection==='outbound' && Boolean(state.body.trim()));
+    if(!permitted || live.key==='ows-aws')return;
+    personalizedLoadingId=item.id;draftFeedback='';
+    renderActionQueue();
+    try {
+      const response=await getProtected('/api/sms/staging/personalized-draft',{
+        body:{
+          eventKey:live.key,
+          sourceFingerprint:state.fingerprint,
+          lastMessageAt:live.latest.lastMessageAt
+        }
+      });
+      if(response.source!=='ai_gateway_personalized_preview'||
+         response.eventKey!==live.key||response.lastMessageAt!==live.latest.lastMessageAt||
+         typeof response.body!=='string'||response.body.length<35||
+         typeof response.subject!=='string')
+        throw new Error('The personalized draft response was not verified.');
+      if(draftState!==state)throw new Error('The preview was refreshed before the draft finished.');
+      draftState={
+        ...state,
+        subject:response.subject.slice(0,180),
+        body:response.body.slice(0,5000),
+        rationale:String(response.rationale||'').slice(0,700),
+        needsReview:Array.isArray(response.needsReview)?
+          response.needsReview.filter(x=>typeof x==='string').slice(0,5):[],
+        generatedBy:'ai'
+      };
+      draftFeedback='Personalized draft prepared for review. Nothing was sent or saved to Gmail.';
+    }catch(error) {
+      const reason=error instanceof Error?error.message:'AI generation unavailable';
+      draftFeedback='Personalized drafting did not complete: '+reason+
+        '. The original editable starter remains available.';
+    }finally {
+      personalizedLoadingId='';
       renderActionQueue();
     }
   }
@@ -200,12 +250,19 @@
     if(!draftState||draftState.itemId!==item.id ||
        draftState.fingerprint!==actionQueueEngine.sourceFingerprint(item))return;
     const panel=makeText('section','action-draft-panel','');
-    panel.append(makeText('strong','', 'Editable starter draft — not sent'));
+    panel.append(makeText('strong','',draftState.generatedBy==='ai'?
+      'Personalized AI draft — editable, not sent':
+      'Editable starter draft — not sent'));
     panel.append(makeText('p','action-draft-status',
       'Verified recipient: '+draftState.to+' · '+draftState.context.observedMessages+
       ' messages in Gmail thread'+(draftState.context.partial?' (limited/truncated)':'')));
-    if(draftState.warning)
+    if(draftState.warning && draftState.generatedBy!=='ai')
       panel.append(makeText('p','case-alert',draftState.warning));
+    if(draftState.generatedBy==='ai' && draftState.rationale)
+      panel.append(makeText('p','action-draft-status','Draft rationale: '+draftState.rationale));
+    if(draftState.generatedBy==='ai' && draftState.needsReview?.length)
+      panel.append(makeText('p','case-alert',
+        'Before sending, verify: '+draftState.needsReview.join(' · ')));
     const recent=makeText('details','action-draft-thread','');
     recent.append(makeText('summary','', 'Inspect the most recent verified messages'));
     draftState.context.messages.slice(-4).forEach(msg=>{
@@ -219,6 +276,26 @@
       recent.append(block);
     });
     panel.append(recent);
+    const canPersonalize=draftState.context.lastDirection==='inbound'||
+      (draftState.context.lastDirection==='outbound'&&Boolean(draftState.body.trim()));
+    const aiButton=document.createElement('button');
+    aiButton.type='button';
+    aiButton.className='neutral';
+    aiButton.textContent=personalizedLoadingId===item.id?
+      'Generating personalized reply…':
+      draftState.generatedBy==='ai'?'Regenerate personalized draft (AI)':
+      'Generate personalized draft (AI)';
+    aiButton.disabled=Boolean(personalizedLoadingId)||!canPersonalize||
+      item.id==='gmail:ows-aws';
+    aiButton.addEventListener('click',()=>generatePersonalizedDraft(item));
+    panel.append(makeText('p','action-draft-status',
+      'Optional AI drafting sends a limited, redacted conversation excerpt and event facts to Vercel AI Gateway and the selected model provider only when you click Generate. No email is sent.'));
+    panel.append(aiButton);
+    if(!canPersonalize)
+      panel.append(makeText('p','case-alert',
+        'AI generation is blocked by the current correspondence hold or missing source text.'));
+    if(draftFeedback)
+      panel.append(makeText('p','action-draft-status',draftFeedback));
     const to=makeText('p','action-draft-meta','To: '+draftState.to);
     panel.append(to);
     const subject=document.createElement('input');
@@ -1076,7 +1153,7 @@
       paymentLedgerConnected=false;
       paymentRecords=[];
       gmailEvidenceRecords=[];
-      draftState=null; draftFeedback=''; draftLoadingId='';
+      draftState=null; draftFeedback=''; draftLoadingId=''; personalizedLoadingId='';
       actionDecisions=new Map();actionAuditReady=false;
       savedSourceCounts=Object.create(null);
       savedDecisionSignatures=Object.create(null);
@@ -1164,7 +1241,7 @@
     connectedRecords=[]; recordsAvailable=false;
     gmailEvidenceRecords=[]; showActionMonitoring=false;
     actionDecisions=new Map(); actionAuditReady=false; savingActionId='';
-    draftState=null;draftFeedback='';draftLoadingId='';
+    draftState=null;draftFeedback='';draftLoadingId='';personalizedLoadingId='';
     savedDecisionSignatures=Object.create(null);
     showSaveFeedback('Results cleared. Saved reviews remain securely stored.','neutral');
     raw = null; report = null; decisions = Object.create(null);

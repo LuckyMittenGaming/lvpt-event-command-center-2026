@@ -36,7 +36,7 @@
   function sourceFingerprint(item) {
     const payload=JSON.stringify([
       item?.id||'',item?.type||'',item?.eventId||'',item?.title||'',
-      item?.source||'',item?.evidence||'',item?.action||''
+      item?.sourceRevision||[item?.source||'',item?.evidence||'',item?.action||'']
     ]);
     let a=2166136261,b=2779096485;
     for(let i=0;i<payload.length;i++){
@@ -92,6 +92,7 @@
         add({
           id:'payment:'+id,type:'payment',group:'review',rank:contradiction?0:initiated?1:2,
           title,eventId,eventName:text(event.eventName||event.company||eventId),
+          sourceRevision:[eventId,id,status,p.invoiceNumber,p.invoiceTotal,p.amountPaid,p.balanceDue],
           source:'Payments ledger · '+id,
           evidence:detail+' Recorded status: '+status+'.',
           action:contradiction?
@@ -112,6 +113,7 @@
           id:'payout:'+id,type:'payout',group:'review',rank:3,
           title:/^planned$/i.test(status)?'Review planned payout':'Review payout ledger status',
           eventId,eventName:text(event.eventName||event.company||eventId),
+          sourceRevision:[eventId,id,status,p.payee,p.amount],
           source:'Event Payouts ledger · '+id,
           evidence:text(p.payee||'Payee not recorded',120)+' · '+money(p.amount)+
             ' · status '+status+'.',
@@ -160,6 +162,7 @@
             'Monitor recent correspondence',
         eventId:ambiguousOrganization?'':event.id,
         eventName:ambiguousOrganization?'OWS (multiple events)':CLIENT_LABELS[key],
+        sourceRevision:[key,latest.threadId,latest.lastMessageAt,direction,stage,record.partial===true],
         source:'Bounded Gmail thread headers · '+threads.length+' checked thread(s)',
         evidence:'Last indexed '+(direction==='inbound'?'client message':direction==='outbound'?'LVPT message':'message of unknown direction')+
           ' '+days+' day(s) ago · event stage: '+(stage||'not recorded')+

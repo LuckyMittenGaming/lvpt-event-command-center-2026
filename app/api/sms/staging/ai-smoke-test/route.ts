@@ -64,6 +64,7 @@ export async function POST(request:Request) {
           'customer_verification_required','insufficient_funds',
           'quota_for_entity_exceeded','authentication_error',
           'unauthorized','invalid_api_key','invalid_token',
+          'access_denied','forbidden','account_restricted',
           'model_not_found','invalid_model','invalid_request_error'
         ]);
         for(const code of codes) {
@@ -79,9 +80,14 @@ export async function POST(request:Request) {
         status===429?'ai_gateway_rate_limited':
         status===400||status===404?'ai_gateway_model_or_request_invalid':
         'ai_gateway_provider_unavailable';
+      const supportRequestId=(response.headers.get('x-vercel-id')||'').trim();
       return jsonNoStore({
         ok:false,reason,gatewayStatus:status,gatewayCode,
-        authentication:auth.method
+        authentication:auth.method,
+        // Safe, opaque diagnostic reference for Vercel Support. Never
+        // expose the bearer token or the upstream response body.
+        ...(supportRequestId.length<=140 && /^[a-zA-Z0-9:_-]+$/.test(supportRequestId)?
+          {supportRequestId}: {})
       },503);
     }
     const data=await response.json() as {choices?:Array<{message?:{content?:unknown}}>} ;

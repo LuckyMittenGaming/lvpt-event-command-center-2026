@@ -2,6 +2,7 @@ import { jsonNoStore, ready } from '../_lib';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { GET as readApprovedContext } from '../draft-context/route';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { shouldHoldPersonalizedDraft } from '../../../../../lib/lvpt-personalized-policy.mjs';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -44,31 +45,6 @@ function safeEmailExcerpt(input:unknown):string {
 }
 function redactUnsafeOutput(input:string):string {
   return input.replace(/https?:\/\/\S+/gi,'[link — verify manually]');
-}
-function findLastInbound(messages:RawMail[]) {
-  return messages.slice().reverse().find(m=>m.direction==='inbound');
-}
-function shouldHold(context:ApprovedContext):string {
-  const messages=context.messages||[];
-  if(!messages.length || messages.length>12)return 'conversation_missing';
-  if(context.eventKey==='ows-aws')return 'multiple_ows_events_unresolved';
-  const last=messages[messages.length-1];
-  if(!last||last.direction!=='inbound'&&last.direction!=='outbound')
-    return 'latest_message_direction_unverified';
-  if(!tidy(last.body,1600))return 'latest_message_body_missing';
-  const client=findLastInbound(messages);
-  if(!client||!tidy(client.body,1600))
-    return 'client_message_body_missing';
-  if(context.lastDirection==='outbound') {
-    const past=Date.parse(context.lastMessageAt||'');
-    if(!Number.isFinite(past)||past>Date.now())return 'latest_message_date_unverified';
-    const days=Math.floor((Date.now()-past)/86400000);
-    if(days<7)return 'recent_outbound_followup_too_early';
-    const clientText=tidy(client.body,1600);
-    if(/\b(?:out of town|out of (?:the )?office|on vacation|on holiday|away for (?:a few|several|two|three) weeks|once i.m back|when i.m back|back in (?:the )?office|you.ll likely hear from me|hear from me once|share with leadership|in front of leadership|run it by (?:our )?(?:ceo|leadership)|awaiting (?:leadership|internal) (?:approval|review|decision))\b/i.test(clientText))
-      return 'client_travel_or_internal_review_hold';
-  }
-  return '';
 }
 function unwrapJson(value:unknown):{subject:string;body:string;rationale:string;needsReview:string[]}|null {
   if(typeof value!=='string'||!value.trim()||value.length>16000)return null;
@@ -130,7 +106,7 @@ export async function POST(request:Request) {
       return jsonNoStore({ok:false,reason:'source_verification_failed'},502);
   }catch {return jsonNoStore({ok:false,reason:'approved_source_unavailable'},502);}
 
-  const hold=shouldHold(context);
+  const hold=shouldHoldPersonalizedDraft(context);
   if(hold)return jsonNoStore({ok:false,reason:'draft_held',holdReason:hold},409);
   const eventId=EVENT_IDS[eventKey];
   if(!eventId)return jsonNoStore({ok:false,reason:'event_identity_ambiguous'},409);

@@ -109,13 +109,17 @@
           ' · upstream HTTP '+data.gatewayStatus+' · code '+code+
           ' · authentication '+method:'';
         const guidance=data.reason==='ai_gateway_account_verification_required'?
-          ' Vercel may require account/payment-method verification in AI Gateway.':
+          ' Check Vercel team account/payment-method verification.':
+          data.gatewayCode==='access_denied'?
+          ' The gateway refused team access. Check AI Gateway billing/verification or contact Vercel Support.':
           data.gatewayStatus===401?
           ' The gateway rejected the credential.':
           data.gatewayStatus===403?
-          ' The gateway denied access. Its code distinguishes verification from an invalid credential.':'';
+          ' The gateway denied access. Check team-level eligibility and billing verification.':'';
+        const supportRef=typeof data.supportRequestId==='string'?
+          ' · Vercel request ID '+data.supportRequestId:'';
         throw new Error((data.reason||'request_failed')+
-          ' (HTTP '+response.status+')'+codeInfo+'.'+guidance);
+          ' (HTTP '+response.status+')'+codeInfo+supportRef+'.'+guidance);
       }
       if(data.source!=='fictional_ai_gateway_smoke_test' ||
          data.noEmailSent!==true || data.noGmailRead!==true ||

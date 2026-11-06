@@ -88,11 +88,14 @@ function lvptReadOnlyGmailDraftContext_(eventKey, threadId, expectedLastMessageA
     var direction=clientSender?'inbound':sent?'outbound':'unknown';
     if(direction==='unknown')return;
     if(clientSender)recipient=address(from);
-    var body=decodePart(message.payload||{},0)
-      .replace(/\r\n/g,'\n').replace(/\u0000/g,'').trim();
-    var truncated=body.length>3200;
+    // Gmail replies often contain the entire prior conversation after the
+    // sender's newly authored text. Limit the authored portion FIRST so older
+    // quoted histories cannot exhaust the budget before recent messages.
+    var visible=lvptGmailDraftVisibleBody_(decodePart(message.payload||{},0));
+    var body=visible.body;
     var remaining=Math.max(0,22000-totalChars);
-    var max=Math.min(3200,remaining);
+    var max=Math.min(1600,remaining);
+    var truncated=visible.truncated||body.length>max;
     body=body.slice(0,max);
     totalChars+=body.length;
     transcript.push({
@@ -121,6 +124,18 @@ function lvptReadOnlyGmailDraftContext_(eventKey, threadId, expectedLastMessageA
     checkedAt:new Date().toISOString(),
     advisory:'Read-only source material. Verify context and attachments; no draft was emailed or saved.'
   };
+}
+
+// Testable, standalone extractor. Keep only text authored above standard
+// quoted-reply boundaries; never truncate latest messages merely because
+// older email history contains thousands of quoted characters.
+function lvptGmailDraftVisibleBody_(raw) {
+  var input=String(raw||'').replace(/\r\n/g,'\n').replace(/\u0000/g,'').trim();
+  var boundary=/\n\s*(?:On\s+[^\n]{5,180}\s+wrote:|-----Original Message-----|From:\s+[^\n]{3,150}\n\s*Sent:)/i;
+  var authored=input.split(boundary)[0].trim();
+  var max=1600;
+  return {body:authored.slice(0,max),truncated:authored.length>max,
+    fullAuthorLength:authored.length};
 }
 
 // Read-only test that logs counts, never mail bodies or addresses.

@@ -51,12 +51,38 @@ export async function POST(request:Request) {
     });
     if(!response.ok) {
       const status=response.status;
-      return jsonNoStore({ok:false,reason:status===401||status===403?
-        'ai_gateway_authorization_failed':status===429?
-        'ai_gateway_rate_limited':status===400||status===404?
-        'ai_gateway_model_or_request_invalid':status===402?
-        'ai_gateway_billing_or_credits':'ai_gateway_provider_unavailable',
-        gatewayStatus:status},503);
+      // Expose only a small allowlist of diagnostic codes. The gateway's
+      // message, response headers, request data and any auth tokens stay
+      // exclusively server-side and are never returned to the browser.
+      let gatewayCode='unknown';
+      try {
+        const error=await response.json() as {
+          error?:{code?:unknown;type?:unknown};code?:unknown
+        };
+        const codes=[error?.error?.code,error?.error?.type,error?.code];
+        const allow=new Set([
+          'customer_verification_required','insufficient_funds',
+          'quota_for_entity_exceeded','authentication_error',
+          'unauthorized','invalid_api_key','invalid_token',
+          'model_not_found','invalid_model','invalid_request_error'
+        ]);
+        for(const code of codes) {
+          if(typeof code==='string' && allow.has(code)) {
+            gatewayCode=code;break;
+          }
+        }
+      }catch {/* Non-JSON error: report HTTP status only. */}
+      const reason=gatewayCode==='customer_verification_required'?
+        'ai_gateway_account_verification_required':
+        status===402?'ai_gateway_billing_or_credits':
+        status===401||status===403?'ai_gateway_authorization_failed':
+        status===429?'ai_gateway_rate_limited':
+        status===400||status===404?'ai_gateway_model_or_request_invalid':
+        'ai_gateway_provider_unavailable';
+      return jsonNoStore({
+        ok:false,reason,gatewayStatus:status,gatewayCode,
+        authentication:auth.method
+      },503);
     }
     const data=await response.json() as {choices?:Array<{message?:{content?:unknown}}>} ;
     const raw=data.choices?.[0]?.message?.content;

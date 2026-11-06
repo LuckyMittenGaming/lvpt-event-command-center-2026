@@ -12,6 +12,9 @@ on:
       - 'tests/sms-evidence.test.cjs'
       - 'tests/sms-action-queue.test.cjs'
       - 'tests/sms-draft-preview.test.cjs'
+      - 'tests/sms-personalized-draft.test.cjs'
+      - 'app/api/sms/staging/personalized-draft/route.ts'
+      - 'lib/lvpt-personalized-policy.mjs'
       - 'apps-script/GmailDraftContext.gs'
       - 'apps-script/release/**'
       - 'app/api/sms/staging/draft-context/route.ts'
@@ -58,6 +61,7 @@ jobs:
       - run: node --check public/sms-review/action-queue.js
       - run: node --check public/sms-review/draft-helper.js
       - run: node --check lib/sms-intelligence.mjs
+      - run: node --check lib/lvpt-personalized-policy.mjs
       - run: node --check < apps-script/GmailEvidence.gs
       - run: node --check < apps-script/GmailDraftContext.gs
       - run: node --check < apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs
@@ -68,6 +72,7 @@ jobs:
       - run: node tests/sms-evidence.test.cjs
       - run: node tests/sms-action-queue.test.cjs
       - run: node tests/sms-draft-preview.test.cjs
+      - run: node tests/sms-personalized-draft.test.cjs
       - run: node tests/gmail-thread-triage.test.cjs
       - run: node tests/sms-gmail-intelligence.test.cjs
       - run: node tests/sms-gmail-scope-static.test.cjs

@@ -53,6 +53,16 @@ assert.match(script,/users\/me\/profile/,'Verify exact LVPT business mailbox, no
 assert.match(script,/all\.slice\(-12\)/,'Bounded conversation context');
 assert.match(script,/gmail\.googleapis\.com/);
 assert.match(code,/action === 'readGmailDraftContext'/);
+assert.match(code,/function checkLvptFinancialLedgerProtectionNow\(/,
+  'The staged Apps Script must retain v0.9 unique financial ID protection');
+assert.match(code,/lvptVerifyFinancialLedgerIds_\(\)/,
+  'Bulk event save must verify both ledgers before writing');
+assert.match(code,/Bulk rewrite blocked for protected financial ledger/,
+  'The generic sheet writer must reject Payments and Event Payouts');
+const saveSection=code.slice(code.indexOf('function lvptSaveAllEvents_('),
+  code.indexOf('function lvptVerifyFinancialLedgerIds_('));
+assert(!/lvptWritePaymentsSheet_\(/.test(saveSection),
+  'Bulk Save All Events must never rewrite an invoice row');
 assert.match(html,/draft-helper\.js/);
 assert.match(app,/openApprovedDraftPreview/);
 assert.match(app,/navigator\.clipboard\.writeText/);

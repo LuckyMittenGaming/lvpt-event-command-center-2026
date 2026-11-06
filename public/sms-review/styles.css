@@ -1,0 +1,90 @@
+:root{color-scheme:dark;--bg:#0a1020;--panel:#121c30;--border:#2d3950;--ink:#f5f7ff;--muted:#a9b7ce;--blue:#75b7ff;--panel2:#182740}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 70% -20%,#20365c,transparent 45%),var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+.shell{max-width:1170px;padding:40px 24px 72px;margin:auto}.masthead{display:flex;justify-content:space-between;align-items:start;gap:24px;padding:0 0 22px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#9bd0ff;text-transform:uppercase;font-weight:750}.masthead h1{font-size:clamp(29px,4vw,45px);line-height:1.16;margin:8px 0 12px}.masthead p{max-width:720px;margin:0;color:var(--muted)}a{color:var(--blue)}.back{white-space:nowrap;font-weight:600;text-decoration:none;margin-top:14px}.alert{border:1px solid #355477;border-radius:14px;background:#13243c;padding:18px 22px;margin:24px 0}.alert strong{color:#cee7ff}.alert p{margin:4px 0 0;color:#c2d2e6}.panel{background:var(--panel);border:1px solid var(--border);padding:26px;border-radius:18px;margin:24px 0;box-shadow:0 15px 42px #0002}.panel h2{font-size:24px;margin:3px 0 7px}.panel p{color:var(--muted)}.intro{display:flex;justify-content:space-between;align-items:start;gap:28px}.intro>div:first-child{max-width:620px}.import-controls{min-width:230px;display:grid;gap:12px}.file-button,button{display:inline-flex;justify-content:center;align-items:center;border-radius:9px;padding:10px 14px;min-height:43px;cursor:pointer;font-weight:700;font:inherit}.file-button,.primary{border:1px solid #2977d1;color:white;background:#2268c5}.file-button{text-align:center}.neutral{border:1px solid var(--border);background:#1a2942;color:var(--ink)}button:disabled{opacity:.5;cursor:not-allowed}.visually-hidden{position:absolute;opacity:0;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}input,select{background:#0b1424;color:var(--ink);border:1px solid #445371;border-radius:9px;padding:10px 11px;min-height:42px;max-width:100%}.date-label{display:grid;gap:5px;color:var(--muted);font-size:13px}.date-label input{width:100%}#notice{border-top:1px solid var(--border);padding-top:15px;margin:8px 0 0;flex-basis:100%;font-size:14px}.intro{flex-wrap:wrap}.intro>div:first-child{flex:1}#notice.error{color:#ffc6a8}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.metric{background:var(--panel2);border:1px solid var(--border);border-radius:14px;padding:19px}.metric-label{display:block;color:var(--muted);font-size:12px}.metric-number{font-size:30px;display:block;margin-top:4px;font-variant-numeric:tabular-nums}.section-heading{display:flex;justify-content:space-between;align-items:start;gap:20px}.section-heading>div{flex:1}.section-heading p{margin:0}.section-heading button{white-space:nowrap}.hint{border-left:3px solid #659dff;background:#172743;padding:12px;margin:20px 0!important}.filters{display:grid;grid-template-columns:minmax(230px,2fr) 1fr 1fr;gap:12px;margin-top:20px}.count{font-size:13px;padding-bottom:10px}.findings{display:grid;gap:14px}.finding{border:1px solid var(--border);border-radius:13px;padding:18px;background:#101b2e}.finding-top{display:flex;align-items:center;flex-wrap:wrap;gap:9px}.tag{background:#223b5e;border:1px solid #416594;color:#cfebff;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700}.secondary{color:var(--muted);font-size:12px}.finding h3{margin:11px 0 6px;font-size:17px}.excerpt{white-space:normal;overflow-wrap:anywhere;color:#dce6f4!important;margin:8px 0}.guidance{margin:7px 0;color:var(--muted);font-size:13px}.amounts{color:#d0e8ff!important;font-size:13px}.review-controls{display:grid;grid-template-columns:210px 1fr;gap:10px;margin-top:16px}.note{width:100%}.empty{padding:20px}#more{margin-top:18px}footer{color:var(--muted);font-size:12px;margin-top:45px;text-align:center}
+@media(max-width:800px){.shell{padding:20px 15px}.masthead{display:block}.back{display:inline-block}.intro{display:block}.import-controls{margin-top:15px}.metrics{grid-template-columns:repeat(2,1fr)}.section-heading{display:block}.section-heading button{margin-top:15px}.filters{grid-template-columns:1fr}.review-controls{grid-template-columns:1fr}.panel{padding:18px}.metric-number{font-size:25px}}
+
+
+[hidden]{display:none!important}
+.case-list{display:grid;gap:15px;margin-top:22px}
+.case-card{padding:19px;border-radius:13px;background:#101b2e;border:1px solid var(--border)}
+.case-card h3{font-size:20px;margin:12px 0 1px}
+.case-card h4{font-size:15px;color:#bcd7f3;font-weight:600;margin:0}
+.case-card .guidance{margin:10px 0}
+.case-samples{display:grid;gap:8px;margin:12px 0}
+.case-sample{border-left:2px solid #345c94;background:#15243b;padding:9px 13px;border-radius:0 8px 8px 0}
+.case-sample .excerpt{margin:2px 0;font-size:13px}
+.case-open{margin-top:13px;font-size:13px;min-height:39px}
+#clearCaseFilter{margin-bottom:15px;font-size:12px;min-height:32px}
+#showMoreCases{margin-top:18px}
+#caseExplain{margin-top:0}
+
+.case-recommendation{background:#172d43;border-left:3px solid #85bafe;border-radius:0 7px 7px 0;padding:10px 12px;font-size:13px;color:#daecff!important;margin:12px 0!important}
+
+.case-action-buttons{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.source-status{background:#112842;border:1px solid #365474;border-radius:9px;padding:11px 13px;font-size:13px;margin:14px 0 0}
+.reconciliation-detail{background:#152b28;border:1px solid #355a54;border-radius:9px;padding:12px 14px;margin:12px 0;color:#e4f7f0}
+.reconciliation-detail strong{font-size:13px}
+.reconciliation-detail p{font-size:13px;color:#c4dcd7;margin:3px 0 0}
+.case-alert{font-size:13px;color:#ffd6a8!important;border:1px solid #a37736;border-radius:8px;padding:8px 11px}
+@media(max-width:800px){.case-action-buttons{margin-top:15px}.case-action-buttons button{flex:1;min-width:160px}}
+
+/* One-time credential entry uses two columns; controls collapse on phones. */
+.session-controls{grid-template-columns:minmax(220px,1fr) auto;max-width:780px}
+.session-controls button{min-width:235px}
+@media(max-width:800px){.session-controls{grid-template-columns:1fr}.session-controls button{width:100%}}
+
+.attention-label{font-size:12px;font-weight:700;color:#d6e6ff;border:1px solid #3a5276;background:#213853;padding:3px 9px;border-radius:8px}
+
+.evidence-detail{border:1px solid #37526a;background:#14283d;border-radius:9px;padding:11px 14px;margin:10px 0;color:#d9e8f7}
+.evidence-detail strong{font-size:13px}
+.evidence-detail p{font-size:13px;margin:5px 0 0;color:#d0e0f2}
+
+/* Owner attention and payout briefs: neutral operational evidence, not green success statuses. */
+.attention-brief{display:grid;gap:9px}
+.attention-brief-item{display:flex;align-items:center;justify-content:space-between;gap:20px;border:1px solid #334c69;background:#14263d;padding:13px 15px;border-radius:9px}
+.attention-brief-copy{min-width:0;flex:1}
+.attention-brief-copy strong{font-size:14px}
+.attention-brief-copy p{font-size:12px;color:#bfcfe6;margin:5px 0 0}
+.attention-brief-item button{flex-shrink:0}
+.payout-audit-items{display:grid;gap:8px}
+.payout-exception{border:1px solid #42536b;border-radius:9px;background:#15283f;padding:12px 14px}
+.payout-exception strong{font-size:13px}
+.payout-exception p{font-size:13px;margin:6px 0 0;color:#ccd9e8}
+@media(max-width:700px){.attention-brief-item{align-items:stretch;flex-direction:column;gap:10px}.attention-brief-item button{width:100%}}
+
+/* Review confirmation is anchored beside the Save control, not above the long case list. */
+.case-save-feedback{border:1px solid #365271;background:#13263f;border-radius:9px;padding:10px 13px;margin:11px 0;color:#d0e5f8;font-size:13px}
+.case-save-feedback[data-state='success']{border-color:#2f7256;background:#183b2f;color:#d0fbe1}
+.case-save-feedback[data-state='error']{border-color:#924d43;background:#402523;color:#ffe1d9}
+.case-save-feedback[data-state='pending']{border-color:#597a9e;background:#193551;color:#e8f4ff}
+
+/* Read-only action queue. No approval, send, accounting or task write controls. */
+.action-queue-items{display:grid;gap:11px;margin-top:15px}
+.action-queue-card{border:1px solid #3c536d;background:#14263d;border-radius:12px;padding:15px 17px}
+.action-queue-card h3{font-size:16px;line-height:1.35;margin:7px 0 4px}
+.action-queue-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.action-queue-kind{font-size:11px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;color:#b9ddff;border:1px solid #47678a;border-radius:6px;padding:2px 8px}
+.action-queue-card p{font-size:13px;color:#c5d4e8;margin:8px 0;overflow-wrap:anywhere}
+.action-queue-card .action-queue-source{font-size:12px;color:#a9c2df}
+.action-queue-card button{font-size:13px;margin-top:7px;min-height:38px}
+#toggleActionMonitoring{margin-top:15px}
+@media(max-width:700px){.action-queue-card button{width:100%}}
+
+/* Separate, explicit owner decision controls (staging audit only). */
+.action-queue-controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:12px 0 5px}
+.action-queue-controls button{font-size:13px;min-height:38px;padding:8px 11px}
+.action-queue-decision{border-left:2px solid #6987a9;padding-left:10px;color:#d1e2f5!important}
+@media(max-width:700px){.action-queue-controls{display:grid;grid-template-columns:1fr}.action-queue-controls button{width:100%}}
+
+/* Ephemeral, read-only Gmail conversation and editable no-send email draft. */
+.action-draft-panel{margin-top:16px;padding:17px;border:1px solid #486486;border-radius:12px;background:#0e2035;display:grid;gap:12px}
+.action-draft-panel>strong{font-size:15px;color:#e1ecfa}
+.action-draft-panel input,.action-draft-panel textarea{width:100%;font:inherit;border:1px solid #4b617c;background:#0b1829;color:#fff;border-radius:8px;padding:11px;min-height:42px}
+.action-draft-panel textarea{min-height:180px;resize:vertical;white-space:pre-wrap}
+.action-draft-panel .action-draft-status,.action-draft-panel .action-draft-meta{font-size:12px;color:#c9d9e9;margin:3px 0}
+.action-draft-thread{border:1px solid #3b516a;border-radius:9px;padding:11px;background:#12243a}
+.action-draft-thread summary{cursor:pointer;font-weight:700;font-size:13px}
+.action-draft-message{border-top:1px solid #304764;padding-top:9px;margin-top:9px}
+.action-draft-message strong{font-size:12px;color:#c9e2ff}
+.action-draft-message p{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto}
+@media(max-width:700px){.action-draft-panel{padding:12px}.action-draft-panel>input,.action-draft-panel>textarea{max-width:100%}}

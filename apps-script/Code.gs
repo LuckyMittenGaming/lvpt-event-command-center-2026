@@ -15,6 +15,9 @@ function doPost(e) {
     var action = String(payload.action || '').trim();
     if (action === 'status') return lvptJson_(lvptStatus_());
     if (action === 'listEvents') return lvptJson_({ ok: true, events: lvptListEvents_(), serverTime: new Date().toISOString() });
+    if (action === 'listReconciliationEvidence') return lvptJson_(lvptListReconciliationEvidence_());
+    if (action === 'listGmailThreadEvidence') return lvptJson_(lvptReadOnlyGmailEvidence_(String(payload.eventKey || '')));
+    if (action === 'readGmailDraftContext') return lvptJson_(lvptReadOnlyGmailDraftContext_(String(payload.eventKey || ''), String(payload.threadId || ''), String(payload.expectedLastMessageAt || '')));
     if (action === 'saveAllEvents') return lvptJson_(lvptSaveAllEvents_(payload));
     if (action === 'uploadDocument') return lvptJson_(lvptUploadDocument_(payload));
     if (action === 'deleteDocument') return lvptJson_(lvptDeleteDocument_(payload));
@@ -113,6 +116,66 @@ function lvptBool_(value) {
 
 function lvptNumber_(value) { var number = Number(value); return isNaN(number) ? 0 : number; }
 
+
+// Read-only evidence for LVPT SMS reconciliation.
+// Do not infer that a planned payout cleared; the sheet's recorded status is authoritative
+// about what the Command Center says, but bank confirmation is still independent.
+function lvptListReconciliationEvidence_() {
+  var raw = lvptSheetObjects_('Event Payouts');
+  var rows = raw.map(function(row) {
+    var value = String(row.amount || '').replace(/[^0-9.-]/g, '');
+    var numericAmount = value === '' ? null : Number(value);
+    return {
+      payoutId: String(row.payout_id || '').slice(0, 120),
+      eventId: String(row.event_id || '').slice(0, 120),
+      payee: String(row.payee || '').slice(0, 120),
+      payoutType: String(row.payout_type || '').slice(0, 80),
+      amount: numericAmount !== null && isFinite(numericAmount) ? numericAmount : null,
+      status: String(row.status || 'Unknown').slice(0, 50),
+      paidDate: lvptDateString_(row.paid_date)
+    };
+  }).filter(function(row) {
+    return row.eventId && row.payoutId;
+  });
+  // Each invoice/payment entry is returned separately. listEvents() currently
+  // exposes only the first Payments row for an event and cannot be used to
+  // conclude whether add-on invoices were settled.
+  var paymentRecords = lvptSheetObjects_('Payments').map(function(item) {
+    function numberOrNull(value) {
+      var text = String(value == null ? '' : value).replace(/[^0-9.-]/g, '');
+      if (!text) return null;
+      var amount = Number(text);
+      return isFinite(amount) ? amount : null;
+    }
+    return {
+      paymentId: String(item.payment_id || '').slice(0, 120),
+      eventId: String(item.event_id || '').slice(0, 120),
+      invoiceNumber: String(item.invoice_number || '').slice(0, 100),
+      invoiceTotal: numberOrNull(item.invoice_total),
+      amountPaid: numberOrNull(item.amount_paid),
+      balanceDue: numberOrNull(item.balance_due),
+      paymentStatus: String(item.payment_status || 'Unknown').slice(0, 80),
+      dueDate: lvptDateString_(item.due_date),
+      paymentDate: lvptDateString_(item.payment_date)
+    };
+  }).filter(function(item) {
+    return item.eventId && item.paymentId;
+  });
+  return {
+    ok: true,
+    source: 'Event Payouts + Payments',
+    sourceVerifiedAs: 'Command Center ledger only — not bank settlement evidence',
+    payoutCount: rows.length,
+    payouts: rows,
+    paymentCount: paymentRecords.length,
+    paymentRecords: paymentRecords,
+    serverTime: new Date().toISOString()
+  };
+}
+
+
+// Gmail metadata helpers live in GmailEvidence.gs; Apps Script loads all .gs files in this project.
+
 function lvptListEvents_() {
   var eventRows = lvptSheetObjects_('Events');
   var quoteByEvent = lvptIndexByEvent_(lvptSheetObjects_('Quote Items'));
@@ -169,15 +232,56 @@ function lvptSaveAllEvents_(payload) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    lvptWriteEventsSheet_(events, actor); lvptWriteQuoteSheet_(events); lvptWritePaymentsSheet_(events); lvptWriteTasksSheet_(events); lvptWriteStaffSheet_(events); lvptWriteComplianceSheet_(events); lvptWriteDocumentsSheet_(events); lvptWriteGmailSheet_(events); lvptWritePostEventSheet_(events); lvptAppendChangeLog_(events, actor, payload.reason || 'App synchronization');
+    var checked = lvptVerifyFinancialLedgerIds_();
+    lvptWriteEventsSheet_(events, actor);
+    lvptWriteQuoteSheet_(events);
+    // Financial ledgers must be managed independently by unique payment/payout ID.
+    // Bulk event synchronization may NEVER reconstruct an invoice or payout.
+    lvptWriteTasksSheet_(events);
+    lvptWriteStaffSheet_(events);
+    lvptWriteComplianceSheet_(events);
+    lvptWriteDocumentsSheet_(events);
+    lvptWriteGmailSheet_(events);
+    lvptWritePostEventSheet_(events);
+    lvptAppendChangeLog_(events, actor, payload.reason || 'App synchronization');
     SpreadsheetApp.flush();
-    return { ok: true, saved: events.length, serverTime: new Date().toISOString() };
+    return {
+      ok:true,saved:events.length,financialLedgersProtected:true,
+      paymentChangesApplied:false,paymentsPreserved:checked.paymentCount,
+      payoutsPreserved:checked.payoutCount,
+      warning:'Payments and Event Payouts were not changed; use the separate approved financial workflow.',
+      serverTime:new Date().toISOString()
+    };
   } finally { lock.releaseLock(); }
+}
+// Verify both ledgers before any event save; reject missing and duplicate IDs.
+function lvptVerifyFinancialLedgerIds_() {
+  function count(sheetName,idField) {
+    var seen=Object.create(null);
+    var rows=lvptSheetObjects_(sheetName);
+    rows.forEach(function(row,index) {
+      var id=String(row[idField]||'').trim();
+      if(!id || seen[id])throw new Error('Financial ledger '+sheetName+' row '+(index+2)+
+        ' has a missing or duplicate ID. Bulk save stopped without modifications.');
+      seen[id]=true;
+    });
+    return rows.length;
+  }
+  return {paymentCount:count('Payments','payment_id'),
+    payoutCount:count('Event Payouts','payout_id')};
+}
+function checkLvptFinancialLedgerProtectionNow() {
+  var checked=lvptVerifyFinancialLedgerIds_();
+  Logger.log('Financial ledgers validated (read-only): Payments=%s, Event Payouts=%s. No rows changed.',
+    checked.paymentCount,checked.payoutCount);
+  return checked;
 }
 
 function lvptHeaders_(sheet) { return sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(function (header) { return String(header || '').trim(); }); }
 
 function lvptRewriteSheet_(sheetName, objects) {
+  if(sheetName==='Payments'||sheetName==='Event Payouts')
+    throw new Error('Bulk rewrite blocked for protected financial ledger: '+sheetName);
   var sheet = lvptSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + sheetName);
   var headers = lvptHeaders_(sheet);
@@ -194,7 +298,9 @@ function lvptEventRow_(event, actor) {
 
 function lvptWriteEventsSheet_(events, actor) { lvptRewriteSheet_('Events', events.map(function (event) { return lvptEventRow_(event, actor); })); }
 function lvptWriteQuoteSheet_(events) { var rows = []; events.forEach(function (event) { (event.quote || []).forEach(function (item) { var q = lvptNumber_(item.quantity), p = lvptNumber_(item.unitPrice), c = lvptNumber_(item.internalCost); rows.push({ quote_item_id: item.id || Utilities.getUuid(), event_id: event.id, category: item.category || '', line_item: item.name || '', quantity: q, unit_price: p, client_total: q * p, internal_unit_cost: c, internal_total: q * c, estimated_profit: q * (p - c), notes: item.notes || '' }); }); }); lvptRewriteSheet_('Quote Items', rows); }
-function lvptWritePaymentsSheet_(events) { var rows = events.map(function (event) { var p = event.payment || {}, s = event.setup || {}, total = (event.quote || []).reduce(function (sum, item) { return sum + lvptNumber_(item.quantity) * lvptNumber_(item.unitPrice); }, 0); return { payment_id: 'PAY-' + event.id, event_id: event.id, invoice_number: p.invoiceNumber || '', invoice_total: total, deposit_required: lvptNumber_(p.depositRequired), amount_paid: lvptNumber_(p.amountPaid), payment_status: p.status || 'Not Invoiced', balance_due: Math.max(total - lvptNumber_(p.amountPaid), 0), due_date: p.balanceDueDate || '', payment_date: p.paymentDate || '', po_required: s.poRequired || 'unknown', po_number: s.poNumber || '', ap_email: s.invoiceEmail || '', notes: s.paymentNotes || '' }; }); lvptRewriteSheet_('Payments', rows); }
+function lvptWritePaymentsSheet_() {
+  throw new Error('Bulk payment modifications disabled; use separate approved financial workflow.');
+}
 function lvptWriteTasksSheet_(events) { var rows = []; events.forEach(function (event) { (event.tasks || []).forEach(function (item) { rows.push({ task_id: item.id || Utilities.getUuid(), event_id: event.id, task: item.title || '', owner: item.owner || '', due_date: item.dueDate || '', priority: item.priority || 'Medium', status: item.status || 'Open', source: item.source || 'Command Center', notes: item.notes || '', completed_at: item.completedAt || '' }); }); }); lvptRewriteSheet_('Tasks', rows); }
 function lvptWriteStaffSheet_(events) { var rows = []; events.forEach(function (event) { (event.staff || []).forEach(function (item) { rows.push({ staff_id: item.id || Utilities.getUuid(), event_id: event.id, name: item.name || '', role: item.role || '', confirmed: Boolean(item.confirmed), arrival_time: item.arrivalTime || '', departure_time: item.departureTime || '', rate: lvptNumber_(item.rate), travel_required: Boolean(item.travelRequired), hotel_required: Boolean(item.hotelRequired), notes: item.notes || '' }); }); }); lvptRewriteSheet_('Staff', rows); }
 function lvptWriteComplianceSheet_(events) { var rows = []; events.forEach(function (event) { (event.compliance || []).forEach(function (item) { rows.push({ compliance_id: item.id || Utilities.getUuid(), event_id: event.id, requirement: item.name || '', status: item.status || 'Pending', due_date: item.dueDate || '', owner: item.owner || (event.setup || {}).internalOwner || 'Matt', document_url: item.documentUrl || '', notes: item.notes || '' }); }); }); lvptRewriteSheet_('Compliance', rows); }

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'">
+  <title>SMS Intelligence Review | LVPT Command Center</title>
+  <meta name="description" content="Private, authenticated SMS staging and event-review pilot for Las Vegas Poker Training.">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div><span class="eyebrow">Las Vegas Poker Training · Event Command Center</span>
+        <h1>SMS Intelligence Review</h1>
+        <p>Turn synchronized SMS into event-focused review bundles. No automatic accounting updates or new tasks.</p>
+      </div>
+      <a class="back" href="/v2/index.html">← Event Command Center</a>
+    </header>
+    <section class="alert" aria-label="Privacy information">
+      <strong>Staging review pilot</strong>
+      <p>A selected SMS file is read inside this browser tab, not uploaded. Staging mode fetches only redacted findings through a secure, short-lived session cookie. Raw messages are not written to browser storage or GitHub. Flags can be wrong, and approved findings are exported as a separate decisions file—not posted to live records. This is not yet a multi-user authenticated archive.</p>
+    </section>
+    <section class="panel" aria-labelledby="stagingTitle">
+      <p class="eyebrow">Secure saved browser access · Development preview</p>
+      <h2 id="stagingTitle">SMS Intelligence staging inbox</h2>
+      <p>Sign in once with your Device Token. Your browser will receive a seven-day, Secure/HttpOnly review-session cookie. The Device Token is never saved in browser storage, and the Vercel Bypass Token remains in Android's encrypted settings rather than being retained by this page.</p>
+      <p id="sessionStatus" class="source-status" role="status" aria-live="polite">Checking your saved review session…</p>
+      <div id="sessionLogin" hidden>
+        <div class="filters session-controls">
+          <input id="stagingToken" type="password" autocomplete="off" spellcheck="false" placeholder="Device Token (enter once)" aria-label="Device Token">
+          <button class="primary" type="button" id="connectStaging">Unlock this browser for 7 days</button>
+        </div>
+        <p class="hint">Access this preview while signed in to Vercel. A separate Vercel Bypass Token should not be saved in the browser. Don't paste any token into ChatGPT.</p>
+      </div>
+      <div id="sessionReady" hidden>
+        <div class="case-action-buttons">
+          <button class="primary" type="button" id="refreshStaging">Refresh staging findings</button>
+          <button class="neutral" type="button" id="signOutReview">Sign out of review session</button>
+        </div>
+        <p class="hint">Session remains valid on this browser and the same preview URL for up to seven days. No live invoices, Gmail, tasks or event data are changed.</p>
+      </div>
+    </section>
+    <section class="panel intro" aria-labelledby="importTitle">
+      <div>
+        <p class="eyebrow">Step 1 · Import and screen</p>
+        <h2 id="importTitle">Alternative: choose a local SMS export</h2>
+        <p>Use the JSON produced by LVPT SMS Test v0.4. The scan starts with 2026 to prioritize current business activity. Earlier history remains available by changing the date.</p>
+      </div>
+      <div class="import-controls">
+        <label class="file-button" for="smsFile">Choose SMS JSON file</label>
+        <input id="smsFile" class="visually-hidden" type="file" accept=".json,application/json">
+        <label class="date-label" for="afterDate">Include messages from <input id="afterDate" type="date" value="2026-01-01"></label>
+        <button id="clearSession" class="neutral" type="button">Clear results only</button>
+      </div>
+      <p id="notice" role="status" aria-live="polite">Choose a file to begin. The raw archive is never sent by this page.</p>
+    </section>
+    <section id="results" hidden>
+      <div class="metrics" id="summary"></div>
+      <section class="panel" aria-labelledby="actionQueueTitle">
+        <p class="eyebrow">Owner brief · Cross-source next steps</p>
+        <h2 id="actionQueueTitle">Action required — owner review queue</h2>
+        <p class="hint">Evidence-linked suggestions from individual invoices, payouts and bounded Gmail headers. Approve for Drafting permits a separate read-only conversation preview and an editable starter draft; nothing is sent, and no Gmail draft is created. Hold and Dismiss only update a separate staging review audit; accounting, CRM, and tasks stay unchanged.</p>
+        <p id="actionQueueStatus" class="source-status" role="status" aria-live="polite">Awaiting authenticated source checks…</p>
+        <div class="ai-synthetic-test">
+          <button id="runSyntheticAiTest" class="neutral" type="button" disabled>Run AI connection test (fictional client)</button>
+          <p id="syntheticAiStatus" role="status" aria-live="polite">Sign in to run an optional AI connection test. This uses fictional data only and may incur a small model usage charge.</p>
+          <div id="syntheticAiResult" class="action-draft-panel" hidden></div>
+        </div>
+        <p id="actionDecisionStatus" class="case-save-feedback" role="status" aria-live="polite">Checking the separate approval audit log…</p>
+        <div id="actionQueueItems" class="action-queue-items" aria-live="polite"></div>
+        <button id="toggleActionMonitoring" class="neutral" type="button" hidden>Show monitoring items</button>
+      </section>
+      <section class="panel" aria-labelledby="attentionBriefTitle">
+        <p class="eyebrow">Owner brief · What needs your attention</p>
+        <h2 id="attentionBriefTitle">Your five highest-priority review items</h2>
+        <p class="hint">Suggestions only. Gmail Activity is an incomplete log, not a full mailbox search. Bank statements and vendor invoices are not connected. No emails are sent, tasks created, or payments changed.</p>
+        <div id="attentionBrief" class="attention-brief" aria-live="polite"></div>
+      </section>
+      <section class="panel" aria-labelledby="gmailBriefTitle">
+        <p class="eyebrow">Owner brief · Client conversation checks</p>
+        <div class="section-heading">
+          <div>
+            <h2 id="gmailBriefTitle">Verified Gmail correspondence</h2>
+            <p class="hint">Read-only, limited client-domain searches of the LVPT business mailbox. Last-message direction helps avoid duplicate outreach; it does not prove a client needs a reply or that an event is booked.</p>
+          </div>
+          <button type="button" id="refreshGmailEvidence" class="neutral">Refresh Gmail evidence</button>
+        </div>
+        <p id="gmailEvidenceStatus" class="source-status" role="status" aria-live="polite">Direct Gmail metadata source not yet activated. Command Center Gmail Activity is incomplete.</p>
+        <div id="gmailEvidenceItems" class="gmail-evidence-items"></div>
+      </section>
+      <section class="panel" aria-labelledby="paymentAuditTitle">
+        <p class="eyebrow">Owner brief · Collection and settlement verification</p>
+        <h2 id="paymentAuditTitle">Invoice-by-invoice payment exceptions</h2>
+        <p class="hint">Unlike the single-payment event summary, this checks each separately recorded invoice or vendor payment. A payment initiated is not receipt confirmation. Vendor and client rows can coexist; inspect each record's identity before contacting anyone.</p>
+        <p id="paymentAuditStatus" class="source-status" role="status" aria-live="polite">Waiting for full Payments ledger connection…</p>
+        <div id="paymentAuditItems" class="payout-audit-items"></div>
+      </section>
+      <section class="panel" aria-labelledby="payoutAuditTitle">
+        <p class="eyebrow">Owner brief · Financial exceptions</p>
+        <h2 id="payoutAuditTitle">Planned payouts &amp; independent verification</h2>
+        <p class="hint">This is a read-only summary of recorded Event Payouts, not bank transaction evidence or a complete vendor-expense ledger. A Paid client invoice does not settle a Planned owner distribution or separate vendor obligation.</p>
+        <p id="payoutAuditStatus" class="source-status" role="status" aria-live="polite">Waiting for live payout ledger comparison…</p>
+        <div id="payoutAuditItems" class="payout-audit-items"></div>
+      </section>
+      <section class="panel" aria-labelledby="caseTitle">
+        <p class="eyebrow">Step 2 · Consolidated intelligence</p>
+        <div class="section-heading">
+          <div>
+            <h2 id="caseTitle">Review by event and issue</h2>
+            <p id="caseExplain">Business SMS are grouped into event/issue bundles and sorted by suggested attention. No changes are made without your approval.</p>
+          </div>
+          <div class="case-action-buttons"><button id="saveCaseDecisions" class="primary" type="button" disabled>Save reviewed cases</button><button id="exportCaseDecisions" class="neutral" type="button" disabled>Export decisions</button></div>
+        </div>
+        <p id="caseSaveFeedback" class="case-save-feedback" role="status" aria-live="polite">No changes to save. Your previous reviews remain stored securely.</p>
+        <p class="hint"><strong>Candidate matches only:</strong> client/event names are not independently verified. Generic venues and vendors do not establish event identity. Financial messages require bank and invoice checks. Reviewing a bundle does not change accounting, tasks, or client records.</p>
+        <div class="filters">
+          <input id="caseSearch" type="search" placeholder="Search event or issue" aria-label="Search grouped cases">
+          <select id="caseEventFilter" aria-label="Filter event review bundles"><option value="all">All event matches</option><option value="matched">Explicit client/event reference</option><option value="unmatched">Needs event identification</option></select>
+          <select id="caseAttentionFilter" aria-label="Filter by suggested attention">
+            <option value="all">All suggested priorities</option>
+            <option value="review-first">Review first</option>
+            <option value="likely-resolved">Likely already settled</option>
+            <option value="unverified">Unverified / unmatched</option>
+            <option value="reviewed">Reviewed — no action</option>
+          </select>
+          <select id="caseStatusFilter" aria-label="Filter case review status">
+            <option value="all">All case statuses</option>
+            <option value="Unreviewed">Unreviewed</option>
+            <option value="Needs verification">Needs verification</option>
+            <option value="Investigating">Investigating</option>
+            <option value="Reviewed — no action">Reviewed — no action</option>
+            <option value="Candidate for reconciliation">Candidate for reconciliation</option>
+          </select>
+        </div>
+        <p id="reconciliationStatus" role="status" aria-live="polite" class="source-status">Command Center comparison not loaded.</p>
+        <p id="auditHealthStatus" role="status" aria-live="polite" class="source-status">Checking encrypted review audit service…</p>
+        <div id="caseList" class="case-list" aria-live="polite"></div>
+        <button id="showMoreCases" class="neutral" hidden type="button">Show more review bundles</button>
+      </section>
+      <section class="panel">
+        <p class="eyebrow">Step 3 · Individual SMS evidence</p>
+        <div class="section-heading"><div><h2>Potential business findings</h2><p id="explainResults"></p></div>
+          <button id="exportDecisions" class="primary" type="button">Export review decisions</button></div>
+        <p class="hint">Choose <strong>Needs verification</strong> for amounts or payment claims until reconciled with invoices and bank records. <strong>Approved for export</strong> means approved for further review/import—not confirmation that an invoice was paid.</p>
+        <div class="filters">
+          <input id="findQuery" type="search" placeholder="Search event, excerpt or source SMS ID" aria-label="Search findings">
+          <select id="findCategory" aria-label="Filter category"></select>
+          <select id="findStatus" aria-label="Filter review status"></select>
+        </div>
+        <p id="shownCount" class="count"></p><button id="clearCaseFilter" class="neutral" hidden type="button">Clear bundle filter</button>
+        <div id="queue" class="findings"></div>
+        <button id="more" type="button" class="neutral" hidden>Show 25 more findings</button>
+      </section>
+    </section>
+    <footer>LVPT SMS Intelligence · Staging Pilot v0.8 · Android synchronizes standard SMS only (RCS, MMS and WhatsApp excluded). No live accounting synchronization.</footer>
+  </main>
+  <script src="./review-engine.js" defer></script>
+  <script src="./case-engine.js" defer></script>
+  <script src="./reconciliation.js" defer></script>
+  <script src="./evidence-overlap.js" defer></script>
+  <script src="./gmail-intelligence.js" defer></script>
+  <script src="./action-queue.js" defer></script>
+  <script src="./draft-helper.js" defer></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>

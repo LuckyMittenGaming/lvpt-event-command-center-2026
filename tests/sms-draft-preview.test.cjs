@@ -83,6 +83,14 @@ assert.match(script,/users\/me\/profile/,'Verify exact LVPT business mailbox, no
 assert.match(script,/all\.slice\(-12\)/,'Bounded conversation context');
 assert.match(script,/gmail\.googleapis\.com/);
 assert.match(code,/action === 'readGmailDraftContext'/);
+const complete=repoFile('apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs');
+assert.match(complete,/function lvptGmailDraftVisibleBody_\(/);
+assert.match(complete,/function checkLvptFinancialLedgerProtectionNow\(/);
+assert.equal((complete.match(/function lvptReadOnlyGmailDraftContext_\(/g)||[]).length,1,
+  'The one-file Apps Script installer must define the Gmail draft function exactly once');
+assert.match(complete,/Bulk rewrite blocked for protected financial ledger/);
+assert.match(complete,/var max=Math.min\(1600,remaining\)/);
+
 assert.match(code,/function checkLvptFinancialLedgerProtectionNow\(/,
   'The staged Apps Script must retain v0.9 unique financial ID protection');
 assert.match(code,/lvptVerifyFinancialLedgerIds_\(\)/,

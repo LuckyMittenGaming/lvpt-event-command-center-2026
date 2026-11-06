@@ -18,4 +18,16 @@ assert.match(app,/runSyntheticAiTest/);
 assert.match(app,/getProtected\('\/api\/sms\/staging\/ai-smoke-test'/);
 assert.match(html,/id="runSyntheticAiTest"/);
 assert.match(html,/fictional data only/);
+assert.match(route,/customer_verification_required/,
+  'Billing/account verification must not be mistaken for an invalid OIDC token');
+assert.match(route,/gatewayStatus:status,gatewayCode/,
+  'Synthetic test must safely report real upstream HTTP status and whitelisted code');
+assert.match(route,/authentication:auth\.method/,
+  'Synthetic test must report the authentication method, not the secret');
+assert.match(route,/const allow=new Set/,
+  'Never expose arbitrary provider error payloads to browser');
+assert.match(app,/data\.gatewayStatus/,
+  'Diagnostic UI must display the upstream HTTP status');
+assert.match(app,/data\.gatewayCode/,
+  'Diagnostic UI must display a whitelisted upstream error code');
 console.log('Signed-in, synthetic-only AI Gateway smoke-test safeguards passed.');

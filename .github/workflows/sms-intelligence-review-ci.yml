@@ -11,6 +11,9 @@ on:
       - 'tests/sms-reconciliation.test.cjs'
       - 'tests/sms-evidence.test.cjs'
       - 'tests/sms-action-queue.test.cjs'
+      - 'tests/sms-draft-preview.test.cjs'
+      - 'apps-script/GmailDraftContext.gs'
+      - 'app/api/sms/staging/draft-context/route.ts'
       - 'tests/gmail-thread-triage.test.cjs'
       - 'public/sms-review/gmail-thread-triage.js'
       - 'tests/sms-gmail-intelligence.test.cjs'
@@ -52,14 +55,17 @@ jobs:
       - run: node --check public/sms-review/gmail-thread-triage.js
       - run: node --check public/sms-review/gmail-intelligence.js
       - run: node --check public/sms-review/action-queue.js
+      - run: node --check public/sms-review/draft-helper.js
       - run: node --check lib/sms-intelligence.mjs
       - run: node --check < apps-script/GmailEvidence.gs
+      - run: node --check < apps-script/GmailDraftContext.gs
       - run: node --check lib/sms-review-session.mjs
       - run: node tests/sms-review.test.js
       - run: node tests/sms-intelligence.test.mjs
       - run: node tests/sms-reconciliation.test.cjs
       - run: node tests/sms-evidence.test.cjs
       - run: node tests/sms-action-queue.test.cjs
+      - run: node tests/sms-draft-preview.test.cjs
       - run: node tests/gmail-thread-triage.test.cjs
       - run: node tests/sms-gmail-intelligence.test.cjs
       - run: node tests/sms-gmail-scope-static.test.cjs

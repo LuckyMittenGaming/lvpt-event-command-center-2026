@@ -1,4 +1,5 @@
 import { jsonNoStore, ready } from '../_lib';
+import { getAiGatewayCredential } from '../../../../../lib/lvpt-ai-gateway-auth';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 
 export const runtime='nodejs';
@@ -24,8 +25,10 @@ export async function POST(request:Request) {
      (input as Record<string,unknown>).mode!=='synthetic_only')
     return jsonNoStore({ok:false,reason:'synthetic_test_only'},400);
 
-  const token=process.env.AI_GATEWAY_API_KEY||process.env.VERCEL_OIDC_TOKEN||'';
-  if(!token)return jsonNoStore({ok:false,reason:'ai_gateway_not_configured'},503);
+  const auth=getAiGatewayCredential(request);
+  if(!auth)return jsonNoStore({ok:false,reason:'ai_gateway_not_configured',
+    detail:'No configured API key or runtime Vercel OIDC token available.'},503);
+  const token=auth.token;
   const model=process.env.LVPT_EMAIL_DRAFT_MODEL||'openai/gpt-5.6-sol';
   if(!/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.-]*$/i.test(model))
     return jsonNoStore({ok:false,reason:'ai_model_not_configured'},503);
@@ -72,6 +75,7 @@ export async function POST(request:Request) {
       return jsonNoStore({ok:false,reason:'ai_gateway_incomplete_model_output'},502);
     return jsonNoStore({
       ok:true,source:'fictional_ai_gateway_smoke_test',model,
+      authentication:auth.method,
       subject,body,
       verified:'AI model responded to fictional data through the deployed staging server',
       noGmailRead:true,noEmailSent:true,noGmailDraftCreated:true,noSheetChanged:true

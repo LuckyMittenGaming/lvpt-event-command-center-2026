@@ -212,8 +212,10 @@
       const block=makeText('div','action-draft-message','');
       block.append(makeText('strong','',
         (msg.direction==='inbound'?'Client':'LVPT')+' · '+dateFmt(msg.at)));
-      block.append(makeText('p','',draftHelper.previewBody(msg.body,1250)+
-        (msg.truncated?' [message truncated]':'')));
+      const excerpt=draftHelper.previewBody(msg.body,1250);
+      block.append(makeText('p','',
+        excerpt?excerpt+(msg.truncated?' [excerpt shortened]':''):
+        '[Message body unavailable — inspect this conversation in Gmail before writing]'));
       recent.append(block);
     });
     panel.append(recent);

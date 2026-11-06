@@ -17,6 +17,7 @@ function doPost(e) {
     if (action === 'listEvents') return lvptJson_({ ok: true, events: lvptListEvents_(), serverTime: new Date().toISOString() });
     if (action === 'listReconciliationEvidence') return lvptJson_(lvptListReconciliationEvidence_());
     if (action === 'listGmailThreadEvidence') return lvptJson_(lvptReadOnlyGmailEvidence_(String(payload.eventKey || '')));
+    if (action === 'readGmailDraftContext') return lvptJson_(lvptReadOnlyGmailDraftContext_(String(payload.eventKey || ''), String(payload.threadId || ''), String(payload.expectedLastMessageAt || '')));
     if (action === 'saveAllEvents') return lvptJson_(lvptSaveAllEvents_(payload));
     if (action === 'uploadDocument') return lvptJson_(lvptUploadDocument_(payload));
     if (action === 'deleteDocument') return lvptJson_(lvptDeleteDocument_(payload));

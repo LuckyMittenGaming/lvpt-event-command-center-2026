@@ -8,7 +8,7 @@ const conversation={
   eventKey:'lithic',subject:'Re: New Corporate Poker Builder Lead | Lithic',
   lastMessageAt:'2026-10-20T23:00:00Z',lastDirection:'outbound',partial:false,
   messages:[
-    {direction:'inbound',at:'2026-10-17T23:00:00Z',body:'I will share with leadership and come back to you.'},
+    {direction:'inbound',at:'2026-10-17T23:00:00Z',body:'Thanks, please share the proposal when it is ready.'},
     {direction:'outbound',at:'2026-10-20T23:00:00Z',body:'Please take a look at the proposal.'}
   ]
 };
@@ -25,6 +25,18 @@ const inbound=drafts.buildStarter({...conversation,messages:[
 ],lastMessageAt:'2026-11-05T21:00:00Z'},event,now);
 assert.equal(inbound.body,'','Do not invent answers to inbound client questions');
 assert.match(inbound.warning,/specific request/);
+const missing=drafts.buildStarter({...conversation,messages:[
+ {direction:'inbound',at:'2026-10-19T23:00:00Z',body:''},
+ {direction:'outbound',at:'2026-10-20T23:00:00Z',body:''}
+]},event,now);
+assert.equal(missing.body,'','Blank excerpts must never generate a follow-up');
+assert.match(missing.warning,/excerpts are missing/);
+const waitingOnLeadership=drafts.buildStarter({...conversation,messages:[
+ {direction:'inbound',at:'2026-10-19T23:00:00Z',
+  body:'I will get this in front of leadership today and let you know after a decision.'},
+ {direction:'outbound',at:'2026-10-20T23:00:00Z',body:'Sounds good, thanks.'}
+]},event,now);
+assert.equal(waitingOnLeadership.body,'','Leadership review commitment must pause follow-up drafting');
 const traveler=drafts.buildStarter({...conversation,messages:[
  {direction:'inbound',at:'2026-10-19T23:00:00Z',
   body:'I am out of town for a few weeks, so you will likely hear back from me when I am back.'},
@@ -42,6 +54,24 @@ const repoFile=p=>fs.readFileSync(path.join(__dirname,'..',p),'utf8');
 const route=repoFile('app/api/sms/staging/draft-context/route.ts');
 const app=repoFile('public/sms-review/app.js');
 const script=repoFile('apps-script/GmailDraftContext.gs');
+const vm=require('node:vm');
+const scriptCtx={};vm.runInNewContext(script,scriptCtx);
+const extracted=scriptCtx.lvptGmailDraftVisibleBody_(
+  'Thanks for the update.\\n\\nOn Fri, Oct 23, 2026, 11:36 AM Travis wrote:\\n'+
+    'Old quoted conversation '.repeat(1300));
+assert.equal(extracted.body,'Thanks for the update.',
+  'Long reply quotes must not consume the authored-message budget');
+assert.equal(extracted.truncated,false);
+const veryLong=scriptCtx.lvptGmailDraftVisibleBody_('A'.repeat(8500));
+assert.equal(veryLong.body.length,1600);
+assert.equal(veryLong.truncated,true);
+const twelve=Array.from({length:12},(_,i)=>
+  scriptCtx.lvptGmailDraftVisibleBody_('Recent message '+i+'\\n\\nOn Oct 12, 2026 wrote:\\n'+'x'.repeat(16000))
+);
+assert(twelve.every(m=>m.body.startsWith('Recent message')),
+  'The most recent of 12 messages must remain available with very long quoted history');
+assert(twelve.reduce((sum,m)=>sum+m.body.length,0)<=22000,
+  'Twelve authored excerpts must respect bounded source limits');
 const code=repoFile('apps-script/Code.gs');
 const html=repoFile('public/sms-review/index.html');
 assert.match(route,/hasReviewSession\(request\)/);

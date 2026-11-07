@@ -34,6 +34,16 @@ function safeText(input:unknown, maxLength=160):string {
     .replace(/\s+/g,' ').trim().slice(0,maxLength);
 }
 
+// These are opaque Command Center record identifiers, not prose or contact details.
+// Redacting a date-like numeric suffix to "[number]" breaks audit keys, silently
+// collapses distinct invoices, and prevents exact event/Gmail joins. Reject IDs
+// containing whitespace, email addresses, links or unsafe punctuation instead.
+function safeLedgerId(input:unknown,maxLength=120):string {
+  const value=String(input??'').trim();
+  return value.length>0 && value.length<=maxLength &&
+    /^[A-Za-z0-9_.:-]+$/.test(value) ? value : '';
+}
+
 function sanitize(event:EventRecord) {
   const taskList=(Array.isArray(event.tasks)?event.tasks:[])
     .filter(t=>t && typeof t.title==='string').slice(0,200);
@@ -54,7 +64,7 @@ function sanitize(event:EventRecord) {
     return [{subject:title, date:safeText(e?.date,30)}];
   }).slice(0,40);
   return {
-    id:safeText(event.id,100),
+    id:safeLedgerId(event.id,100),
     eventName:safeText(event.eventName,150),
     company:safeText(event.company,150),
     eventDate:safeText(event.eventDate,20),
@@ -80,8 +90,8 @@ function sanitize(event:EventRecord) {
 function sanitizePayout(raw:PayoutRecord) {
   const amount=raw.amount===null?null:Number(raw.amount);
   return {
-    payoutId:safeText(raw.payoutId,120),
-    eventId:safeText(raw.eventId,120),
+    payoutId:safeLedgerId(raw.payoutId,120),
+    eventId:safeLedgerId(raw.eventId,120),
     payee:safeText(raw.payee,120),
     payoutType:safeText(raw.payoutType,80),
     amount:amount!==null && Number.isFinite(amount)?amount:null,
@@ -97,8 +107,8 @@ function sanitizePayment(record:PaymentRecord) {
     return Number.isFinite(n) && n>=0 && n<1e9 ? n : null;
   };
   return {
-    paymentId:safeText(record.paymentId,120),
-    eventId:safeText(record.eventId,120),
+    paymentId:safeLedgerId(record.paymentId,120),
+    eventId:safeLedgerId(record.eventId,120),
     invoiceNumber:safeText(record.invoiceNumber,100),
     invoiceTotal:amount(record.invoiceTotal),
     amountPaid:amount(record.amountPaid),

@@ -106,4 +106,34 @@ assert(!/gmail\.send|GmailApp\.send|saveAllEvents\(|sendEmail\(/.test(route),
 assert.match(app,/loadActionDecisions\(/,'Existing audit decisions must load before approval buttons activate');
 assert.match(app,/saveOwnerActionDecision\(item,decision\)/,'Review buttons must use authenticated audit endpoint');
 assert.match(html,/id="actionDecisionStatus"/,'Separate audit status must be visible');
+// Regression: reconciliation must preserve opaque ledger/event IDs containing date-like
+// 8-digit suffixes. Applying prose PII redaction turns them into "[number]":
+// such keys are rejected by the approval validator and can collide or break joins.
+const reconcileRoute=fs.readFileSync(require('node:path').join(
+  __dirname,'../app/api/sms/staging/reconcile/route.ts'),'utf8');
+assert.match(reconcileRoute,/function safeLedgerId\(input:unknown,maxLength=120\):string/);
+assert.match(reconcileRoute,/id:safeLedgerId\(event\.id,100\)/);
+assert.match(reconcileRoute,/paymentId:safeLedgerId\(record\.paymentId,120\)/);
+assert.match(reconcileRoute,/eventId:safeLedgerId\(record\.eventId,120\)/);
+assert.match(reconcileRoute,/payoutId:safeLedgerId\(raw\.payoutId,120\)/);
+assert.match(reconcileRoute,/eventId:safeLedgerId\(raw\.eventId,120\)/);
+const actionKeyRule=/^(gmail|payment|payout):[A-Za-z0-9_.:-]{1,140}$/;
+const datedInvoice='PAY-evt-nium-2026-elevated-final-20261016';
+assert.match('payment:'+datedInvoice,actionKeyRule);
+assert.doesNotMatch('payment:PAY-evt-nium-2026-elevated-final-[number]',actionKeyRule);
+const datedEvent='evt-ows-20261130';
+const datedQueue=buildQueue({
+  events:[{id:datedEvent,eventName:'OWS'}],paymentsConnected:true,
+  payments:[
+    {paymentId:'PAY-evt-ows-20261130',eventId:datedEvent,invoiceTotal:1200,
+      amountPaid:0,balanceDue:1200,paymentStatus:'Payment Initiated'},
+    {paymentId:'PAY-evt-ows-20261130-addon-20261107',eventId:datedEvent,invoiceTotal:500,
+      amountPaid:0,balanceDue:500,paymentStatus:'Invoice Sent'}],
+  payoutsConnected:false,gmail:[]
+},now);
+const datedIds=datedQueue.items.map(x=>x.id);
+assert.equal(datedIds.length,2,'Distinct invoices must remain independently actionable');
+assert(datedIds.every(id=>actionKeyRule.test(id)),
+  'Staging audit must accept canonical IDs with numeric date suffixes');
+
 console.log('Action Required queue and non-sending, append-only approval controls tests passed.');

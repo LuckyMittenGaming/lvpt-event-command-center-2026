@@ -56,10 +56,13 @@ assert.equal(byId('payout:paid'),undefined,'Paid payout does not imply an unpaid
 assert.equal(byId('payout:planned').type,'payout');
 assert.match(byId('payout:planned').action,/Planned does not mean due or unpaid/);
 assert.equal(byId('gmail:lithic').group,'review','Older proposal merits timing review, not an automatic email');
+assert.equal(byId('gmail:lithic').draftCandidate,false,'An old outgoing proposal is never automatically a draft candidate');
 assert.equal(byId('gmail:quinn-emanuel').group,'monitor','Recent sent proposal must not trigger a follow-up');
+assert.equal(byId('gmail:quinn-emanuel').draftCandidate,false,'Recent outbound email cannot be approved for drafting');
 assert.equal(byId('gmail:imperativex').group,'monitor','Newly sent lead greeting must not trigger duplicate outreach');
 assert.equal(byId('gmail:ows-aws').group,'monitor');
 assert.equal(byId('gmail:ows-aws').eventId,'','OWS mail is not attributable to either separate event');
+assert.equal(byId('gmail:ows-aws').draftCandidate,false,'Ambiguous OWS thread must not be approved for drafting');
 assert.match(byId('gmail:ows-aws').evidence,/specific event not established/);
 assert.equal(queue.items.filter(x=>x.type==='payment').length,4);
 assert.equal(queue.items.filter(x=>x.type==='payout').length,1);
@@ -68,6 +71,7 @@ assert(queue.reviewCount>=6);
 assert.equal(queue.reviewCount+queue.monitorCount,queue.items.length);
 const inbound=buildQueue({...data,gmail:[gmail('kirkland','2026-11-05T15:30:00Z','inbound',true)]},now);
 assert.equal(inbound.items.find(x=>x.id==='gmail:kirkland').group,'review');
+assert.equal(inbound.items.find(x=>x.id==='gmail:kirkland').draftCandidate,true,'Verified last-inbound message offers a reviewed draft path');
 assert.match(inbound.items.find(x=>x.id==='gmail:kirkland').action,/full conversation/i);
 const missing=buildQueue({...data,paymentsConnected:false,payoutsConnected:false,gmail:[]},now);
 assert.equal(missing.items.length,0,'No source means no invented statuses, reminders or payment claims');
@@ -138,16 +142,20 @@ assert(datedIds.every(id=>actionKeyRule.test(id)),
 
 // Monitor-only email cards must not offer drafting approval. A recent LVPT
 // outbound message is not a reason to launch a duplicate follow-up.
-assert.match(app,/item\.group==='review'&&!isPaused\(item\)/,
-  'Only active review candidates expose Approve for Drafting');
-assert.match(app,/decision==='draft_requested' && item\.group!=='review'/,
-  'Saving a draft approval directly for a monitor candidate is blocked');
-assert.match(app,/item\.type==='gmail' && item\.group==='review'/,
-  'Existing approvals cannot open previews for monitoring-only candidates');
+assert.match(app,/item\.draftCandidate===true&&!isPaused\(item\)/,
+  'Only verified inbound reply candidates expose Approve for Drafting');
+assert.match(app,/decision==='draft_requested' && !item\.draftCandidate/,
+  'Saving a draft approval for monitoring or outbound timing is blocked');
+assert.match(app,/item\.type==='gmail' && item\.draftCandidate===true/,
+  'Existing approvals cannot open previews for non-inbound candidates');
 assert.match(app,/Monitoring only — drafting approval unavailable/,
   'Monitoring cards should explain why draft approval is unavailable');
 const monitoringMail=byId('gmail:quinn-emanuel');
 assert.equal(monitoringMail.group,'monitor',
   'Recent outgoing correspondence must remain monitoring-only');
 
+assert.match(app,/Client correspondence & sales opportunities/);
+assert.match(app,/Financial verification & reconciliation/);
+assert.match(app,/Follow-up timing review only/);
+assert.match(app,/No verified inbound reply candidate in the five bounded client searches/);
 console.log('Action Required queue and non-sending, append-only approval controls tests passed.');

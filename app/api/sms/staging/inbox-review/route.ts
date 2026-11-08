@@ -9,6 +9,7 @@ export const maxDuration=45;
 type InboxRawThread={
   threadId?:unknown;subject?:unknown;senderDomain?:unknown;
   lastMessageAt?:unknown;lastDirection?:unknown;reviewType?:unknown;
+  sourceType?:unknown;
   needsHumanReview?:unknown;observedMessages?:unknown;
   fullThreadEnumerated?:unknown;
 };
@@ -44,14 +45,18 @@ function cleanThread(row:InboxRawThread) {
   if(!HEX.test(id) || !at)return null;
   const direction=row.lastDirection;
   if(direction!=='inbound' && direction!=='outbound')return null;
-  if(row.reviewType!==(direction==='inbound'?'inbound_review':'already_answered'))return null;
+  const sourceType=row.sourceType==='form_lead'?'form_lead':'email_thread';
+  const expectedType=sourceType==='form_lead'?'form_lead_review':
+    direction==='inbound'?'inbound_review':'already_answered';
+  if(sourceType==='form_lead'&&direction!=='inbound')return null;
+  if(row.reviewType!==expectedType)return null;
   const domain=String(row.senderDomain||'').toLowerCase();
   if(domain && !/^[a-z0-9.-]{3,120}$/.test(domain))return null;
   return {
     threadId:id,subject:safeLabel(row.subject)||'(no subject)',
     senderDomain:direction==='inbound'?domain:'',
     lastMessageAt:at,lastDirection:direction,
-    reviewType:row.reviewType,
+    reviewType:row.reviewType,sourceType,
     needsHumanReview:direction==='inbound' && row.needsHumanReview===true,
     observedMessages:count(row.observedMessages,150),
     fullThreadEnumerated:row.fullThreadEnumerated===true

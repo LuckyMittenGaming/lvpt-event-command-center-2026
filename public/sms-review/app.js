@@ -170,7 +170,8 @@
 
   async function saveOwnerActionDecision(item,decision) {
     if(!actionAuditReady || !sessionToken || savingActionId || !report ||
-       report.source!=='staging' || !recordsAvailable)return;
+       report.source!=='staging' || !recordsAvailable ||
+       (decision==='draft_requested' && item.group!=='review'))return;
     savingActionId=item.id;
     renderActionQueue();
     const sourceFingerprint=actionQueueEngine.sourceFingerprint(item);
@@ -213,6 +214,7 @@
     const approval=actionDecisions.get(item.id);
     const live=verifiedLatestThread(item);
     if(!sessionToken||!actionAuditReady||!live||item.type!=='gmail'||
+       item.group!=='review'||
        !actionQueueEngine.decisionApplies(item,approval)||
        approval.decision!=='draft_requested'||draftLoadingId)return;
     draftLoadingId=item.id;
@@ -251,6 +253,7 @@
     const approval=actionDecisions.get(item.id);
     const state=draftState;
     if(!live||!sessionToken||!actionAuditReady||!state||
+       item.group!=='review'||
        state.itemId!==item.id||personalizedLoadingId||
        state.fingerprint!==actionQueueEngine.sourceFingerprint(item)||
        !actionQueueEngine.decisionApplies(item,approval)||
@@ -297,7 +300,8 @@
   function renderApprovedDraftPreview(card,item) {
     const stored=actionDecisions.get(item.id);
     const valid=actionQueueEngine.decisionApplies(item,stored);
-    const canPreview=item.type==='gmail' && valid && stored.decision==='draft_requested';
+    const canPreview=item.type==='gmail' && item.group==='review' &&
+      valid && stored.decision==='draft_requested';
     if(!canPreview)return;
     const btn=document.createElement('button');
     btn.type='button';btn.className='neutral';
@@ -424,7 +428,8 @@
     },Date.now());
     if(draftState) {
       const active=brief.items.find(i=>i.id===draftState.itemId);
-      if(!active||actionQueueEngine.sourceFingerprint(active)!==draftState.fingerprint ||
+      if(!active||active.group!=='review'||
+         actionQueueEngine.sourceFingerprint(active)!==draftState.fingerprint ||
          !actionQueueEngine.decisionApplies(active,actionDecisions.get(active.id)) ||
          actionDecisions.get(active.id)?.decision!=='draft_requested') draftState=null;
     }
@@ -478,7 +483,9 @@
           'Not yet reviewed'));
       const controls=makeText('div','action-queue-controls','');
       const actionButtons=item.type==='gmail'?
-        [['draft_requested','Approve for Drafting'],['hold','Hold'],['dismissed','Dismiss']]:
+        (item.group==='review'&&!isPaused(item)?
+          [['draft_requested','Approve for Drafting'],['hold','Hold'],['dismissed','Dismiss']]:
+          [['hold','Hold'],['dismissed','Dismiss']]):
         [['verify_requested','Flag for Verification'],['hold','Hold'],['dismissed','Dismiss']];
       for(const [decision,label] of actionButtons){
         const btn=document.createElement('button');
@@ -492,6 +499,9 @@
         controls.append(btn);
       }
       card.append(controls);
+      if(item.type==='gmail' && (item.group!=='review'||isPaused(item)))
+        card.append(makeText('p','action-draft-status',
+          'Monitoring only — drafting approval unavailable until this conversation needs a fresh review.'));
       const open=document.createElement('button');
       open.type='button';
       open.className='neutral';

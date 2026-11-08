@@ -228,6 +228,15 @@ const inboxRoute=fs.readFileSync(require('node:path').join(__dirname,
 assert.match(inboxRoute,/authorizedReviewer\(request\)/);
 assert.match(inboxRoute,/mailboxIdentityVerified!==true/);
 assert.match(inboxRoute,/noEmailBodies:true,noGmailWrites:true/);
+assert.match(inboxRoute,/function systemNotification\(subject:string,senderDomain:string\):boolean/);
+assert.match(inboxRoute,/^  return \/\^LVPT Command Center:/m,
+  'Internal Command Center notification must be filtered out');
+assert.match(inboxRoute,/senderDomain==='google.com' && \/\^Folder shared with you:/,
+  'Google Drive shared-folder notifications must be filtered out');
+assert.match(inboxRoute,/let filteredSystemCount=0/);
+assert.match(inboxRoute,/filteredSystemCount\+\+/);
+assert.match(inboxRoute,/excludedAutomatedCount:count\(data.excludedAutomatedCount,28\)\+filteredSystemCount/);
+
 assert.match(app,/loadBusinessInboxReview\(\)/);
 assert.match(app,/Review latest incoming message|Inbox-wide review only/);
 const reviewEndpoint=fs.readFileSync(require('node:path').join(__dirname,

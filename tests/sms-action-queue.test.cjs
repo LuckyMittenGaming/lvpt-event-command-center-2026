@@ -156,8 +156,9 @@ assert.equal(monitoringMail.group,'monitor',
 
 assert.match(app,/Client correspondence & sales opportunities/);
 assert.match(app,/Financial verification & reconciliation/);
+assert.match(app,/Vendor & venue operations/);
 assert.match(app,/Follow-up timing review only/);
-assert.match(app,/No verified inbound reply candidate in the five bounded client searches/);
+assert.match(app,/No currently verified drafting candidate in the five allowlisted client searches/);
 // A prior audit approval must remain visible without implying that monitoring
 // or outbound-only timing review currently grants permission to draft.
 assert.match(app,/const historicalDraftBlocked=valid && item\.type==='gmail'/);
@@ -183,6 +184,15 @@ const businessInbox={
     {threadId:'a1b2c3d4',subject:'Already in bounded domain record',
      sourceType:'email_thread',reviewType:'inbound_review',
      lastMessageAt:'2026-11-04T18:00:00Z',lastDirection:'inbound',
+     needsHumanReview:true},
+    {threadId:'fedcba9876543210',subject:'TAO VENUES',
+     relationshipHint:'internal',sourceType:'email_thread',reviewType:'inbound_review',
+     lastMessageAt:'2026-11-03T12:00:00Z',lastDirection:'inbound',
+     needsHumanReview:true},
+    {threadId:'1234567890abcdef',subject:'Elevated bar services - beverage proposal',
+     relationshipHint:'vendor',sourceType:'email_thread',reviewType:'inbound_review',
+     senderDomain:'elevatedbarservices.com',
+     lastMessageAt:'2026-11-01T16:30:00Z',lastDirection:'inbound',
      needsHumanReview:true}
   ]
 };
@@ -202,6 +212,17 @@ assert.match(incoming.action,/Do not draft from headers alone/i);
 assert.equal(expanded.items.find(x=>x.id==='inbox:aabbccdd11223344').group,'monitor');
 assert.equal(expanded.items.find(x=>x.id==='inbox:a1b2c3d4'),undefined,
   'A thread already represented by a client-domain search is never duplicated');
+const internalItem=expanded.items.find(x=>x.id==='inbox:fedcba9876543210');
+assert.equal(internalItem.group,'monitor',
+  'An owner personal-to-business thread cannot be treated as a new client inquiry');
+assert.equal(internalItem.category,'internal');
+assert.equal(internalItem.draftCandidate,false);
+const vendorItem=expanded.items.find(x=>x.id==='inbox:1234567890abcdef');
+assert.equal(vendorItem.group,'review');
+assert.equal(vendorItem.category,'vendor_ops');
+assert.equal(vendorItem.draftCandidate,false);
+assert.match(vendorItem.title,/vendor/i);
+
 assert.equal(buildQueue({...data,inbox:{connected:false,threads:businessInbox.threads}},now)
   .items.some(x=>x.type==='inbox'),false,'Unavailable inbox cannot create false leads');
 
@@ -221,6 +242,11 @@ assert.match(scan,/metadataHeaders=Auto-Submitted/);
 assert.match(scan,/metadataHeaders=List-Unsubscribe/);
 assert.match(scan,/formLead=from===mailbox && lvptInboxEmail_\(to\)===mailbox/);
 assert.match(scan,/form_lead_review/);
+assert.match(scan,/function lvptInboxRelationship_\(sender,recipient,isFormLead,isSent\)/);
+assert.match(scan,/wsopamatt@gmail\.com/);
+assert.match(scan,/elevatedbarservices/);
+assert.match(scan,/relationshipHint:relationship/);
+assert.match(scan,/lvpt_business_inbox_review_2026_v2/);
 assert(!/GmailApp\.sendEmail|MailApp\.sendEmail|SpreadsheetApp|DriveApp|\.send\(/.test(scan),
   'Read-only inbox scanner must not send messages or write business records');
 const inboxRoute=fs.readFileSync(require('node:path').join(__dirname,
@@ -228,6 +254,8 @@ const inboxRoute=fs.readFileSync(require('node:path').join(__dirname,
 assert.match(inboxRoute,/authorizedReviewer\(request\)/);
 assert.match(inboxRoute,/mailboxIdentityVerified!==true/);
 assert.match(inboxRoute,/noEmailBodies:true,noGmailWrites:true/);
+assert.match(inboxRoute,/row\.relationshipHint/);
+assert.match(inboxRoute,/direction==='inbound' && hint!=='internal'/);
 assert.match(inboxRoute,/function systemNotification\(subject:string,senderDomain:string\):boolean/);
 assert.match(inboxRoute,/^  return \/\^LVPT Command Center:/m,
   'Internal Command Center notification must be filtered out');

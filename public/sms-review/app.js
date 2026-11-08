@@ -171,7 +171,7 @@
   async function saveOwnerActionDecision(item,decision) {
     if(!actionAuditReady || !sessionToken || savingActionId || !report ||
        report.source!=='staging' || !recordsAvailable ||
-       (decision==='draft_requested' && item.group!=='review'))return;
+       (decision==='draft_requested' && !item.draftCandidate))return;
     savingActionId=item.id;
     renderActionQueue();
     const sourceFingerprint=actionQueueEngine.sourceFingerprint(item);
@@ -214,7 +214,7 @@
     const approval=actionDecisions.get(item.id);
     const live=verifiedLatestThread(item);
     if(!sessionToken||!actionAuditReady||!live||item.type!=='gmail'||
-       item.group!=='review'||
+       !item.draftCandidate||
        !actionQueueEngine.decisionApplies(item,approval)||
        approval.decision!=='draft_requested'||draftLoadingId)return;
     draftLoadingId=item.id;
@@ -253,7 +253,7 @@
     const approval=actionDecisions.get(item.id);
     const state=draftState;
     if(!live||!sessionToken||!actionAuditReady||!state||
-       item.group!=='review'||
+       !item.draftCandidate||
        state.itemId!==item.id||personalizedLoadingId||
        state.fingerprint!==actionQueueEngine.sourceFingerprint(item)||
        !actionQueueEngine.decisionApplies(item,approval)||
@@ -300,7 +300,7 @@
   function renderApprovedDraftPreview(card,item) {
     const stored=actionDecisions.get(item.id);
     const valid=actionQueueEngine.decisionApplies(item,stored);
-    const canPreview=item.type==='gmail' && item.group==='review' &&
+    const canPreview=item.type==='gmail' && item.draftCandidate===true &&
       valid && stored.decision==='draft_requested';
     if(!canPreview)return;
     const btn=document.createElement('button');
@@ -428,7 +428,7 @@
     },Date.now());
     if(draftState) {
       const active=brief.items.find(i=>i.id===draftState.itemId);
-      if(!active||active.group!=='review'||
+      if(!active||!active.draftCandidate||
          actionQueueEngine.sourceFingerprint(active)!==draftState.fingerprint ||
          !actionQueueEngine.decisionApplies(active,actionDecisions.get(active.id)) ||
          actionDecisions.get(active.id)?.decision!=='draft_requested') draftState=null;
@@ -452,11 +452,30 @@
         'Limited source coverage: '+gaps.join(', ')+'. No missing-source conclusions.' :
         'Sources connected (Gmail is bounded metadata only).')+
       ' No changes sent or saved.';
-    const visible=showActionMonitoring?activeItems.concat(backgroundItems):activeItems;
+    const activeCorrespondence=activeItems.filter(item=>item.type==='gmail');
+    const activeFinancial=activeItems.filter(item=>item.type!=='gmail');
+    const visible=activeCorrespondence.concat(activeFinancial,
+      showActionMonitoring?backgroundItems:[]);
+    let currentSection='';
+    // Keep sales/correspondence up front even if there is no safe draft candidate.
+    // These five domain searches are not a complete business inbox audit.
+    if(!activeCorrespondence.some(item=>item.draftCandidate)) {
+      currentSection='Client correspondence & sales opportunities';
+      holder.append(makeText('h3','action-queue-section-title',currentSection));
+      holder.append(makeText('p','hint',
+        'No verified inbound reply candidate in the five bounded client searches. Do not infer that the full business inbox is clear.'));
+    }
     if(!visible.length)
       holder.append(makeText('p','hint',
         'No review candidates in the connected sources under these rules. Other email, bank and CRM work may still exist.'));
     visible.forEach(item=>{
+      const section=(item.group!=='review'||isPaused(item))?
+        'Monitoring / held':item.type==='gmail'?
+          'Client correspondence & sales opportunities':'Financial verification & reconciliation';
+      if(section!==currentSection){
+        currentSection=section;
+        holder.append(makeText('h3','action-queue-section-title',section));
+      }
       const card=makeText('article','action-queue-card','');
       const head=makeText('div','action-queue-head','');
       head.append(makeText('span','action-queue-kind',
@@ -483,7 +502,7 @@
           'Not yet reviewed'));
       const controls=makeText('div','action-queue-controls','');
       const actionButtons=item.type==='gmail'?
-        (item.group==='review'&&!isPaused(item)?
+        (item.draftCandidate===true&&!isPaused(item)?
           [['draft_requested','Approve for Drafting'],['hold','Hold'],['dismissed','Dismiss']]:
           [['hold','Hold'],['dismissed','Dismiss']]):
         [['verify_requested','Flag for Verification'],['hold','Hold'],['dismissed','Dismiss']];
@@ -499,9 +518,11 @@
         controls.append(btn);
       }
       card.append(controls);
-      if(item.type==='gmail' && (item.group!=='review'||isPaused(item)))
+      if(item.type==='gmail' && (!item.draftCandidate||isPaused(item)))
         card.append(makeText('p','action-draft-status',
-          'Monitoring only — drafting approval unavailable until this conversation needs a fresh review.'));
+          item.group==='review' && !isPaused(item)?
+            'Follow-up timing review only — inspect the full thread and client timing; drafting approval is not automatic.':
+            'Monitoring only — drafting approval unavailable until this conversation needs a fresh review.'));
       const open=document.createElement('button');
       open.type='button';
       open.className='neutral';

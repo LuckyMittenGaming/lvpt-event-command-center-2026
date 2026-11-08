@@ -14,7 +14,7 @@ type SavedRow={
   recorded_at:string;
   request_id:string;
 };
-const ACTION_KEY=/^(gmail|payment|payout):[A-Za-z0-9_.:-]{1,140}$/;
+const ACTION_KEY=/^(gmail|payment|payout|inbox):[A-Za-z0-9_.:-]{1,140}$/;
 const SOURCE_FINGERPRINT=/^[a-f0-9]{16}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

@@ -180,6 +180,44 @@
       });
     }
 
+    // New Step 43 business-wide inbox evidence. These entries are review
+    // candidates ONLY. They are never directly authorized to draft or send.
+    const inbox=data?.inbox;
+    if(inbox?.connected===true && Array.isArray(inbox.threads)) {
+      const alreadyShown=new Set((Array.isArray(data.gmail)?data.gmail:[])
+        .flatMap(r=>Array.isArray(r?.threads)?r.threads:[])
+        .map(t=>String(t?.threadId||'')));
+      inbox.threads.slice(0,25).forEach(t=>{
+        const id=text(t?.threadId,40);
+        if(!/^[0-9a-f]{8,32}$/i.test(id)||alreadyShown.has(id))return;
+        const at=String(t?.lastMessageAt||'');
+        const millis=Date.parse(at);
+        if(!Number.isFinite(millis)||millis<=0||millis>nowMs)return;
+        const direction=t?.lastDirection;
+        if(direction!=='inbound'&&direction!=='outbound')return;
+        const inbound=direction==='inbound' && t.needsHumanReview===true;
+        const domain=text(t.senderDomain,120);
+        const subject=text(t.subject||'(no subject)',130);
+        const days=Math.floor((nowMs-millis)/86400000);
+        add({
+          id:'inbox:'+id,type:'inbox',
+          draftCandidate:false,group:inbound?'review':'monitor',
+          rank:inbound?0:9,
+          eventId:'',eventName:domain||'Unmatched business contact',
+          title:inbound?'Review recent incoming business email':'Already answered — monitor',
+          sourceRevision:[id,at,direction,subject,t.reviewType],
+          source:'Read-only business Gmail thread headers · last '+days+' day(s) ago',
+          evidence:'Subject: '+subject+'. Latest direction: '+direction+
+            '. '+(inbox.partial?'Limited mailbox coverage. ':'')+
+            'Original message body has not been reviewed.',
+          action:inbound?
+            'Open the original thread in the business mailbox. Confirm the request, all replies, and whether action is still needed. Do not draft from headers alone.':
+            'Last verified message was from LVPT. Do not propose another message based only on this thread.',
+          target:'inboxReviewTitle',threadId:id
+        });
+      });
+    }
+
     items.sort((a,b)=>a.rank-b.rank ||
       a.eventName.localeCompare(b.eventName) || a.id.localeCompare(b.id));
     const reviewCount=items.filter(x=>x.group==='review').length;
@@ -192,7 +230,9 @@
         payouts:payoutsConnected,
         gmailConnected:(Array.isArray(data?.gmail)?data.gmail:[]).filter(r=>
           r && r.connected===true && Object.prototype.hasOwnProperty.call(CLIENT_EVENT_IDS,r.eventKey)).length,
-        gmailTotal:Object.keys(CLIENT_EVENT_IDS).length
+        gmailTotal:Object.keys(CLIENT_EVENT_IDS).length,
+        businessInboxConnected:data?.inbox?.connected===true,
+        businessInboxPartial:data?.inbox?.partial===true
       }
     };
   }

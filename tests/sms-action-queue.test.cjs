@@ -163,4 +163,77 @@ assert.match(app,/No verified inbound reply candidate in the five bounded client
 assert.match(app,/const historicalDraftBlocked=valid && item\.type==='gmail'/);
 assert.match(app,/stored\?\.decision==='draft_requested' && item\.draftCandidate!==true/);
 assert.match(app,/Historical drafting approval — currently blocked by correspondence safeguards/);
+// Step 43 business inbox: thread-level direction and form notifications are
+// candidates to REVIEW, never automatic draft/send authorization.
+const businessInbox={
+  connected:true,partial:true,
+  threads:[
+    {threadId:'aabbccddeeff0011',subject:'New Corporate Poker Builder Lead',
+     sourceType:'form_lead',reviewType:'form_lead_review',
+     lastMessageAt:'2026-11-04T14:15:00Z',lastDirection:'inbound',
+     needsHumanReview:true},
+    {threadId:'1122334455667788',subject:'Re: Your private event question',
+     sourceType:'email_thread',reviewType:'inbound_review',
+     lastMessageAt:'2026-11-04T15:00:00Z',lastDirection:'inbound',
+     senderDomain:'clientexample.com',needsHumanReview:true},
+    {threadId:'aabbccdd11223344',subject:'Re: Answer already sent',
+     sourceType:'email_thread',reviewType:'already_answered',
+     lastMessageAt:'2026-11-04T16:00:00Z',lastDirection:'outbound',
+     needsHumanReview:false},
+    {threadId:'a1b2c3d4',subject:'Already in bounded domain record',
+     sourceType:'email_thread',reviewType:'inbound_review',
+     lastMessageAt:'2026-11-04T18:00:00Z',lastDirection:'inbound',
+     needsHumanReview:true}
+  ]
+};
+const expanded=buildQueue({...data,inbox:businessInbox},now);
+assert.equal(expanded.coverage.businessInboxConnected,true);
+assert.equal(expanded.coverage.businessInboxPartial,true);
+const forms=expanded.items.find(x=>x.id==='inbox:aabbccddeeff0011');
+assert.equal(forms.group,'review');
+assert.equal(forms.draftCandidate,false);
+assert.equal(forms.type,'inbox');
+assert.match(forms.title,/website inquiry/i);
+assert.match(forms.action,/form notification/i);
+const incoming=expanded.items.find(x=>x.id==='inbox:1122334455667788');
+assert.equal(incoming.group,'review');
+assert.equal(incoming.draftCandidate,false);
+assert.match(incoming.action,/Do not draft from headers alone/i);
+assert.equal(expanded.items.find(x=>x.id==='inbox:aabbccdd11223344').group,'monitor');
+assert.equal(expanded.items.find(x=>x.id==='inbox:a1b2c3d4'),undefined,
+  'A thread already represented by a client-domain search is never duplicated');
+assert.equal(buildQueue({...data,inbox:{connected:false,threads:businessInbox.threads}},now)
+  .items.some(x=>x.type==='inbox'),false,'Unavailable inbox cannot create false leads');
+
+// Apps Script release uses only read-only Gmail metadata with mailbox identity
+// verification and bounded 30-day pagination; do not permit web-form notices
+// labeled SENT to disappear from intake review.
+const completeGas=fs.readFileSync(require('node:path').join(__dirname,
+  '../apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs'),'utf8');
+assert.match(completeGas,/action === 'listBusinessInboxReview'/);
+assert.match(completeGas,/function lvptReadOnlyBusinessInboxReview_\(\)/);
+const scan=completeGas.slice(completeGas.indexOf('// STEP 43'));
+assert.match(scan,/users\/me\/profile/);
+assert.match(scan,/mailboxIdentityVerified:true/);
+assert.match(scan,/maxResults=80/);
+assert.match(scan,/maxThreads=28/);
+assert.match(scan,/metadataHeaders=Auto-Submitted/);
+assert.match(scan,/metadataHeaders=List-Unsubscribe/);
+assert.match(scan,/formLead=from===mailbox && lvptInboxEmail_\(to\)===mailbox/);
+assert.match(scan,/form_lead_review/);
+assert(!/GmailApp\.sendEmail|MailApp\.sendEmail|SpreadsheetApp|DriveApp|\.send\(/.test(scan),
+  'Read-only inbox scanner must not send messages or write business records');
+const inboxRoute=fs.readFileSync(require('node:path').join(__dirname,
+  '../app/api/sms/staging/inbox-review/route.ts'),'utf8');
+assert.match(inboxRoute,/authorizedReviewer\(request\)/);
+assert.match(inboxRoute,/mailboxIdentityVerified!==true/);
+assert.match(inboxRoute,/noEmailBodies:true,noGmailWrites:true/);
+assert.match(app,/loadBusinessInboxReview\(\)/);
+assert.match(app,/Review latest incoming message|Inbox-wide review only/);
+const reviewEndpoint=fs.readFileSync(require('node:path').join(__dirname,
+  '../app/api/sms/staging/action-decisions/route.ts'),'utf8');
+assert.match(reviewEndpoint,/gmail\|payment\|payout\|inbox/);
+assert.match(reviewEndpoint,/decision==='draft_requested' && type==='gmail'/,
+  'Broad inbox review action keys cannot be approved for drafting');
+
 console.log('Action Required queue and non-sending, append-only approval controls tests passed.');

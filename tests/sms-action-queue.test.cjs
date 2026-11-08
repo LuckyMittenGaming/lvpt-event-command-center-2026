@@ -158,4 +158,9 @@ assert.match(app,/Client correspondence & sales opportunities/);
 assert.match(app,/Financial verification & reconciliation/);
 assert.match(app,/Follow-up timing review only/);
 assert.match(app,/No verified inbound reply candidate in the five bounded client searches/);
+// A prior audit approval must remain visible without implying that monitoring
+// or outbound-only timing review currently grants permission to draft.
+assert.match(app,/const historicalDraftBlocked=valid && item\.type==='gmail'/);
+assert.match(app,/stored\?\.decision==='draft_requested' && item\.draftCandidate!==true/);
+assert.match(app,/Historical drafting approval — currently blocked by correspondence safeguards/);
 console.log('Action Required queue and non-sending, append-only approval controls tests passed.');

@@ -495,8 +495,15 @@
         verify_requested:'Flagged for verification',
         hold:'On hold',dismissed:'Dismissed from active review'
       };
+      // Keep the immutable audit history visible, but do not present an older
+      // approval as active when current inbox evidence no longer permits drafting.
+      const historicalDraftBlocked=valid && item.type==='gmail' &&
+        stored?.decision==='draft_requested' && item.draftCandidate!==true;
       card.append(makeText('p','action-queue-decision',
         stored && !valid?'Source evidence changed since the saved decision. Review again.':
+        historicalDraftBlocked?
+          'Historical drafting approval — currently blocked by correspondence safeguards'+
+            ' · recorded '+(stored.recordedAt?dateFmt(stored.recordedAt):'in audit'):
         valid?(names[stored.decision]||'Previously reviewed')+
           ' · recorded '+(stored.recordedAt?dateFmt(stored.recordedAt):'in audit'):
           'Not yet reviewed'));

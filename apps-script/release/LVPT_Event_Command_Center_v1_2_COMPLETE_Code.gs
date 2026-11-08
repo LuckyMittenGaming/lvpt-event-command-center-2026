@@ -837,13 +837,13 @@ function lvptReadOnlyBusinessInboxReview_() {
       var latest=all[all.length-1], labels=latest.labelIds||[];
       var from=lvptInboxEmail_(lvptInboxHeader_(latest,'From'));
       var subjectLine=lvptInboxHeader_(latest,'Subject');
-      // Builder/quiz notifications sometimes appear FROM our own booking
-      // mailbox but are INBOX records, not sent replies to clients.
-      var formLead=from===mailbox && labels.indexOf('INBOX')>=0 &&
-        labels.indexOf('SENT')<0 &&
-        /(?:new corporate poker builder lead|poker coaching quiz|survey submission|new .{0,40} lead|website inquiry)/i.test(subjectLine);
-      var sent=labels.indexOf('SENT')>=0 || (from===mailbox&&!formLead);
       var to=lvptInboxHeader_(latest,'To');
+      // GHL builder notifications are often FROM book@ TO book@ and can be
+      // labeled SENT by Gmail. Identify these self-addressed form leads
+      // by their narrowly matched subject, not by INBOX/SENT labels.
+      var formLead=from===mailbox && lvptInboxEmail_(to)===mailbox &&
+        /(?:new corporate poker builder lead|poker coaching quiz|survey submission|new .{0,40} lead|website inquiry)/i.test(subjectLine);
+      var sent=!formLead && (labels.indexOf('SENT')>=0 || from===mailbox);
       var direction=sent?'outbound':(formLead ||
         (from && lvptInboxEmail_(to)===mailbox)?'inbound':'unknown');
       var stamp=Number(latest.internalDate||0);

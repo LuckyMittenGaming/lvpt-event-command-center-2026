@@ -9,7 +9,7 @@ export const maxDuration=45;
 type InboxRawThread={
   threadId?:unknown;subject?:unknown;senderDomain?:unknown;
   lastMessageAt?:unknown;lastDirection?:unknown;reviewType?:unknown;
-  sourceType?:unknown;
+  sourceType?:unknown;relationshipHint?:unknown;
   needsHumanReview?:unknown;observedMessages?:unknown;
   fullThreadEnumerated?:unknown;
 };
@@ -60,12 +60,23 @@ function cleanThread(row:InboxRawThread) {
   if(row.reviewType!==expectedType)return null;
   const domain=String(row.senderDomain||'').toLowerCase();
   if(domain && !/^[a-z0-9.-]{3,120}$/.test(domain))return null;
+  const hints=['internal','vendor','form_lead','outbound','unclassified'];
+  const provided=String(row.relationshipHint||'');
+  const hint=hints.includes(provided)?provided:
+    sourceType==='form_lead'?'form_lead':
+    direction==='outbound'?'outbound':
+    ['elevatedbarservices.com','venetianlasvegas.com','pokergo.com'].includes(domain)?
+      'vendor':'unclassified';
+  // An inbound self-addressed form is not an ordinary sender reply.
+  if((sourceType==='form_lead') !== (hint==='form_lead'))return null;
   return {
     threadId:id,subject:safeLabel(row.subject)||'(no subject)',
     senderDomain:direction==='inbound'?domain:'',
     lastMessageAt:at,lastDirection:direction,
     reviewType:row.reviewType,sourceType,
-    needsHumanReview:direction==='inbound' && row.needsHumanReview===true,
+    relationshipHint:hint,
+    needsHumanReview:direction==='inbound' && hint!=='internal' &&
+      row.needsHumanReview===true,
     observedMessages:count(row.observedMessages,150),
     fullThreadEnumerated:row.fullThreadEnumerated===true
   };

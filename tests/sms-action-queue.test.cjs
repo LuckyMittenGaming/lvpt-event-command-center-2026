@@ -208,7 +208,7 @@ assert.match(forms.action,/form notification/i);
 const incoming=expanded.items.find(x=>x.id==='inbox:1122334455667788');
 assert.equal(incoming.group,'review');
 assert.equal(incoming.draftCandidate,false);
-assert.match(incoming.action,/Do not draft from headers alone/i);
+assert.match(incoming.action,/Never draft from headers alone/i);
 assert.equal(expanded.items.find(x=>x.id==='inbox:aabbccdd11223344').group,'monitor');
 assert.equal(expanded.items.find(x=>x.id==='inbox:a1b2c3d4'),undefined,
   'A thread already represented by a client-domain search is never duplicated');

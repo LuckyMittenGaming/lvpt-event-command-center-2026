@@ -24,6 +24,9 @@
   let paymentRecords = [];
   let gmailEvidenceRecords = [];
   let gmailEvidenceLoading = false;
+  let businessInboxReview = null;
+  let businessInboxLoading = false;
+  let businessInboxError = '';
   let showActionMonitoring = false;
   let actionDecisions = new Map();
   let actionAuditReady = false;
@@ -424,7 +427,8 @@
       events:connectedRecords,
       payments:paymentRecords,paymentsConnected:paymentLedgerConnected,
       payouts:payoutRecords,payoutsConnected:payoutLedgerConnected,
-      gmail:gmailEvidenceRecords
+      gmail:gmailEvidenceRecords,
+      inbox:businessInboxReview
     },Date.now());
     if(draftState) {
       const active=brief.items.find(i=>i.id===draftState.itemId);
@@ -438,6 +442,8 @@
     if(!brief.coverage.payouts)gaps.push('Event Payouts');
     if(brief.coverage.gmailConnected<brief.coverage.gmailTotal)
       gaps.push('Gmail '+brief.coverage.gmailConnected+'/'+brief.coverage.gmailTotal);
+    if(!brief.coverage.businessInboxConnected)gaps.push('business inbox scan');
+    else if(brief.coverage.businessInboxPartial)gaps.push('business inbox scan is limited');
     const isPaused=item=>{
       const record=actionDecisions.get(item.id);
       return actionQueueEngine.decisionApplies(item,record) &&
@@ -452,8 +458,8 @@
         'Limited source coverage: '+gaps.join(', ')+'. No missing-source conclusions.' :
         'Sources connected (Gmail is bounded metadata only).')+
       ' No changes sent or saved.';
-    const activeCorrespondence=activeItems.filter(item=>item.type==='gmail');
-    const activeFinancial=activeItems.filter(item=>item.type!=='gmail');
+    const activeCorrespondence=activeItems.filter(item=>item.type==='gmail'||item.type==='inbox');
+    const activeFinancial=activeItems.filter(item=>item.type!=='gmail'&&item.type!=='inbox');
     const visible=activeCorrespondence.concat(activeFinancial,
       showActionMonitoring?backgroundItems:[]);
     let currentSection='';
@@ -463,14 +469,14 @@
       currentSection='Client correspondence & sales opportunities';
       holder.append(makeText('h3','action-queue-section-title',currentSection));
       holder.append(makeText('p','hint',
-        'No verified inbound reply candidate in the five bounded client searches. Do not infer that the full business inbox is clear.'));
+        'No verified inbound reply candidate in the five bounded client searches. The broader inbox scan may identify additional threads to inspect; no mailbox check is exhaustive.'));
     }
     if(!visible.length)
       holder.append(makeText('p','hint',
         'No review candidates in the connected sources under these rules. Other email, bank and CRM work may still exist.'));
     visible.forEach(item=>{
       const section=(item.group!=='review'||isPaused(item))?
-        'Monitoring / held':item.type==='gmail'?
+        'Monitoring / held':(item.type==='gmail'||item.type==='inbox')?
           'Client correspondence & sales opportunities':'Financial verification & reconciliation';
       if(section!==currentSection){
         currentSection=section;
@@ -512,7 +518,9 @@
         (item.draftCandidate===true&&!isPaused(item)?
           [['draft_requested','Approve for Drafting'],['hold','Hold'],['dismissed','Dismiss']]:
           [['hold','Hold'],['dismissed','Dismiss']]):
-        [['verify_requested','Flag for Verification'],['hold','Hold'],['dismissed','Dismiss']];
+        item.type==='inbox'?
+          [['hold','Hold'],['dismissed','Dismiss']]:
+          [['verify_requested','Flag for Verification'],['hold','Hold'],['dismissed','Dismiss']];
       for(const [decision,label] of actionButtons){
         const btn=document.createElement('button');
         btn.type='button';
@@ -525,6 +533,9 @@
         controls.append(btn);
       }
       card.append(controls);
+      if(item.type==='inbox')
+        card.append(makeText('p','action-draft-status',
+          'Inbox-wide review only — read the actual email before deciding whether a reply is necessary. Draft approval is not available from headers.'));
       if(item.type==='gmail' && (!item.draftCandidate||isPaused(item)))
         card.append(makeText('p','action-draft-status',
           item.group==='review' && !isPaused(item)?
@@ -539,6 +550,13 @@
         if(target)target.scrollIntoView({behavior:'smooth',block:'start'});
       });
       card.append(open);
+      if(item.type==='inbox' && /^[a-f0-9]{8,32}$/i.test(item.threadId||'')) {
+        const link=document.createElement('a');
+        link.href='https://mail.google.com/mail/?authuser=book%40pokertraininglasvegas.com#all/'+item.threadId;
+        link.target='_blank';link.rel='noopener noreferrer';
+        link.textContent='Open in LVPT Gmail (verify mailbox)';
+        card.append(link);
+      }
       renderApprovedDraftPreview(card,item);
       holder.append(card);
     });

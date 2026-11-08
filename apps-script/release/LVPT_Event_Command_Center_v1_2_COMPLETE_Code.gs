@@ -810,7 +810,7 @@ function lvptReadOnlyBusinessInboxReview_() {
   }
   var days=30, cut=new Date(Date.now()-days*86400000);
   var after=Utilities.formatDate(cut,'Etc/UTC','yyyy/MM/dd');
-  var query='after:'+after+' to:'+mailbox+' -from:'+mailbox+
+  var query='after:'+after+' to:'+mailbox+
     ' -in:spam -in:trash -category:promotions -category:social';
   // Bound both listing and metadata requests; incomplete means incomplete.
   var listing=lvptGmailMetaGet_(
@@ -836,26 +836,35 @@ function lvptReadOnlyBusinessInboxReview_() {
       if(!Array.isArray(all)||!all.length)return;
       var latest=all[all.length-1], labels=latest.labelIds||[];
       var from=lvptInboxEmail_(lvptInboxHeader_(latest,'From'));
-      var sent=labels.indexOf('SENT')>=0||from===mailbox;
+      var subjectLine=lvptInboxHeader_(latest,'Subject');
+      // Builder/quiz notifications sometimes appear FROM our own booking
+      // mailbox but are INBOX records, not sent replies to clients.
+      var formLead=from===mailbox && labels.indexOf('INBOX')>=0 &&
+        labels.indexOf('SENT')<0 &&
+        /(?:new corporate poker builder lead|poker coaching quiz|survey submission|new .{0,40} lead|website inquiry)/i.test(subjectLine);
+      var sent=labels.indexOf('SENT')>=0 || (from===mailbox&&!formLead);
       var to=lvptInboxHeader_(latest,'To');
-      var direction=sent?'outbound':(from && lvptInboxEmail_(to)===mailbox?'inbound':'unknown');
+      var direction=sent?'outbound':(formLead ||
+        (from && lvptInboxEmail_(to)===mailbox)?'inbound':'unknown');
       var stamp=Number(latest.internalDate||0);
       if(!Number.isFinite(stamp)||stamp<=0||stamp>Date.now()+86400000 || direction==='unknown') {
         failures++;return;
       }
-      if(direction==='inbound' && lvptInboxAutomated_(latest)) {excluded++;return;}
+      if(direction==='inbound' && !formLead && lvptInboxAutomated_(latest)) {excluded++;return;}
       // If the last message was sent by LVPT, preserve the waiting status even
       // though an older inbound message matched the Gmail search.
-      var subject=lvptInboxSafeText_(lvptInboxHeader_(latest,'Subject'),130);
+      var subject=lvptInboxSafeText_(subjectLine,130);
       var domain=from.split('@')[1]||'';
       if(!/^[a-z0-9.-]{3,120}$/.test(domain))domain='';
       rows.push({
         threadId:id,subject:subject||'(no subject)',
-        senderDomain:sent?'':domain,
+        senderDomain:sent||formLead?'':domain,
+        sourceType:formLead?'form_lead':'email_thread',
         lastMessageAt:new Date(stamp).toISOString(),lastDirection:direction,
         observedMessages:Math.min(all.length,150),
         fullThreadEnumerated:all.length<=150,
-        reviewType:direction==='inbound'?'inbound_review':'already_answered',
+        reviewType:formLead?'form_lead_review':
+          direction==='inbound'?'inbound_review':'already_answered',
         needsHumanReview:direction==='inbound'
       });
     }catch(ignore) {

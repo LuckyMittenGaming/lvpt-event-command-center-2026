@@ -196,6 +196,7 @@
         const direction=t?.lastDirection;
         if(direction!=='inbound'&&direction!=='outbound')return;
         const inbound=direction==='inbound' && t.needsHumanReview===true;
+        const formLead=inbound && t.sourceType==='form_lead';
         const domain=text(t.senderDomain,120);
         const subject=text(t.subject||'(no subject)',130);
         const days=Math.floor((nowMs-millis)/86400000);
@@ -203,14 +204,18 @@
           id:'inbox:'+id,type:'inbox',
           draftCandidate:false,group:inbound?'review':'monitor',
           rank:inbound?0:9,
-          eventId:'',eventName:domain||'Unmatched business contact',
-          title:inbound?'Review recent incoming business email':'Already answered — monitor',
-          sourceRevision:[id,at,direction,subject,t.reviewType],
+          eventId:'',eventName:formLead?'Website form inquiry':
+            domain||'Unmatched business contact',
+          title:formLead?'Review new website inquiry':
+            inbound?'Review recent incoming business email':'Already answered — monitor',
+          sourceRevision:[id,at,direction,subject,t.reviewType,t.sourceType],
           source:'Read-only business Gmail thread headers · last '+days+' day(s) ago',
           evidence:'Subject: '+subject+'. Latest direction: '+direction+
             '. '+(inbox.partial?'Limited mailbox coverage. ':'')+
             'Original message body has not been reviewed.',
-          action:inbound?
+          action:formLead?
+            'Open the form notification, identify the actual requester and verify any previous reply before drafting. The form sender is not the client recipient.':
+            inbound?
             'Open the original thread in the business mailbox. Confirm the request, all replies, and whether action is still needed. Do not draft from headers alone.':
             'Last verified message was from LVPT. Do not propose another message based only on this thread.',
           target:'inboxReviewTitle',threadId:id

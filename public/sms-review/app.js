@@ -458,9 +458,11 @@
         'Limited source coverage: '+gaps.join(', ')+'. No missing-source conclusions.' :
         'Sources connected (Gmail is bounded metadata only).')+
       ' No changes sent or saved.';
-    const activeCorrespondence=activeItems.filter(item=>item.type==='gmail'||item.type==='inbox');
+    const activeCorrespondence=activeItems.filter(item=>item.type==='gmail'||
+      (item.type==='inbox'&&item.category!=='vendor_ops'));
+    const activeOperations=activeItems.filter(item=>item.type==='inbox'&&item.category==='vendor_ops');
     const activeFinancial=activeItems.filter(item=>item.type!=='gmail'&&item.type!=='inbox');
-    const visible=activeCorrespondence.concat(activeFinancial,
+    const visible=activeCorrespondence.concat(activeOperations,activeFinancial,
       showActionMonitoring?backgroundItems:[]);
     let currentSection='';
     // Keep sales/correspondence up front even if there is no safe draft candidate.
@@ -469,14 +471,15 @@
       currentSection='Client correspondence & sales opportunities';
       holder.append(makeText('h3','action-queue-section-title',currentSection));
       holder.append(makeText('p','hint',
-        'No verified inbound reply candidate in the five bounded client searches. The broader inbox scan may identify additional threads to inspect; no mailbox check is exhaustive.'));
+        'No currently verified drafting candidate in the five allowlisted client searches. Incoming messages in the broader inbox still need a full thread and CRM review before drafting.'));
     }
     if(!visible.length)
       holder.append(makeText('p','hint',
         'No review candidates in the connected sources under these rules. Other email, bank and CRM work may still exist.'));
     visible.forEach(item=>{
       const section=(item.group!=='review'||isPaused(item))?
-        'Monitoring / held':(item.type==='gmail'||item.type==='inbox')?
+        'Monitoring / held':item.type==='inbox'&&item.category==='vendor_ops'?
+          'Vendor & venue operations':(item.type==='gmail'||item.type==='inbox')?
           'Client correspondence & sales opportunities':'Financial verification & reconciliation';
       if(section!==currentSection){
         currentSection=section;
@@ -487,6 +490,8 @@
       head.append(makeText('span','action-queue-kind',
         isPaused(item)?'Held / dismissed':item.group==='monitor'?'Monitor':
           item.type==='gmail'?'Correspondence':
+          item.type==='inbox'?(item.category==='vendor_ops'?'Vendor / venue':
+            item.category==='internal'?'Internal':'Inquiry review'):
           item.type==='payment'?'Payment verification':'Payout verification'));
       head.append(makeText('span','secondary',item.eventName));
       card.append(head);
@@ -589,14 +594,19 @@
     }
     const rows=businessInboxReview.threads||[];
     const inbound=rows.filter(x=>x.needsHumanReview===true).length;
+    const vendor=rows.filter(x=>x.relationshipHint==='vendor'&&x.needsHumanReview).length;
+    const internal=rows.filter(x=>x.relationshipHint==='internal').length;
     status.textContent='Read-only business Gmail: '+businessInboxReview.examinedThreads+
-      ' recent threads examined; '+inbound+' incoming thread(s) for human review; '+
+      ' recent threads examined; '+(inbound-vendor)+' potential inquiry review(s); '+
+      vendor+' vendor/venue review(s); '+internal+' internal thread(s); '+
       businessInboxReview.excludedAutomatedCount+' automated notifications excluded.'+
       (businessInboxReview.partial?' Coverage limited; some threads may be missing.':
        ' This is a bounded 30-day scan, not a full mailbox audit.')+
       ' No messages or records changed.';
-    const sorted=rows.slice().sort((a,b)=>
-      Number(b.needsHumanReview===true)-Number(a.needsHumanReview===true) ||
+    const priority=t=>t.sourceType==='form_lead'?0:
+      t.needsHumanReview&&t.relationshipHint==='vendor'?2:
+      t.needsHumanReview?1:t.relationshipHint==='internal'?4:3;
+    const sorted=rows.slice().sort((a,b)=>priority(a)-priority(b) ||
       String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
     if(!sorted.length)
       items.append(makeText('p','hint',
@@ -604,17 +614,25 @@
     sorted.slice(0,25).forEach(t=>{
       const card=makeText('div','gmail-evidence-card','');
       card.append(makeText('strong','',t.subject||'(no subject)'));
-      card.append(makeText('p','gmail-evidence-label',
-        t.needsHumanReview?'Review latest incoming message':'Last message sent by LVPT — monitor'));
+      const role=t.sourceType==='form_lead'?'Website inquiry — verify prior replies':
+        t.relationshipHint==='internal'?'Internal conversation — monitor':
+        t.relationshipHint==='vendor'?'Vendor / venue operations — review':
+        t.needsHumanReview?'Potential inquiry — inspect full thread':
+          'LVPT last responded — monitor';
+      card.append(makeText('p','gmail-evidence-label',role));
       const when=new Date(t.lastMessageAt);
       card.append(makeText('p','gmail-evidence-meta',
         (t.senderDomain?'Sender domain: '+t.senderDomain+' · ':'')+
         'Most recent message: '+(Number.isFinite(when.getTime())?dateFmt(t.lastMessageAt):'unverified')+
         ' · '+t.observedMessages+' observed message(s)'));
       card.append(makeText('p','gmail-evidence-explain',
+        t.relationshipHint==='internal'?
+          'Internal owner correspondence. Not a client sales inquiry.':
+        t.relationshipHint==='vendor'?
+          'Vendor logistics require an operational review, not a client sales follow-up.':
         t.needsHumanReview?
-          'Read the full conversation and check the client status before writing. Headers alone do not authorize a reply.':
-          'Avoid a duplicate follow-up: LVPT sent the latest message in this thread.'));
+          'Read the complete conversation and CRM first; incoming mail can be a courtesy reply or an already handled inquiry. No drafting from headers.':
+          'LVPT sent the latest message. Do not create a duplicate follow-up from metadata alone.'));
       const link=document.createElement('a');
       link.href='https://mail.google.com/mail/?authuser=book%40pokertraininglasvegas.com#all/'+t.threadId;
       link.target='_blank';link.rel='noopener noreferrer';

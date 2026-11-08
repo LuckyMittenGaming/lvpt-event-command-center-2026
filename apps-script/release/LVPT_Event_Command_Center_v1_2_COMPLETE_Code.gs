@@ -797,6 +797,21 @@ function lvptInboxAutomated_(message) {
     return true;
   return false;
 }
+// A narrow, source-verified relationship hint. No person's email address is
+// returned to Vercel. "Unclassified" is not proof the message is a client lead.
+function lvptInboxRelationship_(sender,recipient,isFormLead,isSent) {
+  var from=String(sender||'').toLowerCase();
+  var to=String(recipient||'').toLowerCase();
+  if(isFormLead)return 'form_lead';
+  // Owner's known personal mailbox is internal, whether sender or recipient.
+  if(from==='wsopamatt@gmail.com' || to==='wsopamatt@gmail.com')
+    return 'internal';
+  // Verified LVPT vendors/venues; classify as operational, never as sales leads.
+  if(/@(elevatedbarservices\.com|venetianlasvegas\.com|pokergo\.com)$/i.test(from))
+    return 'vendor';
+  if(isSent)return 'outbound';
+  return 'unclassified';
+}
 function lvptReadOnlyBusinessInboxReview_() {
   var mailbox='book@pokertraininglasvegas.com';
   // Verify the executing account: do not scan a connected personal Gmail.
@@ -804,7 +819,7 @@ function lvptReadOnlyBusinessInboxReview_() {
   if(String(profile.emailAddress||'').toLowerCase()!==mailbox)
     return {ok:false,message:'Business Gmail identity verification failed'};
   var cache=CacheService.getScriptCache();
-  var cached=cache.get('lvpt_business_inbox_review_2026_v1');
+  var cached=cache.get('lvpt_business_inbox_review_2026_v2');
   if(cached) {
     try {return JSON.parse(cached);}catch(ignore) {}
   }
@@ -854,12 +869,15 @@ function lvptReadOnlyBusinessInboxReview_() {
       // If the last message was sent by LVPT, preserve the waiting status even
       // though an older inbound message matched the Gmail search.
       var subject=lvptInboxSafeText_(subjectLine,130);
+      var relationship=lvptInboxRelationship_(
+        from,lvptInboxEmail_(to),formLead,sent);
       var domain=from.split('@')[1]||'';
       if(!/^[a-z0-9.-]{3,120}$/.test(domain))domain='';
       rows.push({
         threadId:id,subject:subject||'(no subject)',
         senderDomain:sent||formLead?'':domain,
         sourceType:formLead?'form_lead':'email_thread',
+        relationshipHint:relationship,
         lastMessageAt:new Date(stamp).toISOString(),lastDirection:direction,
         observedMessages:Math.min(all.length,150),
         fullThreadEnumerated:all.length<=150,
@@ -883,6 +901,6 @@ function lvptReadOnlyBusinessInboxReview_() {
     fullMailboxChecked:false,
     notice:'Review candidates only. No bodies read, no messages sent and no records modified.'
   };
-  cache.put('lvpt_business_inbox_review_2026_v1',JSON.stringify(result),180);
+  cache.put('lvpt_business_inbox_review_2026_v2',JSON.stringify(result),180);
   return result;
 }

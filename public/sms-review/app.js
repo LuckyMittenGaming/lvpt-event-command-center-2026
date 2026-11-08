@@ -566,6 +566,87 @@
       'Show '+backgroundItems.length+' monitoring/held item(s)';
   }
 
+
+  function renderBusinessInboxReview() {
+    const status=$('businessInboxStatus');
+    const items=$('businessInboxItems');
+    items.replaceChildren();
+    $('refreshBusinessInbox').disabled=!sessionToken || businessInboxLoading;
+    if(!sessionToken || !report || report.source!=='staging') {
+      status.textContent='Unlock and load the protected staging inbox to check read-only Gmail headers.';
+      return;
+    }
+    if(businessInboxLoading) {
+      status.textContent='Checking recent business Gmail thread headers; no message bodies are being read.';
+      return;
+    }
+    if(!businessInboxReview?.connected) {
+      status.textContent=businessInboxError?
+        'Business-wide inbox scan unavailable. '+businessInboxError+
+        ' No conclusions about unanswered inquiries can be drawn.':
+        'Step 43 Apps Script backend not yet verified. No business-wide inbox conclusions available.';
+      return;
+    }
+    const rows=businessInboxReview.threads||[];
+    const inbound=rows.filter(x=>x.needsHumanReview===true).length;
+    status.textContent='Read-only business Gmail: '+businessInboxReview.examinedThreads+
+      ' recent threads examined; '+inbound+' incoming thread(s) for human review; '+
+      businessInboxReview.excludedAutomatedCount+' automated notifications excluded.'+
+      (businessInboxReview.partial?' Coverage limited; some threads may be missing.':
+       ' This is a bounded 30-day scan, not a full mailbox audit.')+
+      ' No messages or records changed.';
+    const sorted=rows.slice().sort((a,b)=>
+      Number(b.needsHumanReview===true)-Number(a.needsHumanReview===true) ||
+      String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
+    if(!sorted.length)
+      items.append(makeText('p','hint',
+        'No eligible metadata entries in the bounded scan. This does not prove that your entire business inbox is clear.'));
+    sorted.slice(0,25).forEach(t=>{
+      const card=makeText('div','gmail-evidence-card','');
+      card.append(makeText('strong','',t.subject||'(no subject)'));
+      card.append(makeText('p','gmail-evidence-label',
+        t.needsHumanReview?'Review latest incoming message':'Last message sent by LVPT — monitor'));
+      const when=new Date(t.lastMessageAt);
+      card.append(makeText('p','gmail-evidence-meta',
+        (t.senderDomain?'Sender domain: '+t.senderDomain+' · ':'')+
+        'Most recent message: '+(Number.isFinite(when.getTime())?dateFmt(t.lastMessageAt):'unverified')+
+        ' · '+t.observedMessages+' observed message(s)'));
+      card.append(makeText('p','gmail-evidence-explain',
+        t.needsHumanReview?
+          'Read the full conversation and check the client status before writing. Headers alone do not authorize a reply.':
+          'Avoid a duplicate follow-up: LVPT sent the latest message in this thread.'));
+      const link=document.createElement('a');
+      link.href='https://mail.google.com/mail/?authuser=book%40pokertraininglasvegas.com#all/'+t.threadId;
+      link.target='_blank';link.rel='noopener noreferrer';
+      link.textContent='Open thread in LVPT Gmail — verify mailbox';
+      card.append(link);
+      items.append(card);
+    });
+  }
+
+  async function loadBusinessInboxReview() {
+    if(!sessionToken || !report || report.source!=='staging') {
+      renderBusinessInboxReview();return;
+    }
+    if(businessInboxLoading)return;
+    businessInboxLoading=true;
+    businessInboxError='';
+    businessInboxReview=null;
+    renderBusinessInboxReview();
+    try {
+      const data=await getProtected('/api/sms/staging/inbox-review');
+      if(!data?.ok||data.source!=='lvpt_read_only_business_inbox_review'||
+         !Array.isArray(data.threads))throw new Error('Invalid inbox metadata');
+      businessInboxReview=data;
+    }catch {
+      businessInboxError='The new read-only Code.gs action may still need deployment or the source is temporarily unavailable.';
+    }finally {
+      businessInboxLoading=false;
+      renderBusinessInboxReview();
+      renderActionQueue();
+    }
+  }
+
   function renderGmailEvidence() {
     const container=$('gmailEvidenceItems');
     const status=$('gmailEvidenceStatus');
@@ -1273,6 +1354,7 @@
       paymentLedgerConnected=false;
       paymentRecords=[];
       gmailEvidenceRecords=[];
+      businessInboxReview=null;businessInboxError='';
       draftState=null; draftFeedback=''; draftLoadingId=''; personalizedLoadingId='';
       actionDecisions=new Map();actionAuditReady=false;
       savedSourceCounts=Object.create(null);
@@ -1300,6 +1382,7 @@
         loadSavedDecisions(),loadReferenceData(),loadAuditHealth(),loadActionDecisions()
       ]);
       void loadGmailEvidence();
+      void loadBusinessInboxReview();
       if(decisionResult!==null && auditReady)
         setStatus('Staging ready: '+findings.length+' SMS findings, '+caseBundles.length+
           ' event/issue bundles; '+decisionResult+' saved reviews restored. Audited saving verified; no live records changed.');
@@ -1359,7 +1442,7 @@
     $('stagingToken').value = '';
     payoutRecords=[]; payoutLedgerConnected=false; paymentLedgerConnected=false; paymentRecords=[]; auditServiceReady=false;
     connectedRecords=[]; recordsAvailable=false;
-    gmailEvidenceRecords=[]; showActionMonitoring=false;
+    gmailEvidenceRecords=[];businessInboxReview=null;businessInboxError='';showActionMonitoring=false;
     actionDecisions=new Map(); actionAuditReady=false; savingActionId='';
     draftState=null;draftFeedback='';draftLoadingId='';personalizedLoadingId='';
     savedDecisionSignatures=Object.create(null);
@@ -1379,6 +1462,7 @@
   $('saveCaseDecisions').addEventListener('click',saveDecisions);
   $('runSyntheticAiTest').addEventListener('click',runSyntheticAiTest);
   $('refreshGmailEvidence').addEventListener('click',loadGmailEvidence);
+  $('refreshBusinessInbox').addEventListener('click',loadBusinessInboxReview);
   $('toggleActionMonitoring').addEventListener('click',()=>{
     showActionMonitoring=!showActionMonitoring;
     renderActionQueue();
@@ -1435,6 +1519,6 @@
   });
   CATEGORY.forEach(v => $('findCategory').add(new Option(v,v)));
   ['All statuses',...STATUS].forEach(v => $('findStatus').add(new Option(v,v)));
-  summary();render();renderGmailEvidence();
+  summary();render();renderGmailEvidence();renderBusinessInboxReview();
   checkSession();
 })();

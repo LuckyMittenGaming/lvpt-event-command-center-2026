@@ -195,29 +195,43 @@
         if(!Number.isFinite(millis)||millis<=0||millis>nowMs)return;
         const direction=t?.lastDirection;
         if(direction!=='inbound'&&direction!=='outbound')return;
-        const inbound=direction==='inbound' && t.needsHumanReview===true;
+        const relationship=text(t.relationshipHint,20);
+        const internal=relationship==='internal';
+        const vendor=relationship==='vendor';
+        const inbound=direction==='inbound' && t.needsHumanReview===true && !internal;
         const formLead=inbound && t.sourceType==='form_lead';
         const domain=text(t.senderDomain,120);
         const subject=text(t.subject||'(no subject)',130);
         const days=Math.floor((nowMs-millis)/86400000);
+        const category=internal?'internal':vendor?'vendor_ops':'client_inquiry';
         add({
-          id:'inbox:'+id,type:'inbox',
+          id:'inbox:'+id,type:'inbox',category,relationshipHint:relationship,
           draftCandidate:false,group:inbound?'review':'monitor',
-          rank:inbound?0:9,
+          rank:formLead?0:inbound?(vendor?5:1):9,
           eventId:'',eventName:formLead?'Website form inquiry':
-            domain||'Unmatched business contact',
-          title:formLead?'Review new website inquiry':
-            inbound?'Review recent incoming business email':'Already answered — monitor',
-          sourceRevision:[id,at,direction,subject,t.reviewType,t.sourceType],
+            internal?'Owner / internal communication':
+            vendor?(domain||'Event vendor'):
+            domain||'Unclassified business contact',
+          title:formLead?'Review website inquiry — confirm reply status':
+            internal?'Internal correspondence — no sales follow-up':
+            vendor && inbound?'Review vendor / venue operations':
+            inbound?'Review incoming email — determine if client inquiry':
+              'Last message outbound — monitor',
+          sourceRevision:[id,at,direction,subject,t.reviewType,t.sourceType,relationship],
           source:'Read-only business Gmail thread headers · last '+days+' day(s) ago',
           evidence:'Subject: '+subject+'. Latest direction: '+direction+
-            '. '+(inbox.partial?'Limited mailbox coverage. ':'')+
+            '. Source relationship: '+(relationship||'unclassified')+'. '+
+            (inbox.partial?'Limited mailbox coverage. ':'')+
             'Original message body has not been reviewed.',
           action:formLead?
-            'Open the form notification, identify the actual requester and verify any previous reply before drafting. The form sender is not the client recipient.':
+            'Open the form notification, identify the actual requester, and check for an answer in Gmail or CRM before drafting. The form sender is not the client recipient.':
+            internal?
+            'Internal owner conversation. Do not classify as a new client inquiry; review only for operational follow-through.':
+            vendor?
+            'Vendor or venue logistics. Read the full thread to identify any outstanding operational request; do not place it in sales outreach.':
             inbound?
-            'Open the original thread in the business mailbox. Confirm the request, all replies, and whether action is still needed. Do not draft from headers alone.':
-            'Last verified message was from LVPT. Do not propose another message based only on this thread.',
+            'Inspect the original thread and CRM before deciding whether this is a customer question, a courtesy response, or another business matter. Never draft from headers alone.':
+            'LVPT sent the latest verified message. Monitor only; do not propose duplicate outreach.',
           target:'inboxReviewTitle',threadId:id
         });
       });

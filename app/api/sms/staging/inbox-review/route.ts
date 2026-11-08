@@ -38,6 +38,14 @@ function count(value:unknown,max=100):number {
   const n=Number(value);
   return Number.isInteger(n) && n>=0 ? Math.min(n,max):0;
 }
+// Secondary safeguard against notification headers that lack dependable
+// Auto-Submitted/List-Unsubscribe markers. These are not client replies.
+function systemNotification(subject:string,senderDomain:string):boolean {
+  return /^LVPT Command Center:\s/i.test(subject) ||
+    (senderDomain==='google.com' && /^Folder shared with you:/i.test(subject)) ||
+    (/^(?:Payment initiated:|Payment should have arrived:)/i.test(subject) &&
+      /^(?:ziphq\.com|zip\.com|gmail\.com)$/.test(senderDomain));
+}
 function cleanThread(row:InboxRawThread) {
   if(!row || typeof row!=='object')return null;
   const id=String(row.threadId||'');
@@ -78,9 +86,14 @@ export async function GET(request:Request) {
        !Array.isArray(data.threads) || data.threads.length>25)
       return jsonNoStore({ok:false,reason:'inbox_review_backend_not_deployed'},503);
     const seen=new Set<string>();
+    let filteredSystemCount=0;
     const threads=data.threads.map(cleanThread).filter((entry):entry is NonNullable<typeof entry>=>{
       if(!entry||seen.has(entry.threadId))return false;
       seen.add(entry.threadId);
+      if(systemNotification(entry.subject,entry.senderDomain)) {
+        filteredSystemCount++;
+        return false;
+      }
       return true;
     }).sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));
     // Do not falsely claim exhaustive coverage: the Apps Script source caps
@@ -89,7 +102,8 @@ export async function GET(request:Request) {
       ok:true,connected:true,source:'lvpt_read_only_business_inbox_review',
       checkedAt:date(data.checkedAt),rangeDays:30,partial:data.partial===true,
       fullMailboxChecked:false,examinedThreads:count(data.examinedThreads,28),
-      excludedAutomatedCount:count(data.excludedAutomatedCount,28),
+      excludedAutomatedCount:count(data.excludedAutomatedCount,28)+filteredSystemCount,
+      filteredSystemCount,
       metadataFailures:count(data.metadataFailures,28),threads,
       noEmailBodies:true,noGmailWrites:true,
       advisory:'Thread-header review only. Inbound does not prove a reply is due.'

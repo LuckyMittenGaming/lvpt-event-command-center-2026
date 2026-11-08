@@ -24,6 +24,7 @@ function doPost(e) {
     if (action === 'listEvents') return lvptJson_({ ok: true, events: lvptListEvents_(), serverTime: new Date().toISOString() });
     if (action === 'listReconciliationEvidence') return lvptJson_(lvptListReconciliationEvidence_());
     if (action === 'listGmailThreadEvidence') return lvptJson_(lvptReadOnlyGmailEvidence_(String(payload.eventKey || '')));
+    if (action === 'listBusinessInboxReview') return lvptJson_(lvptReadOnlyBusinessInboxReview_());
     if (action === 'readGmailDraftContext') return lvptJson_(lvptReadOnlyGmailDraftContext_(String(payload.eventKey || ''), String(payload.threadId || ''), String(payload.expectedLastMessageAt || '')));
     if (action === 'saveAllEvents') return lvptJson_(lvptSaveAllEvents_(payload));
     if (action === 'uploadDocument') return lvptJson_(lvptUploadDocument_(payload));
@@ -756,4 +757,123 @@ function checkLvptGmailDraftContextReadOnlyNow() {
   return {ok:true,observedMessages:context.observedMessages,
     includedMessages:context.messages.length,partial:context.partial};
 }
-
+// STEP 43 — Read-only, bounded BUSINESS INBOX review.
+// This intentionally does not write to Gmail, Sheets, tasks, or CRM.
+// Gmail API calls inherit the already-granted gmail.readonly Apps Script scope.
+// Returned data includes no message bodies, recipient addresses, or sender emails.
+function lvptInboxSafeText_(value,maxLength) {
+  return String(value||'').replace(/https?:\/\/\S+/gi,'[link]')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,'[email]')
+    .replace(/(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g,'[phone]')
+    .replace(/\s+/g,' ').trim().slice(0,maxLength);
+}
+function lvptInboxHeader_(message,name) {
+  var headers=message && message.payload && message.payload.headers || [];
+  for(var i=0;i<headers.length;i++) {
+    if(String(headers[i].name||'').toLowerCase()===name.toLowerCase())
+      return String(headers[i].value||'').slice(0,320);
+  }
+  return '';
+}
+function lvptInboxEmail_(header) {
+  var m=String(header||'').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return m?m[0].toLowerCase():'';
+}
+function lvptInboxAutomated_(message) {
+  var from=lvptInboxEmail_(lvptInboxHeader_(message,'From'));
+  var local=from.split('@')[0]||'';
+  var subject=lvptInboxHeader_(message,'Subject');
+  var auto=lvptInboxHeader_(message,'Auto-Submitted').toLowerCase();
+  var precedence=lvptInboxHeader_(message,'Precedence').toLowerCase();
+  if(auto && auto!=='no')return true;
+  if(/^(?:bulk|list|junk)$/.test(precedence))return true;
+  if(lvptInboxHeader_(message,'List-Unsubscribe'))return true;
+  if(/^(?:no-?reply|do-?not-?reply|notifications?|alerts?|bounce|mailer-daemon|postmaster|billing|receipts?|support-noreply)(?:[+._-]|$)/i.test(local))
+    return true;
+  if(/(?:google\.com|googleworkspace\.com|stripe\.com|docusign\.net|bizlyapp\.com|mailchimp\.com|constantcontact\.com)$/i.test(from.split('@')[1]||'') &&
+     /(?:receipt|report|payment|invoice|alert|security|completed|performance|review|notification)/i.test(subject))
+    return true;
+  if(/^(?:payment (?:initiated|should have arrived)|you(?:'ve| have) received (?:a )?payment|your (?:monthly )?(?:invoice|performance report)|delivery status notification|undeliverable:|out of office|automatic reply)/i.test(subject))
+    return true;
+  return false;
+}
+function lvptReadOnlyBusinessInboxReview_() {
+  var mailbox='book@pokertraininglasvegas.com';
+  // Verify the executing account: do not scan a connected personal Gmail.
+  var profile=lvptGmailMetaGet_('https://gmail.googleapis.com/gmail/v1/users/me/profile');
+  if(String(profile.emailAddress||'').toLowerCase()!==mailbox)
+    return {ok:false,message:'Business Gmail identity verification failed'};
+  var cache=CacheService.getScriptCache();
+  var cached=cache.get('lvpt_business_inbox_review_2026_v1');
+  if(cached) {
+    try {return JSON.parse(cached);}catch(ignore) {}
+  }
+  var days=30, cut=new Date(Date.now()-days*86400000);
+  var after=Utilities.formatDate(cut,'Etc/UTC','yyyy/MM/dd');
+  var query='after:'+after+' to:'+mailbox+' -from:'+mailbox+
+    ' -in:spam -in:trash -category:promotions -category:social';
+  // Bound both listing and metadata requests; incomplete means incomplete.
+  var listing=lvptGmailMetaGet_(
+    'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=80&q='+
+    encodeURIComponent(query));
+  var unique=[],found={};
+  (listing.messages||[]).forEach(function(m) {
+    var id=String(m && m.threadId || '');
+    if(/^[a-f0-9]{8,32}$/i.test(id)&&!found[id]) {
+      found[id]=true; unique.push(id);
+    }
+  });
+  var maxThreads=28, rows=[],failures=0,excluded=0;
+  unique.slice(0,maxThreads).forEach(function(id) {
+    try {
+      var thread=lvptGmailMetaGet_(
+        'https://gmail.googleapis.com/gmail/v1/users/me/threads/'+
+        encodeURIComponent(id)+
+        '?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject'+
+        '&metadataHeaders=Auto-Submitted&metadataHeaders=Precedence'+
+        '&metadataHeaders=List-Unsubscribe');
+      var all=thread.messages||[];
+      if(!Array.isArray(all)||!all.length)return;
+      var latest=all[all.length-1], labels=latest.labelIds||[];
+      var from=lvptInboxEmail_(lvptInboxHeader_(latest,'From'));
+      var sent=labels.indexOf('SENT')>=0||from===mailbox;
+      var to=lvptInboxHeader_(latest,'To');
+      var direction=sent?'outbound':(from && lvptInboxEmail_(to)===mailbox?'inbound':'unknown');
+      var stamp=Number(latest.internalDate||0);
+      if(!Number.isFinite(stamp)||stamp<=0||stamp>Date.now()+86400000 || direction==='unknown') {
+        failures++;return;
+      }
+      if(direction==='inbound' && lvptInboxAutomated_(latest)) {excluded++;return;}
+      // If the last message was sent by LVPT, preserve the waiting status even
+      // though an older inbound message matched the Gmail search.
+      var subject=lvptInboxSafeText_(lvptInboxHeader_(latest,'Subject'),130);
+      var domain=from.split('@')[1]||'';
+      if(!/^[a-z0-9.-]{3,120}$/.test(domain))domain='';
+      rows.push({
+        threadId:id,subject:subject||'(no subject)',
+        senderDomain:sent?'':domain,
+        lastMessageAt:new Date(stamp).toISOString(),lastDirection:direction,
+        observedMessages:Math.min(all.length,150),
+        fullThreadEnumerated:all.length<=150,
+        reviewType:direction==='inbound'?'inbound_review':'already_answered',
+        needsHumanReview:direction==='inbound'
+      });
+    }catch(ignore) {
+      failures++;
+    }
+  });
+  rows.sort(function(a,b){return b.lastMessageAt.localeCompare(a.lastMessageAt);});
+  var result={
+    ok:true,connected:true,source:'read_only_business_inbox_metadata',
+    mailboxIdentityVerified:true,rangeDays:days,checkedAt:new Date().toISOString(),
+    threads:rows.slice(0,25),
+    examinedThreads:Math.min(unique.length,maxThreads),
+    excludedAutomatedCount:excluded,metadataFailures:failures,
+    partial:Boolean(listing.nextPageToken)||unique.length>maxThreads||
+      rows.length>25||failures>0,
+    fullMailboxChecked:false,
+    notice:'Review candidates only. No bodies read, no messages sent and no records modified.'
+  };
+  cache.put('lvpt_business_inbox_review_2026_v1',JSON.stringify(result),180);
+  return result;
+}

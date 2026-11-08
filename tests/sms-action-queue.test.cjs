@@ -136,4 +136,18 @@ assert.equal(datedIds.length,2,'Distinct invoices must remain independently acti
 assert(datedIds.every(id=>actionKeyRule.test(id)),
   'Staging audit must accept canonical IDs with numeric date suffixes');
 
+// Monitor-only email cards must not offer drafting approval. A recent LVPT
+// outbound message is not a reason to launch a duplicate follow-up.
+assert.match(app,/item\.group==='review'&&!isPaused\(item\)/,
+  'Only active review candidates expose Approve for Drafting');
+assert.match(app,/decision==='draft_requested' && item\.group!=='review'/,
+  'Saving a draft approval directly for a monitor candidate is blocked');
+assert.match(app,/item\.type==='gmail' && item\.group==='review'/,
+  'Existing approvals cannot open previews for monitoring-only candidates');
+assert.match(app,/Monitoring only — drafting approval unavailable/,
+  'Monitoring cards should explain why draft approval is unavailable');
+const monitoringMail=byId('gmail:quinn-emanuel');
+assert.equal(monitoringMail.group,'monitor',
+  'Recent outgoing correspondence must remain monitoring-only');
+
 console.log('Action Required queue and non-sending, append-only approval controls tests passed.');

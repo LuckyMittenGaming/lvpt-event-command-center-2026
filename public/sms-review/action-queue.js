@@ -154,8 +154,11 @@
         !ambiguousOrganization &&
         ((proposal && days>=10) || (newLead && days>=7));
       const group=reviewInbound||reviewTiming?'review':'monitor';
+      // Metadata-only outbound timing reviews are NOT permission to draft.
+      // OWS has multiple events; do not infer which event an inbound reply concerns.
+      const draftCandidate=reviewInbound && !ambiguousOrganization && !completed;
       add({
-        id:'gmail:'+key,type:'gmail',group,
+        id:'gmail:'+key,type:'gmail',group,draftCandidate,
         rank:reviewInbound?0:reviewTiming?4:9,
         title:reviewInbound?'Read most recent client message':
           reviewTiming?'Review proposal/lead follow-up timing':

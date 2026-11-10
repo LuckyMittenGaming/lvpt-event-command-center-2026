@@ -1010,7 +1010,8 @@ function lvptReadOnlyBusinessInboxThread_(threadId, expectedLastMessageAt) {
       relationshipHint:relationship,
       senderDomain:sent||form?'':String(from.split('@')[1]||'').slice(0,120),
       excerpt:body,
-      truncated:authored.truncated||maximum===0,
+      truncated:authored.truncated||String(authored.body||'').length>maximum||
+        maximum===0,
       hasAttachments:(m.payload&&m.payload.parts||[]).some(function(part){
         return Boolean(part.filename);
       })

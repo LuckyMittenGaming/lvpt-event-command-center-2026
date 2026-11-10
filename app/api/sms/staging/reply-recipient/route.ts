@@ -9,7 +9,7 @@ type Verified={
   ok?:boolean;source?:string;mailboxIdentityVerified?:boolean;
   threadId?:string;lastMessageAt?:string;recipient?:string;
   subject?:string;lastGmailMessageId?:string;
-  sendingEnabled?:boolean;
+  sendingEnabled?:boolean;fullHistoryRequiresOwnerReview?:boolean;totalMessages?:number;
 };
 const THREAD=/^[a-f0-9]{8,32}$/i;
 function iso(v:string) {
@@ -45,6 +45,9 @@ export async function GET(request:Request) {
       ok:true,source:'owner_selected_verified_recipient',
       threadId,lastMessageAt,from:'book@pokertraininglasvegas.com',
       to:email,subject:data.subject,
+      fullHistoryRequiresOwnerReview:data.fullHistoryRequiresOwnerReview===true,
+      totalMessages:Number.isInteger(data.totalMessages)?
+        Math.min(150,Math.max(0,Number(data.totalMessages))):null,
       // Both Apps Script and Vercel require separate explicit opt-ins.
       sendEnabled:process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND==='true' &&
         data.sendingEnabled===true,

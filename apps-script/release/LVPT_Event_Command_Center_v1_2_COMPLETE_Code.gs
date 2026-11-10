@@ -1052,10 +1052,15 @@ function lvptStep48VerifyReplyRecipient_(threadId,expectedLastMessageAt) {
   if(String(profile.emailAddress||'').toLowerCase()!==mailbox)
     return {ok:false,message:'Authenticated sender is not LVPT business Gmail'};
   var prior=lvptReadOnlyBusinessInboxThread_(threadId,expectedLastMessageAt);
+  // A long conversation can exceed the ten-message *display* window.
+  // That alone cannot make the verified latest incoming email invalid.
+  // Human review of ALL original history is separately required by the
+  // Vercel owner-approval audit. Never allow a truncated latest message.
   if(prior.ok!==true||prior.mailboxIdentityVerified!==true ||
-    prior.partial===true||prior.messages.length!==prior.totalMessages||
-    !prior.messages.length)
-    return {ok:false,message:'Conversation contains incomplete excerpts or unverified history'};
+    !prior.messages.length||!Number.isInteger(prior.totalMessages)||
+    prior.totalMessages>150 ||
+    (prior.partial!==true&&prior.messages.length!==prior.totalMessages))
+    return {ok:false,message:'Business conversation cannot be verified within the bounded review limit'};
   var priorLast=prior.messages[prior.messages.length-1];
   if(priorLast.direction!=='inbound'||priorLast.relationshipHint!=='unclassified'||
     priorLast.hasAttachments||priorLast.truncated||!priorLast.excerpt.trim())
@@ -1096,6 +1101,8 @@ function lvptStep48VerifyReplyRecipient_(threadId,expectedLastMessageAt) {
     lastMessageAt:new Date(expected).toISOString(),
     recipient:from,subject:subject,lastGmailMessageId:String(last.id||''),
     inReplyTo:msgId,references:refs,
+    fullHistoryRequiresOwnerReview:prior.partial===true,
+    totalMessages:prior.totalMessages,
     // The ability to SEND is separately gated on both systems.
     sendingEnabled:lvptProperties_().getProperty(
       'LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND')==='true'

@@ -165,7 +165,12 @@ export async function POST(request:Request) {
             // outbound thread and prove the GAS recipient gate rejects it.
             // A positive validation here is a security FAILURE, not a lead.
             const negative=selectDiagnosticNegativeControl(inbox.threads);
-            if(negative)candidates.push(negative);
+            if(negative&&negative.selectionMode==='negative_outbound')
+              candidates.push({
+                threadId:negative.threadId,
+                lastMessageAt:negative.lastMessageAt,
+                selectionMode:'negative_outbound'
+              });
           }
         }
       }

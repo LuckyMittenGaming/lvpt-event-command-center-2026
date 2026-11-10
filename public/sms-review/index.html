@@ -83,7 +83,7 @@
         <div class="section-heading">
           <div>
             <h2 id="inboxReviewTitle">Recent business Gmail review</h2>
-            <p class="hint">Read-only paginated business Gmail review beyond five client domains. Click a thread to inspect recent redacted excerpts, then check CRM and event records. No emails are sent, no Gmail drafts are created, and AI is not called by these controls. Step 46 provides a conservative local qualification of opened threads, never an automatic reply instruction.</p>
+            <p class="hint">Read-only paginated business Gmail review beyond five client domains. Click a thread to inspect recent redacted excerpts, then check CRM and event records. No emails are sent, no Gmail drafts are created, and AI is not called by these controls. Step 46 qualifies opened threads locally. Step 47 adds one-at-a-time editable review with a separate append-only owner-decision audit; only manually approved text can be copied, and sending remains disabled.</p>
           </div>
           <button type="button" id="refreshBusinessInbox" class="neutral">Refresh business inbox</button>
         </div>
@@ -177,6 +177,7 @@
   <script src="./gmail-intelligence.js" defer></script>
   <script src="./action-queue.js" defer></script>
   <script src="./reply-qualification.js" defer></script>
+  <script src="./reply-workflow.js" defer></script>
   <script src="./draft-helper.js" defer></script>
   <script src="./app.js" defer></script>
 </body>

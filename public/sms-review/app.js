@@ -27,6 +27,9 @@
   let businessInboxReview = null;
   let businessInboxLoading = false;
   let businessInboxError = '';
+  let businessInboxThreadContext = new Map();
+  let businessInboxThreadLoading = '';
+  let businessInboxThreadError = new Map();
   let showActionMonitoring = false;
   let actionDecisions = new Map();
   let actionAuditReady = false;
@@ -575,34 +578,38 @@
   function renderBusinessInboxReview() {
     const status=$('businessInboxStatus');
     const items=$('businessInboxItems');
+    const more=$('loadMoreBusinessInbox');
     items.replaceChildren();
     $('refreshBusinessInbox').disabled=!sessionToken || businessInboxLoading;
+    more.hidden=true;
     if(!sessionToken || !report || report.source!=='staging') {
       status.textContent='Unlock and load the protected staging inbox to check read-only Gmail headers.';
       return;
     }
-    if(businessInboxLoading) {
-      status.textContent='Checking recent business Gmail thread headers; no message bodies are being read.';
+    if(businessInboxLoading && !businessInboxReview?.connected) {
+      status.textContent='Checking recent business Gmail thread headers; no message bodies are read during the scan.';
       return;
     }
     if(!businessInboxReview?.connected) {
       status.textContent=businessInboxError?
-        'Business-wide inbox scan unavailable. '+businessInboxError+
+        'Business inbox scan unavailable. '+businessInboxError+
         ' No conclusions about unanswered inquiries can be drawn.':
-        'Step 43 Apps Script backend not yet verified. No business-wide inbox conclusions available.';
+        'Step 45 paginated Apps Script backend has not yet been verified. Do not infer that the business inbox is clear.';
       return;
     }
     const rows=businessInboxReview.threads||[];
-    const inbound=rows.filter(x=>x.needsHumanReview===true).length;
-    const vendor=rows.filter(x=>x.relationshipHint==='vendor'&&x.needsHumanReview).length;
+    const inbound=rows.filter(x=>x.needsHumanReview===true);
+    const vendor=inbound.filter(x=>x.relationshipHint==='vendor').length;
     const internal=rows.filter(x=>x.relationshipHint==='internal').length;
+    const formLeads=inbound.filter(x=>x.sourceType==='form_lead').length;
+    const possible=inbound.length-vendor;
     status.textContent='Read-only business Gmail: '+businessInboxReview.examinedThreads+
-      ' recent threads examined; '+(inbound-vendor)+' potential inquiry review(s); '+
-      vendor+' vendor/venue review(s); '+internal+' internal thread(s); '+
+      ' message threads checked across '+businessInboxReview.pagesLoaded+' bounded page(s); '+
+      possible+' potential inquiries ('+formLeads+' form notifications), '+
+      vendor+' vendor/venue reviews, '+internal+' internal thread(s), '+
       businessInboxReview.excludedAutomatedCount+' automated notifications excluded.'+
-      (businessInboxReview.partial?' Coverage limited; some threads may be missing.':
-       ' This is a bounded 30-day scan, not a full mailbox audit.')+
-      ' No messages or records changed.';
+      (businessInboxReview.nextPage!==null?' More recent-mail pages available.':' No further pages available within this 30-day query.')+
+      ' Coverage remains limited; bodies are only fetched for a selected thread. No messages sent or records changed.';
     const priority=t=>t.sourceType==='form_lead'?0:
       t.needsHumanReview&&t.relationshipHint==='vendor'?2:
       t.needsHumanReview?1:t.relationshipHint==='internal'?4:3;
@@ -610,58 +617,147 @@
       String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
     if(!sorted.length)
       items.append(makeText('p','hint',
-        'No eligible metadata entries in the bounded scan. This does not prove that your entire business inbox is clear.'));
-    sorted.slice(0,25).forEach(t=>{
+        'No eligible entries in these bounded pages. This does not prove the entire business inbox is clear.'));
+    sorted.forEach(t=>{
       const card=makeText('div','gmail-evidence-card','');
       card.append(makeText('strong','',t.subject||'(no subject)'));
-      const role=t.sourceType==='form_lead'?'Website inquiry — verify prior replies':
-        t.relationshipHint==='internal'?'Internal conversation — monitor':
-        t.relationshipHint==='vendor'?'Vendor / venue operations — review':
+      const role=t.sourceType==='form_lead'?'Website form — verify original client and prior replies':
+        t.relationshipHint==='internal'?'Internal correspondence — no sales outreach':
+        t.relationshipHint==='vendor'?'Vendor / venue operations':
         t.needsHumanReview?'Potential inquiry — inspect full thread':
           'LVPT last responded — monitor';
       card.append(makeText('p','gmail-evidence-label',role));
-      const when=new Date(t.lastMessageAt);
       card.append(makeText('p','gmail-evidence-meta',
         (t.senderDomain?'Sender domain: '+t.senderDomain+' · ':'')+
-        'Most recent message: '+(Number.isFinite(when.getTime())?dateFmt(t.lastMessageAt):'unverified')+
-        ' · '+t.observedMessages+' observed message(s)'));
+        'Most recent: '+dateFmt(t.lastMessageAt)+' · '+
+        t.observedMessages+' observed messages'));
+      const needs=t.needsHumanReview;
       card.append(makeText('p','gmail-evidence-explain',
         t.relationshipHint==='internal'?
-          'Internal owner correspondence. Not a client sales inquiry.':
+          'Internal owner correspondence. Not a customer lead.':
         t.relationshipHint==='vendor'?
-          'Vendor logistics require an operational review, not a client sales follow-up.':
-        t.needsHumanReview?
-          'Read the complete conversation and CRM first; incoming mail can be a courtesy reply or an already handled inquiry. No drafting from headers.':
-          'LVPT sent the latest message. Do not create a duplicate follow-up from metadata alone.'));
+          'Vendor logistics require operational review, not sales outreach.':
+        needs?
+          'A recent incoming message requires context, not an automatic reply. Read the conversation before drafting.':
+          'LVPT sent the last message. Do not generate a duplicate follow-up from metadata.'));
+      const open=document.createElement('button');
+      open.type='button';open.className='neutral';
+      open.disabled=businessInboxThreadLoading===t.threadId;
+      open.textContent=businessInboxThreadLoading===t.threadId?
+        'Reviewing conversation…':
+        businessInboxThreadContext.has(t.threadId)?'Hide / show conversation preview':
+          'Inspect recent conversation (read-only)';
+      open.addEventListener('click',()=>loadBusinessInboxThread(t));
+      card.append(open);
       const link=document.createElement('a');
       link.href='https://mail.google.com/mail/?authuser=book%40pokertraininglasvegas.com#all/'+t.threadId;
       link.target='_blank';link.rel='noopener noreferrer';
-      link.textContent='Open thread in LVPT Gmail — verify mailbox';
+      link.textContent='Open original thread in LVPT Gmail';
       card.append(link);
+      if(businessInboxThreadError.has(t.threadId))
+        card.append(makeText('p','source-status',
+          'Thread preview unavailable: '+businessInboxThreadError.get(t.threadId)));
+      const context=businessInboxThreadContext.get(t.threadId);
+      if(context?.visible) {
+        const detail=makeText('div','action-draft-panel','');
+        detail.append(makeText('strong','',
+          'Recent conversation excerpts ('+context.totalMessages+' total message(s))'));
+        if(context.partial)
+          detail.append(makeText('p','hint',
+            'Older messages or attachments may be omitted. Review the full Gmail thread before deciding.'));
+        context.messages.forEach(m=>{
+          const item=makeText('div','gmail-evidence-card','');
+          item.append(makeText('p','gmail-evidence-label',
+            m.direction+' · '+m.relationshipHint+' · '+dateFmt(m.at)));
+          if(m.excerpt)
+            item.append(makeText('p','gmail-message-excerpt',m.excerpt));
+          if(m.hasAttachments)
+            item.append(makeText('p','hint',
+              'Attachment detected — inspect it directly in Gmail.'));
+          detail.append(item);
+        });
+        detail.append(makeText('p','hint',
+          'No email draft created. Check CRM, conversation chronology, and whether a response is genuinely needed.'));
+        card.append(detail);
+      }
       items.append(card);
     });
+    more.hidden=businessInboxReview.nextPage===null;
+    more.disabled=businessInboxLoading;
+    more.textContent=businessInboxLoading?'Loading more…':
+      'Load more business Gmail (page '+(businessInboxReview.nextPage??0)+')';
   }
 
-  async function loadBusinessInboxReview() {
+  async function loadBusinessInboxReview(append=false) {
     if(!sessionToken || !report || report.source!=='staging') {
       renderBusinessInboxReview();return;
     }
     if(businessInboxLoading)return;
+    if(append && (!businessInboxReview?.connected||businessInboxReview.nextPage===null))return;
+    const requestedPage=append?businessInboxReview.nextPage:0;
     businessInboxLoading=true;
     businessInboxError='';
-    businessInboxReview=null;
+    if(!append) {
+      businessInboxReview=null;
+      businessInboxThreadContext=new Map();
+      businessInboxThreadError=new Map();
+    }
     renderBusinessInboxReview();
     try {
-      const data=await getProtected('/api/sms/staging/inbox-review');
+      const data=await getProtected('/api/sms/staging/inbox-review?page='+requestedPage);
       if(!data?.ok||data.source!=='lvpt_read_only_business_inbox_review'||
-         !Array.isArray(data.threads))throw new Error('Invalid inbox metadata');
-      businessInboxReview=data;
+         !Array.isArray(data.threads)||data.page!==requestedPage)
+        throw new Error('Invalid paginated inbox metadata');
+      if(append) {
+        const old=businessInboxReview;
+        const merged=new Map(old.threads.map(t=>[t.threadId,t]));
+        data.threads.forEach(t=>merged.set(t.threadId,t));
+        businessInboxReview={
+          ...data,threads:Array.from(merged.values()),
+          pagesLoaded:old.pagesLoaded+1,
+          examinedThreads:old.examinedThreads+data.examinedThreads,
+          excludedAutomatedCount:old.excludedAutomatedCount+data.excludedAutomatedCount,
+          metadataFailures:old.metadataFailures+data.metadataFailures,
+          partial:true
+        };
+      }else {
+        businessInboxReview={...data,pagesLoaded:1};
+      }
     }catch {
-      businessInboxError='The new read-only Code.gs action may still need deployment or the source is temporarily unavailable.';
+      businessInboxError='The Step 45 backend may require redeployment or be temporarily unavailable.';
     }finally {
       businessInboxLoading=false;
       renderBusinessInboxReview();
       renderActionQueue();
+    }
+  }
+
+  async function loadBusinessInboxThread(t) {
+    if(!sessionToken||!t?.threadId || businessInboxThreadLoading)return;
+    const old=businessInboxThreadContext.get(t.threadId);
+    if(old) {
+      businessInboxThreadContext.set(t.threadId,{...old,visible:!old.visible});
+      renderBusinessInboxReview();return;
+    }
+    businessInboxThreadLoading=t.threadId;
+    businessInboxThreadError.delete(t.threadId);
+    renderBusinessInboxReview();
+    try {
+      const q=new URLSearchParams({
+        threadId:t.threadId,lastMessageAt:t.lastMessageAt
+      });
+      const context=await getProtected('/api/sms/staging/inbox-thread?'+q);
+      if(!context?.ok||context.source!=='owner_selected_read_only_thread_review'||
+         context.threadId!==t.threadId||!Array.isArray(context.messages))
+        throw new Error('Selected thread source did not match');
+      // In-memory only; no browser storage or write action.
+      businessInboxThreadContext.set(t.threadId,{...context,visible:true});
+    }catch {
+      businessInboxThreadError.set(t.threadId,
+        'Unable to verify current thread context. Open the original in Gmail and refresh the scan.');
+    }finally {
+      businessInboxThreadLoading='';
+      renderBusinessInboxReview();
     }
   }
 
@@ -1373,6 +1469,7 @@
       paymentRecords=[];
       gmailEvidenceRecords=[];
       businessInboxReview=null;businessInboxError='';
+      businessInboxThreadContext=new Map();businessInboxThreadError=new Map();
       draftState=null; draftFeedback=''; draftLoadingId=''; personalizedLoadingId='';
       actionDecisions=new Map();actionAuditReady=false;
       savedSourceCounts=Object.create(null);
@@ -1461,6 +1558,7 @@
     payoutRecords=[]; payoutLedgerConnected=false; paymentLedgerConnected=false; paymentRecords=[]; auditServiceReady=false;
     connectedRecords=[]; recordsAvailable=false;
     gmailEvidenceRecords=[];businessInboxReview=null;businessInboxError='';showActionMonitoring=false;
+    businessInboxThreadContext=new Map();businessInboxThreadError=new Map();
     actionDecisions=new Map(); actionAuditReady=false; savingActionId='';
     draftState=null;draftFeedback='';draftLoadingId='';personalizedLoadingId='';
     savedDecisionSignatures=Object.create(null);
@@ -1480,7 +1578,8 @@
   $('saveCaseDecisions').addEventListener('click',saveDecisions);
   $('runSyntheticAiTest').addEventListener('click',runSyntheticAiTest);
   $('refreshGmailEvidence').addEventListener('click',loadGmailEvidence);
-  $('refreshBusinessInbox').addEventListener('click',loadBusinessInboxReview);
+  $('refreshBusinessInbox').addEventListener('click',()=>loadBusinessInboxReview(false));
+  $('loadMoreBusinessInbox').addEventListener('click',()=>loadBusinessInboxReview(true));
   $('toggleActionMonitoring').addEventListener('click',()=>{
     showActionMonitoring=!showActionMonitoring;
     renderActionQueue();

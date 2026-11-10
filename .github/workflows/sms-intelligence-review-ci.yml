@@ -20,6 +20,7 @@ on:
       - 'tests/sms-inbox-diagnostics-autoselect.test.mjs'
       - 'tests/sms-diagnostic-message.test.mjs'
       - 'tests/sms-gas-long-thread-preview.test.cjs'
+      - 'tests/sms-gas-recipient-verification.test.cjs'
       - 'lib/lvpt-diagnostic-message.mjs'
       - 'lib/lvpt-diagnostic-selection.mjs'
       - 'app/api/sms/staging/inbox-diagnostics/route.ts'
@@ -102,6 +103,7 @@ jobs:
       - run: node tests/sms-inbox-diagnostics-autoselect.test.mjs
       - run: node tests/sms-diagnostic-message.test.mjs
       - run: node tests/sms-gas-long-thread-preview.test.cjs
+      - run: node tests/sms-gas-recipient-verification.test.cjs
       - run: node tests/sms-reply-review.test.cjs
       - run: node tests/sms-reply-send.test.cjs
       - run: node tests/sms-reply-send-ui.test.cjs

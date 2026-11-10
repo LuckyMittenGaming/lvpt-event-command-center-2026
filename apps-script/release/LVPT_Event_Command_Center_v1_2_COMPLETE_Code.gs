@@ -987,7 +987,10 @@ function lvptReadOnlyBusinessInboxThread_(threadId, expectedLastMessageAt) {
     return '';
   }
   var messages=[],used=0,partial=all.length>10;
-  all.slice(-10).forEach(function(m) {
+  // Reserve bounded excerpt budget for the NEWEST message first. A lengthy
+  // historical conversation must never crowd out the current client email.
+  // Restore chronological order only after all excerpts are allocated.
+  all.slice(-10).reverse().forEach(function(m) {
     var from=lvptInboxEmail_(lvptInboxHeader_(m,'From'));
     var to=lvptInboxEmail_(lvptInboxHeader_(m,'To'));
     var subject=lvptInboxHeader_(m,'Subject');
@@ -1017,6 +1020,7 @@ function lvptReadOnlyBusinessInboxThread_(threadId, expectedLastMessageAt) {
       })
     });
   });
+  messages.reverse();
   return {
     ok:true,connected:true,source:'read_only_business_thread_preview',
     mailboxIdentityVerified:true,threadId:threadId,

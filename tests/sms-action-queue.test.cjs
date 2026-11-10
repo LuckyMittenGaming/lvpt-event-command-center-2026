@@ -299,6 +299,14 @@ assert.match(fullReviewRoute,/authorizedReviewer\(request\)/);
 assert.match(fullReviewRoute,/mailboxIdentityVerified!==true/);
 assert.match(fullReviewRoute,/safeDate\(data.lastMessageAt\)!==expected/);
 assert.match(fullReviewRoute,/data.messages.length>10/);
+assert.match(fullReviewRoute,/function safeMessageDate\(value:unknown\)/,
+  'Historical messages must remain valid context');
+assert.match(fullReviewRoute,/function safeRecentDate\(value:unknown\)/,
+  'Only the selected thread last-message date must be recent');
+assert.match(fullReviewRoute,/const at=safeMessageDate\(m.at\)/,
+  'An older original message in a current thread must not break preview');
+assert.match(fullReviewRoute,/const expected=safeRecentDate\(params.get\('lastMessageAt'\)\)/);
+
 assert.match(fullReviewRoute,/noAiCalls:true,noGmailWrites:true,noMessageSent:true/);
 assert.match(inboxRoute,/data.page!==page \|\| data.pageSize!==20/);
 assert.match(inboxRoute,/const next=!legacy&&Number.isInteger\(data.nextPage\)/);

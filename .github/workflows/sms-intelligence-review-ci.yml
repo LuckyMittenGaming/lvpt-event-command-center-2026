@@ -14,6 +14,7 @@ on:
       - 'tests/sms-reply-qualification.test.cjs'
       - 'tests/sms-reply-review.test.cjs'
       - 'tests/sms-reply-send.test.cjs'
+      - 'tests/sms-reply-send-ui.test.cjs'
       - 'app/api/sms/staging/reply-send/route.ts'
       - 'app/api/sms/staging/reply-recipient/route.ts'
       - 'app/api/sms/staging/reply-decisions/route.ts'
@@ -87,6 +88,7 @@ jobs:
       - run: node tests/sms-reply-qualification.test.cjs
       - run: node tests/sms-reply-review.test.cjs
       - run: node tests/sms-reply-send.test.cjs
+      - run: node tests/sms-reply-send-ui.test.cjs
       - run: node tests/sms-draft-preview.test.cjs
       - run: node tests/sms-personalized-draft.test.cjs
       - run: node tests/sms-ai-smoke-test.test.cjs

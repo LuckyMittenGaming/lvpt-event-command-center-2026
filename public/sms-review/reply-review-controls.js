@@ -6,7 +6,7 @@
   'use strict';
   // All email prose remains only in this browser's memory. The separate
   // audit contains statuses and an opaque digest, never recipients or bodies.
-  function createController({getProtected,makeText,qualification,workflow,onUpdate}) {
+  function createController({getProtected,makeText,qualification,workflow,onUpdate,onNext}) {
     const audits=new Map(),verified=new Map();
     const recipients=new Map(),sendRecords=new Map();
     const status=new Map();
@@ -327,6 +327,9 @@
       }
       controls.append(button('Close review; choose next email',()=>{
         active=null;verified.delete(t.threadId);onUpdate();
+        // This is a user-clicked read-only transition to the next candidate.
+        // No email is sent, queued, drafted, or scheduled automatically.
+        if(typeof onNext==='function')onNext(t.threadId);
       }));
       wrap.append(controls);
       const read=recipients.get(t.threadId);

@@ -68,7 +68,12 @@
     const preview=typeof window!=='undefined'&&window.LVPTMessagePreview?
       window.LVPTMessagePreview:typeof require==='function'?
       require('./message-preview.js'):null;
-    const body=norm(preview?preview.focus(latest?.excerpt).body:latest?.excerpt);
+    const focused=String(preview?preview.focus(latest?.excerpt).body:latest?.excerpt||'');
+    // Clients often begin with a standalone "Matt" before a short closing.
+    // Ignore only a narrow, recognized greeting for classification.
+    const withoutGreeting=focused.replace(
+      /^(?:(?:hi|hello|hey|dear)\s+)?(?:matt|matthew|team|everyone)[,!:]?[ \t]*\n(?:[ \t]*\n)+/i,'');
+    const body=norm(withoutGreeting);
     const hasQuestion=request.test(body);
     // "We need to share this with leadership" is a timing hold, not a
     // request for LVPT. A clear question/direct imperative may override it.

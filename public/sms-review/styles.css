@@ -106,3 +106,8 @@
 .reply-verification{display:flex;align-items:flex-start;gap:8px;margin:12px 0;line-height:1.45}
 .reply-verification input{margin-top:4px;flex:none}
 .reply-review-workflow button{max-width:100%;white-space:normal}
+
+/* Keep prior email history available without overwhelming the active reply. */
+.reply-thread-history{border-top:1px solid var(--border,#506078);margin-top:15px;padding-top:10px}
+.reply-thread-history summary{cursor:pointer;font-weight:600;padding:7px 0}
+.reply-thread-history .gmail-evidence-card{margin-top:9px;opacity:.94}

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { hasReviewSession, allowedReviewMutation } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { selectDiagnosticThread } from '../../../../../lib/lvpt-diagnostic-selection.mjs';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -57,6 +58,10 @@ export async function POST(request:Request) {
 
     let inboxStatus:'passed'|'failed'='failed';
     let pageZeroThreads=0;
+    let selectedThreadId=threadId;
+    let selectedLastMessageAt=lastMessageAt;
+    let selectionMode:'none'|'manual'|'automatic_client'|'automatic_vendor'=
+      threadId?'manual':'none';
     let threadPreviewStatus:PreviewStatus=threadId?'failed':'not_selected';
     let recipientStatus:RecipientStatus=threadId?'failed':'not_selected';
     try {
@@ -68,31 +73,48 @@ export async function POST(request:Request) {
          inbox.threads.length<=20){
         inboxStatus='passed';
         pageZeroThreads=inbox.threads.length;
+        // When the owner did not expand a thread, select a single eligible
+        // metadata candidate rather than requiring another manual action.
+        // All subsequent actions stay READ ONLY. Never persist its identity.
+        if(!selectedThreadId) {
+          const picked=selectDiagnosticThread(inbox.threads);
+          if(picked) {
+            selectedThreadId=picked.threadId;
+            selectedLastMessageAt=picked.lastMessageAt;
+            selectionMode=picked.selectionMode;
+            threadPreviewStatus='failed';
+            recipientStatus='failed';
+          }
+        }
       }
     }catch {
       // Only a fixed status code is recorded; no raw source data or errors.
     }
-    if(threadId) {
+    if(selectedThreadId) {
       try {
         const preview=await appsScriptRequest<ThreadResponse>('readBusinessInboxThread',{
-          threadId,expectedLastMessageAt:lastMessageAt
+          threadId:selectedThreadId,expectedLastMessageAt:selectedLastMessageAt
         });
         if(preview.ok===true&&preview.connected===true&&
            preview.source==='read_only_business_thread_preview'&&
            preview.mailboxIdentityVerified===true&&
-           preview.threadId===threadId&&preview.lastMessageAt===lastMessageAt&&
+           preview.threadId===selectedThreadId&&
+           preview.lastMessageAt===selectedLastMessageAt&&
            Array.isArray(preview.messages)&&preview.messages.length>0&&
            preview.messages.length<=10){
           threadPreviewStatus='passed';
           try {
             const recipient=await appsScriptRequest<RecipientResponse>(
-              'verifyBusinessReplyRecipient',{threadId,expectedLastMessageAt:lastMessageAt}
+              'verifyBusinessReplyRecipient',{
+                threadId:selectedThreadId,
+                expectedLastMessageAt:selectedLastMessageAt
+              }
             );
             recipientStatus=recipient.ok===true&&
               recipient.source==='verified_lvpt_gmail_reply_recipient'&&
               recipient.mailboxIdentityVerified===true&&
-              recipient.threadId===threadId&&
-              recipient.lastMessageAt===lastMessageAt?
+              recipient.threadId===selectedThreadId&&
+              recipient.lastMessageAt===selectedLastMessageAt?
               'verified':'blocked';
           }catch(error) {
             // A vendor, self-addressed form, old reply, truncated message or
@@ -113,6 +135,7 @@ export async function POST(request:Request) {
       run_id:runId,tenant_id:'lvpt-owner-pilot',
       inbox_status:inboxStatus,page_zero_threads:pageZeroThreads,
       thread_preview_status:threadPreviewStatus,recipient_status:recipientStatus,
+      selection_mode:selectionMode,
       vercel_send_switch_enabled:
         process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND==='true'
     };
@@ -127,6 +150,7 @@ export async function POST(request:Request) {
     return jsonNoStore({
       ok:true,source:'lvpt_read_only_staging_diagnostic',
       runId,inboxStatus,pageZeroThreads,threadPreviewStatus,recipientStatus,
+      selectionMode,
       sendingInvoked:false,gmailWrites:false,clientDetailsStored:false
     },200);
   }catch {

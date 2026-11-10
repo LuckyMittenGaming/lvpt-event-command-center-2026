@@ -87,6 +87,16 @@ const fetchMock=async (url,options={})=>{
     ok:true,source:'append_only_owner_reply_audit',
     decision:null,lastMessageAt:null,draftDigest:null
   };
+  if(url.includes('/reply-recipient?'))return {
+    ok:true,source:'owner_selected_verified_recipient',
+    threadId:thread.threadId,lastMessageAt:at,
+    to:'customer@example.com',from:'book@pokertraininglasvegas.com',
+    sendEnabled:false
+  };
+  if(url.includes('/reply-send?'))return {
+    ok:true,source:'lvpt_deduplicated_send_status',
+    status:'not_attempted',doNotRetry:false
+  };
   if(url.includes('/inbox-thread?'))return {...context,ok:true};
   throw Error('Unexpected endpoint '+url);
 };
@@ -138,6 +148,17 @@ async function sequence() {
   assert(button(root,'Copy approved subject and text'));
   assert(button(root,'Reopen for editing'));
   assert(button(root,'Send email — disabled in staging').disabled);
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');c.render(root,thread,context,q);
+  assert(button(root,'Send email — disabled in staging').disabled);
+  assert(!button(root,'Send this approved reply'),
+    'Verified recipient alone must not enable sending when two opt-ins are off');
+  const verifiedLabel=read(root,x=>
+    typeof x.textContent==='string' &&
+    x.textContent.includes('customer@example.com'));
+  assert(verifiedLabel,
+    'Verified address should display for review without enabling send');
   button(root,'Reopen for editing').trigger('click');
   await settle();
   assert.equal(posted[2].decision,'draft_prepared');

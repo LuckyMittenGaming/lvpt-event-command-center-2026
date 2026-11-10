@@ -96,6 +96,11 @@ const c=controls.createController({
   onUpdate:()=>{updates++;}
 });
 async function settle(){await new Promise(resolve=>setImmediate(resolve));}
+async function waitForCount(n) {
+  for(let attempt=0;attempt<30 && posted.length<n;attempt++)
+    await new Promise(resolve=>setTimeout(resolve,10));
+  assert(posted.length>=n,'Expected '+n+' audited decisions; got '+posted.length);
+}
 async function sequence() {
   await c.loadAudit(thread);
   let root=new Node('div');
@@ -122,8 +127,7 @@ async function sequence() {
   assert(button(root,'Send email — disabled in staging').disabled,
     'Sending must be impossible within the staging interface');
   button(root,'Approve for manual copy').trigger('click');
-  await settle();
-  await settle();
+  await waitForCount(2);
   assert.equal(posted[1].decision,'approved_for_manual_copy');
   assert.match(posted[1].draftDigest,/^[a-f0-9]{64}$/);
   assert(!Object.prototype.hasOwnProperty.call(posted[1],'body'),

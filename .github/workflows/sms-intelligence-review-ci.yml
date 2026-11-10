@@ -61,7 +61,12 @@ on:
   pull_request:
     paths:
       - 'public/sms-review/**'
-      - 'tests/sms-review.test.js'
+      - 'tests/**'
+      - 'lib/**'
+      - 'app/api/sms/staging/**'
+      - 'apps-script/**'
+      - 'docs/staging-migrations/**'
+      - '.github/workflows/sms-intelligence-review-ci.yml'
 
 jobs:
   smoke-test:

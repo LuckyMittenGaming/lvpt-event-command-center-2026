@@ -171,6 +171,17 @@ sequence().then(()=>{
   assert.match(ddl,/Stores no client email bodies/i);
   assert.match(app,/const replyController=window.LVPTReplyReviewControls.createController/);
   assert.match(app,/replyController.render\(detail,t,context,qualification\)/);
+  assert.match(app,/Latest email — current review focus/,
+    'Latest message must be prominent as the only default email excerpt');
+  assert.match(app,/const earlier=messages.slice\(0,-1\)/);
+  assert.match(app,/document.createElement\('details'\)/,
+    'Earlier correspondence must be collapsed by default');
+  assert.match(app,/View '\+earlier.length\+' previous email'/);
+  assert.match(app,/pending.threadId!==t.threadId/,
+    'Cannot switch to another thread during an active reply review');
+  assert.match(app,/visible:false/,
+    'Opening a different conversation collapses the previous preview');
+
   assert.match(app,/await replyController.loadAudit\(t\)/);
   assert.match(app,/item.type==='inbox'\?\s*\[\]:/,
     'Legacy action-review audit must not receive incompatible inbox decisions');

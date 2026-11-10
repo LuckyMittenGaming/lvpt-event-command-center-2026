@@ -25,7 +25,8 @@ assert.equal(q.outcome,'reply_candidate');
 assert.equal(workflow.canPrepare(thread,context,q),true);
 assert.equal(workflow.canPrepare({...thread,relationshipHint:'vendor'},context,q),false);
 assert.equal(workflow.canPrepare({...thread,sourceType:'form_lead'},context,q),false);
-assert.equal(workflow.canPrepare(thread,{...context,partial:true},q),false);
+assert.equal(workflow.canPrepare(thread,{...context,partial:true},q),true,
+  'Long history may enter MANUAL review after full original conversation attestation');
 assert.equal(workflow.canPrepare(thread,{...context,lastMessageAt:'2026-01-01'},q),false);
 assert.equal(workflow.canPrepare(thread,{...context,messages:[
   {...reply,truncated:true}]},q),false);
@@ -124,6 +125,7 @@ async function sequence() {
   button(root,'Prepare editable reply').trigger('click');
   await settle();
   assert.equal(posted[0].decision,'draft_prepared');
+  assert.equal(posted[0].ownerReviewedOriginal,true);
   assert.equal(posted[0].draftDigest,'');
   root=new Node('div');c.render(root,thread,context,q);
   assert(button(root,'Approve for manual copy'));
@@ -182,7 +184,9 @@ sequence().then(()=>{
   assert.match(api,/allowedReviewMutation\(request\)/);
   assert.match(api,/hasReviewSession\(request\)/);
   assert.match(api,/appsScriptRequest<Context>\('readBusinessInboxThread'/);
-  assert.match(api,/source.partial===true\|\|last.truncated===true/);
+  assert.match(api,/source.partial===true&&!ownerReviewedOriginal/);
+  assert.match(api,/owner_reviewed_full_thread:ownerReviewedOriginal/);
+  assert.match(api,/Number\(source.totalMessages\)>150/);
   assert.match(api,/last.direction!=='inbound'\|\|last.relationshipHint!=='unclassified'/);
   assert.match(api,/prepare_draft_before_approval/);
   assert.match(api,/draft_digest:decision==='approved_for_manual_copy'\?digest:null/);

@@ -66,7 +66,7 @@ const gas=fs.readFileSync('apps-script/release/LVPT_Event_Command_Center_v1_2_CO
 assert.match(api,/qualifyDiagnosticPreview/);
 assert.match(api,/qualification_outcome:qualificationOutcome/);
 assert.match(api,/qualification_reason_code:qualificationReasonCode/);
-assert.match(api,/if\(qualificationOutcome==='possible_request'\)/);
+assert.match(api,/if\(outcome==='possible_request'\)/);
 assert.match(api,/recipientStatus='not_selected'/);
 assert.match(ddl,/qualification_outcome in/);
 assert.match(ddl,/qualification_reason_code in/);

@@ -111,11 +111,11 @@
         'The latest complete message appears to acknowledge prior correspondence, without requesting a new response.',
         ['Client acknowledgement or submission confirmation'],
         'Monitor the associated event or payment separately. Do not send a duplicate email.');
-    if(incomplete)
+    if(latest?.truncated===true||latest?.hasAttachments===true)
       return result('manual_review',
-        'Conversation excerpts are incomplete, truncated, or include an attachment.',
-        [hasQuestion?'Possible request in partial context':'Limited source context'],
-        'Read the original Gmail thread and any attachments. Do not infer that a reply is required from partial excerpts.');
+        'The newest message itself is truncated or contains an unread attachment.',
+        ['Latest message incomplete'],
+        'Inspect the entire email and any attachments. Automatic drafting and sending are blocked.');
     if(isDecline && !directAsk)
       return result('client_declined','The client appears to have declined or stopped the opportunity.',
         ['Decline language found'],
@@ -124,6 +124,19 @@
       return result('hold','The client indicates a review, absence, or intention to respond later.',
         ['Client-controlled timing'],
         'Respect their timing; consult the full thread before considering a later follow-up.');
+    // Older omitted messages are NOT proof a client doesn't need a reply.
+    // For a clear NEW request, allow human review only after the owner checks
+    // the complete original Gmail conversation and CRM status.
+    if(incomplete&&hasQuestion&&directAsk&&Number(context.totalMessages||0)<=150)
+      return result('reply_candidate',
+        'The newest message contains an explicit request, but older email history is omitted.',
+        ['Full original thread review required','Possible new request'],
+        'Read the COMPLETE original Gmail conversation, other replies and event notes before preparing a response. No automatic sending.');
+    if(incomplete)
+      return result('manual_review',
+        'Conversation history is omitted, truncated, or contains an unread attachment.',
+        [hasQuestion?'Possible request with limited history':'Limited context'],
+        'Read the full original Gmail thread. An ambiguous message cannot authorize drafting.');
     if(hasQuestion)
       return result('reply_candidate',
         'The most recent incoming message contains a possible question or action request.',

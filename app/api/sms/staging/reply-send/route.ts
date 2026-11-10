@@ -30,6 +30,12 @@ function timingSafeDigest(a:string,b:string) {
   if(!SHA.test(a)||!SHA.test(b))return false;
   return timingSafeEqual(Buffer.from(a,'hex'),Buffer.from(b,'hex'));
 }
+// Match the Gmail/Apps Script subject rule BEFORE claiming the one-time
+// send reservation. Rejecting afterward could permanently lock an unsent reply.
+function canonicalSubject(v:unknown) {
+  return String(v||'').replace(/^(?:(?:re|fw|fwd):\s*)+/ig,'')
+    .replace(/\s+/g,' ').trim().toLowerCase();
+}
 function inputValidation(v:Record<string,unknown>) {
   const threadId=String(v.threadId||'').toLowerCase();
   const lastMessageAt=normalizeTimestamp(v.lastMessageAt);
@@ -184,6 +190,9 @@ export async function POST(request:Request) {
       verified.threadId!==input.threadId||verified.lastMessageAt!==input.lastMessageAt||
       String(verified.recipient||'').toLowerCase()!==input.recipient)
       return jsonNoStore({ok:false,reason:'recipient_unverified_or_gas_send_disabled'},409);
+    if(typeof verified.subject!=='string'||
+       canonicalSubject(verified.subject)!==canonicalSubject(input.subject))
+      return jsonNoStore({ok:false,reason:'subject_must_match_verified_gmail_thread'},409);
     // Never include client recipient or subject/body in the send ledger.
     const recipientHash=createHash('sha256').update(
       input.recipient+'|'+input.threadId).digest('hex');

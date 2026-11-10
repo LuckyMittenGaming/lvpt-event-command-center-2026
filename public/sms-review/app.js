@@ -88,6 +88,11 @@
     el.textContent = value;
     return el;
   }
+  const replyWorkflow=window.LVPTReplyWorkflow;
+  const replyController=window.LVPTReplyReviewControls.createController({
+    getProtected,makeText,qualification:replyQualifier,workflow:replyWorkflow,
+    onUpdate:()=>renderBusinessInboxReview()
+  });
 
   async function runSyntheticAiTest() {
     const button=$('runSyntheticAiTest');
@@ -528,7 +533,7 @@
           [['draft_requested','Approve for Drafting'],['hold','Hold'],['dismissed','Dismiss']]:
           [['hold','Hold'],['dismissed','Dismiss']]):
         item.type==='inbox'?
-          [['hold','Hold'],['dismissed','Dismiss']]:
+          []:
           [['verify_requested','Flag for Verification'],['hold','Hold'],['dismissed','Dismiss']];
       for(const [decision,label] of actionButtons){
         const btn=document.createElement('button');
@@ -682,6 +687,7 @@
         qualificationCard.append(makeText('p','hint',
           'Rule-based interpretation of the selected excerpts only. No AI call, no approved Gmail draft, and no automatic sending.'));
         detail.append(qualificationCard);
+        replyController.render(detail,t,context,qualification);
         detail.append(makeText('strong','',
           'Recent conversation excerpts ('+context.totalMessages+' total message(s))'));
         if(context.partial)
@@ -723,6 +729,7 @@
       businessInboxReview=null;
       businessInboxThreadContext=new Map();
       businessInboxThreadError=new Map();
+      replyController.reset();
     }
     renderBusinessInboxReview();
     try {
@@ -774,6 +781,7 @@
         throw new Error('Selected thread source did not match');
       // In-memory only; no browser storage or write action.
       businessInboxThreadContext.set(t.threadId,{...context,visible:true});
+      await replyController.loadAudit(t);
     }catch {
       businessInboxThreadError.set(t.threadId,
         'Unable to verify current thread context. Open the original in Gmail and refresh the scan.');
@@ -1492,6 +1500,7 @@
       gmailEvidenceRecords=[];
       businessInboxReview=null;businessInboxError='';
       businessInboxThreadContext=new Map();businessInboxThreadError=new Map();
+      replyController.reset();
       draftState=null; draftFeedback=''; draftLoadingId=''; personalizedLoadingId='';
       actionDecisions=new Map();actionAuditReady=false;
       savedSourceCounts=Object.create(null);
@@ -1581,6 +1590,7 @@
     connectedRecords=[]; recordsAvailable=false;
     gmailEvidenceRecords=[];businessInboxReview=null;businessInboxError='';showActionMonitoring=false;
     businessInboxThreadContext=new Map();businessInboxThreadError=new Map();
+    replyController.reset();
     actionDecisions=new Map(); actionAuditReady=false; savingActionId='';
     draftState=null;draftFeedback='';draftLoadingId='';personalizedLoadingId='';
     savedDecisionSignatures=Object.create(null);

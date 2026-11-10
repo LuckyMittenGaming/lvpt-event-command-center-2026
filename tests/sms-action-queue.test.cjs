@@ -231,6 +231,8 @@ assert.equal(buildQueue({...data,inbox:{connected:false,threads:businessInbox.th
 // labeled SENT to disappear from intake review.
 const completeGas=fs.readFileSync(require('node:path').join(__dirname,
   '../apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs'),'utf8');
+assert.doesNotThrow(()=>new Function(completeGas),
+  'The complete Apps Script release must parse as JavaScript before the owner deploys it');
 assert.match(completeGas,/action === 'listBusinessInboxReview'/);
 assert.match(completeGas,/function lvptReadOnlyBusinessInboxReview_\(page\)/);
 const scan=completeGas.slice(completeGas.indexOf('// STEP 43'));

@@ -12,7 +12,7 @@
   const signoff=/^(?:thanks(?: again| so much)?|thank you(?: again)?|best(?: regards)?|kind regards|warm regards|regards|sincerely|cheers|respectfully)[.!,-]*$/i;
   const fullName=/^[A-Z][a-zA-Z.'’-]+(?:\s+[A-Z][a-zA-Z.'’-]+){1,3}$/;
   const allCapsName=/^[A-Z][A-Z.'’-]+(?:\s+[A-Z][A-Z.'’-]+){1,3}$/;
-  const roleOrContact=/(?:\b(?:director|manager|president|vice president|founder|operations|marketing|sales|coordinator|assistant|partner|poker room|events|event manager)\b|^\s*(?:D|M|P|C|E)\s+\[?(?:phone|email)\]?\b|(?:\b(?:phone|mobile|cell|email)\b|@\S+\.\w+)|(?:\b(?:the venetian|resort|corporate)\b)|(?:LinkedIn|Instagram|YouTube|Facebook)\s*[<[:])/i;
+  const roleOrContact=/(?:\b(?:director|manager|president|vice president|founder|operations|marketing|sales|coordinator|assistant|partner|poker room|events|event manager)\b|^\s*(?:D|M|P|C|E)\s+\[?(?:phone|email)\]?\b|(?:\b(?:phone|mobile|cell|email)\b|@\S+\.\w+)|(?:\b(?:the venetian|resort|corporate)\b)|(?:LinkedIn|Instagram|YouTube|Facebook)\b)/i;
   const forwarded=/(?:^On .{5,170} wrote:\s*$|^[-]{2,}\s*Original Message\s*[-]{2,}$|^From:\s+\S.+$|^Sent:\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|.{3,50}\b20\d\d))/i;
   function focus(value){
     const original=String(value==null?'':value).replace(/\r\n?/g,'\n');

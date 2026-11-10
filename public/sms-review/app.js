@@ -466,7 +466,7 @@
       (gaps.length ?
         'Limited source coverage: '+gaps.join(', ')+'. No missing-source conclusions.' :
         'Sources connected (Gmail is bounded metadata only).')+
-      ' No changes sent or saved.';
+      ' No client emails sent and no financial records changed.';
     const activeCorrespondence=activeItems.filter(item=>item.type==='gmail'||
       (item.type==='inbox'&&item.category!=='vendor_ops'));
     const activeOperations=activeItems.filter(item=>item.type==='inbox'&&item.category==='vendor_ops');
@@ -520,6 +520,8 @@
       const historicalDraftBlocked=valid && item.type==='gmail' &&
         stored?.decision==='draft_requested' && item.draftCandidate!==true;
       card.append(makeText('p','action-queue-decision',
+        item.type==='inbox'?
+          'Use Step 47 in Recent business Gmail review for this thread. Reply decisions have a separate, protected audit.':
         stored && !valid?'Source evidence changed since the saved decision. Review again.':
         historicalDraftBlocked?
           'Historical drafting approval — currently blocked by correspondence safeguards'+
@@ -549,7 +551,7 @@
       card.append(controls);
       if(item.type==='inbox')
         card.append(makeText('p','action-draft-status',
-          'Inbox-wide review only — read the actual email before deciding whether a reply is necessary. Draft approval is not available from headers.'));
+          'Open this thread in Recent business Gmail review. Inspect the excerpts, verify the original Gmail and CRM, and use Step 47 one-at-a-time controls if the conversation qualifies. No automatic sending.'));
       if(item.type==='gmail' && (!item.draftCandidate||isPaused(item)))
         card.append(makeText('p','action-draft-status',
           item.group==='review' && !isPaused(item)?

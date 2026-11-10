@@ -104,7 +104,10 @@ async function markIntent(intentId:string,status:'sent'|'uncertain',messageId?:s
       completed_at:new Date().toISOString()
     }),cache:'no-store',signal:AbortSignal.timeout(12000)
   });
-  return r.ok && Array.isArray(await r.json().catch(()=>null));
+  if(!r.ok)return false;
+  const rows=await r.json().catch(()=>null) as Intent[]|null;
+  return Array.isArray(rows)&&rows.length===1&&
+    rows[0].intent_id===intentId&&rows[0].status===status;
 }
 export async function GET(request:Request) {
   if(!ready())return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);

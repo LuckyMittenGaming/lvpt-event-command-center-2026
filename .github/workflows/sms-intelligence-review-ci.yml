@@ -15,6 +15,9 @@ on:
       - 'tests/sms-reply-review.test.cjs'
       - 'tests/sms-reply-send.test.cjs'
       - 'tests/sms-reply-send-ui.test.cjs'
+      - 'tests/sms-message-preview.test.cjs'
+      - 'tests/sms-inbox-diagnostics.test.cjs'
+      - 'app/api/sms/staging/inbox-diagnostics/route.ts'
       - 'app/api/sms/staging/reply-send/route.ts'
       - 'app/api/sms/staging/reply-recipient/route.ts'
       - 'app/api/sms/staging/reply-decisions/route.ts'
@@ -71,6 +74,7 @@ jobs:
       - run: node --check public/sms-review/gmail-intelligence.js
       - run: node --check public/sms-review/action-queue.js
       - run: node --check public/sms-review/reply-qualification.js
+      - run: node --check public/sms-review/message-preview.js
       - run: node --check public/sms-review/reply-workflow.js
       - run: node --check public/sms-review/reply-review-controls.js
       - run: node --check public/sms-review/draft-helper.js
@@ -86,6 +90,8 @@ jobs:
       - run: node tests/sms-evidence.test.cjs
       - run: node tests/sms-action-queue.test.cjs
       - run: node tests/sms-reply-qualification.test.cjs
+      - run: node tests/sms-message-preview.test.cjs
+      - run: node tests/sms-inbox-diagnostics.test.cjs
       - run: node tests/sms-reply-review.test.cjs
       - run: node tests/sms-reply-send.test.cjs
       - run: node tests/sms-reply-send-ui.test.cjs

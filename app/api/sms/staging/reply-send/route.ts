@@ -202,9 +202,19 @@ export async function POST(request:Request) {
       response.threadId!==input.threadId||!THREAD.test(String(response.gmailMessageId||'')))
       throw Error('Gmail send response uncertain');
     const logged=await markIntent(intentId,'sent',response.gmailMessageId);
+    if(!logged) {
+      // Gmail may already have accepted this message. Never imply that a
+      // failed ledger reconciliation is a safely repeatable send.
+      return jsonNoStore({
+        ok:false,sent:true,auditConfirmed:false,
+        reason:'gmail_accepted_audit_unconfirmed_check_sent',
+        gmailMessageId:response.gmailMessageId,threadId:input.threadId,
+        doNotRetry:true
+      },502);
+    }
     return jsonNoStore({
       ok:true,source:'lvpt_explicit_owner_send',
-      sent:true,auditConfirmed:logged,
+      sent:true,auditConfirmed:true,
       gmailMessageId:response.gmailMessageId,threadId:input.threadId,
       doNotRetry:true
     },200);

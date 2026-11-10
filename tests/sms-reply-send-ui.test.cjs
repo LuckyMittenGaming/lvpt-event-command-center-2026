@@ -1,5 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
 const {webcrypto}=require('node:crypto');
 const {qualifyThread}=require('../public/sms-review/reply-qualification.js');
 const workflow=require('../public/sms-review/reply-workflow.js');
@@ -58,7 +59,7 @@ const fetchMock=async(url,opts={})=>{
     return {ok:true,source:'owner_selected_verified_recipient',
       threadId:meta.threadId,lastMessageAt:dt,
       from:'book@pokertraininglasvegas.com',
-      to:'potential.client@example.com',sendEnabled:true};
+      to:'potential.client@example.com',subject:'Poker event pricing',sendEnabled:true};
   if(url.includes('/reply-send?'))
     return {ok:true,source:'lvpt_deduplicated_send_status',
       status:'not_attempted',doNotRetry:false};
@@ -71,6 +72,9 @@ const fetchMock=async(url,opts={})=>{
   if(url.includes('/inbox-thread?'))return {...context,ok:true};
   throw Error('Unexpected URL '+url);
 };
+const uiSource=fs.readFileSync('public/sms-review/reply-review-controls.js','utf8');
+assert.match(uiSource,/canonicalSubject\(recipient.subject\)===canonicalSubject\(active.subject\)/);
+assert.match(uiSource,/sendEnabled:recipient.sendEnabled===true&&subjectMatches/);
 const c=controls.createController({
   getProtected:fetchMock,makeText,qualification:{},workflow,
   onUpdate:()=>{},onNext:id=>next.push(id)

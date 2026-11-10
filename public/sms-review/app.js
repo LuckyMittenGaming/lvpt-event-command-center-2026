@@ -766,16 +766,23 @@
       if(d.source!=='lvpt_read_only_staging_diagnostic'||!d.runId||
          d.gmailWrites!==false||d.sendingInvoked!==false)
         throw Error('Invalid diagnostic response');
+      const mode=d.selectionMode==='manual'?
+        'Your expanded conversation':
+        d.selectionMode==='automatic_client'?
+        'Auto-selected incoming correspondence (read-only)':
+        d.selectionMode==='automatic_vendor'?
+        'Auto-selected venue/vendor correspondence (read-only)':
+        'No eligible incoming conversation found';
       const recipient=d.recipientStatus==='verified'?
-        'Verified recipient for selected conversation':
+        'Gmail recipient verification passed':
         d.recipientStatus==='blocked'?
-        'Recipient intentionally blocked for this conversation':
+        'Recipient check blocked by the safety rules':
         d.recipientStatus==='not_selected'?
-        'No selected conversation; recipient not tested':
+        'Recipient not tested':
         'Recipient check unavailable';
       status.textContent='Diagnostic saved. Inbox: '+d.inboxStatus+
-        ' ('+d.pageZeroThreads+' scanned entries). Conversation: '+
-        d.threadPreviewStatus+'. '+recipient+
+        ' ('+d.pageZeroThreads+' scanned entries). '+mode+
+        '. Conversation: '+d.threadPreviewStatus+'. '+recipient+
         '. No emails sent and no client message data stored. Report ID: '+d.runId;
     }catch {
       status.textContent='Diagnostic unavailable or not saved. No client emails were sent. Use the normal inbox controls and retry later.';

@@ -148,7 +148,15 @@ export async function POST(request:Request) {
         // at most three distinct recent inbound messages, never the full
         // mailbox. No selected identifiers are persisted in the audit.
         if(!threadId) {
-          candidates.push(...selectDiagnosticThreads(inbox.threads,Date.now(),3));
+          for(const picked of selectDiagnosticThreads(inbox.threads,Date.now(),3)) {
+            if(picked.selectionMode==='automatic_client'||
+               picked.selectionMode==='automatic_vendor') {
+              candidates.push({
+                threadId:picked.threadId,lastMessageAt:picked.lastMessageAt,
+                selectionMode:picked.selectionMode
+              });
+            }
+          }
         }
       }
     }catch {

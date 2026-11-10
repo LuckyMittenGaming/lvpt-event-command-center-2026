@@ -608,7 +608,11 @@
       possible+' potential inquiries ('+formLeads+' form notifications), '+
       vendor+' vendor/venue reviews, '+internal+' internal thread(s), '+
       businessInboxReview.excludedAutomatedCount+' automated notifications excluded.'+
-      (businessInboxReview.nextPage!==null?' More recent-mail pages available.':' No further pages available within this 30-day query.')+
+      (businessInboxReview.upgradePending?
+        ' Step 45 backend upgrade pending: only the previous first-page scan is available.':
+        businessInboxReview.nextPage!==null?
+          ' More recent-mail pages available.':
+          ' No further pages available within this 30-day query.')+
       ' Coverage remains limited; bodies are only fetched for a selected thread. No messages sent or records changed.';
     const priority=t=>t.sourceType==='form_lead'?0:
       t.needsHumanReview&&t.relationshipHint==='vendor'?2:

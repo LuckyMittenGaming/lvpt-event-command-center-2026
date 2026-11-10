@@ -88,6 +88,10 @@
           <button type="button" id="refreshBusinessInbox" class="neutral">Refresh business inbox</button>
         </div>
         <p id="businessInboxStatus" class="source-status" role="status" aria-live="polite">Awaiting the Step 43 Apps Script backend update.</p>
+        <div class="inbox-diagnostics-controls">
+          <button type="button" id="runInboxDiagnostics" class="neutral">Run read-only diagnostics</button>
+          <p id="inboxDiagnosticStatus" class="source-status" role="status" aria-live="polite">Checks Gmail connection and, if a conversation is expanded, recipient-verification eligibility. Saves only result codes to the staging diagnostic log; no client content or emails are sent.</p>
+        </div>
         <div id="businessInboxItems" class="gmail-evidence-items" aria-live="polite"></div>
         <button type="button" id="loadMoreBusinessInbox" class="neutral" hidden>Load more recent business Gmail</button>
         <p class="hint">Step 45: Review a selected conversation's redacted message excerpts, including outbound replies, before deciding whether it needs action. The inbox scan never sends message bodies to AI or drafts an email. Page navigation remains bounded to 30 days and never claims complete mailbox coverage.</p>

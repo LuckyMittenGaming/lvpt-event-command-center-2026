@@ -8,10 +8,12 @@
   // audit contains statuses and an opaque digest, never recipients or bodies.
   function createController({getProtected,makeText,qualification,workflow,onUpdate}) {
     const audits=new Map(),verified=new Map();
+    const recipients=new Map(),sendRecords=new Map();
     const status=new Map();
     let active=null,working='';
     function reset() {
-      audits.clear();verified.clear();status.clear();active=null;working='';
+      audits.clear();verified.clear();recipients.clear();sendRecords.clear();
+      status.clear();active=null;working='';
     }
     const fingerprint=(text)=>window.crypto.subtle.digest('SHA-256',
       new TextEncoder().encode(text)).then(buffer=>
@@ -56,6 +58,7 @@
         });
         status.set(t.threadId,'Decision recorded in separate append-only review audit. No email sent.');
         if(decision==='draft_prepared') {
+          recipients.delete(t.threadId);
           const draft=active&&active.threadId===t.threadId?
             active:workflow.draftStarter(t);
           active={
@@ -65,7 +68,7 @@
         }else if(decision==='approved_for_manual_copy') {
           active={...active,phase:'approved_for_manual_copy',draftDigest};
         }else if(decision==='denied') {
-          active=null;
+          recipients.delete(t.threadId);active=null;
         }
         return true;
       }catch(error) {
@@ -75,6 +78,79 @@
         return false;
       }finally {working='';onUpdate();}
     }
+    async function verifySendReadiness(t) {
+      if(working||!active||active.phase!=='approved_for_manual_copy'||
+         active.threadId!==t.threadId)return;
+      working=t.threadId;onUpdate();
+      try {
+        const p=new URLSearchParams({
+          threadId:t.threadId,lastMessageAt:t.lastMessageAt
+        });
+        const recipient=await getProtected('/api/sms/staging/reply-recipient?'+p);
+        if(!recipient.ok||recipient.source!=='owner_selected_verified_recipient'||
+           recipient.threadId!==t.threadId||
+           recipient.lastMessageAt!==t.lastMessageAt||
+           !recipient.to)throw Error('Gmail recipient could not be verified');
+        const record=await getProtected('/api/sms/staging/reply-send?'+p);
+        if(!record.ok||record.source!=='lvpt_deduplicated_send_status')
+          throw Error('Send history was unavailable');
+        recipients.set(t.threadId,recipient);
+        sendRecords.set(t.threadId,record);
+        status.set(t.threadId,record.doNotRetry?
+          'This Gmail message has a recorded send attempt ('+
+          record.status+'). Do not retry. Inspect Sent mail.':
+          recipient.sendEnabled?
+            'Verified business Gmail recipient. Review the address below and explicitly confirm before sending.':
+            'Verified recipient. Live sending remains disabled until both owner-controlled switches are enabled.');
+      }catch {
+        recipients.delete(t.threadId);
+        status.set(t.threadId,
+          'Recipient or send-status verification unavailable. No send is possible. Ensure the new GAS is deployed.');
+      }finally {working='';onUpdate();}
+    }
+
+    async function sendApproved(t,ownerReviewed,confirmation) {
+      if(working||!active||active.threadId!==t.threadId||
+         active.phase!=='approved_for_manual_copy')return;
+      const recipient=recipients.get(t.threadId);
+      const record=sendRecords.get(t.threadId);
+      if(!recipient?.sendEnabled||record?.doNotRetry||
+         record?.status!=='not_attempted'||ownerReviewed!==true||
+         confirmation!=='SEND THIS EMAIL')return;
+      const exact=await fingerprint(JSON.stringify([active.subject,active.body]));
+      if(exact!==active.draftDigest) {
+        status.set(t.threadId,'Content changed since owner approval. Reapprove before sending.');
+        onUpdate();return;
+      }
+      working=t.threadId;onUpdate();
+      try {
+        const sent=await getProtected('/api/sms/staging/reply-send',{
+          body:{
+            intentId:window.crypto.randomUUID(),threadId:t.threadId,
+            lastMessageAt:t.lastMessageAt,recipient:recipient.to,
+            subject:active.subject,body:active.body,
+            confirmation:'SEND THIS EMAIL',ownerReviewed:true
+          }
+        });
+        if(!sent.ok||sent.sent!==true||!sent.gmailMessageId)
+          throw Error('Gmail did not confirm the send');
+        active={...active,phase:'sent'};
+        sendRecords.set(t.threadId,{
+          status:'sent',doNotRetry:true,gmailMessageId:sent.gmailMessageId
+        });
+        status.set(t.threadId,'Gmail confirmed this email was sent. Message ID: '+
+          sent.gmailMessageId+'. No duplicate send is permitted.');
+      }catch {
+        // A network failure may occur AFTER Gmail sends. Never offer an
+        // automatic retry; the persistent send reservation also blocks it.
+        sendRecords.set(t.threadId,{
+          status:'uncertain',doNotRetry:true
+        });
+        status.set(t.threadId,
+          'Send result uncertain or blocked. STOP: inspect Gmail Sent and the send audit before any further action. Never retry automatically.');
+      }finally {working='';onUpdate();}
+    }
+
     const button=(label,click,disabled=false,variant='neutral')=>{
       const el=makeText('button',variant,label);
       el.type='button';el.disabled=disabled;el.addEventListener('click',click);
@@ -158,7 +234,7 @@
         const v=workflow.validation(active.subject,active.body);
         validationNote.textContent=active.phase==='prepared'?
           (v.ok?'Text complete. Confirm facts and recipient in Gmail before any manual send.':v.reason):
-          'Approved copy is locked. No Gmail send action exists in staging.';
+          'Approved copy is locked. Recipient verification and a second explicit send authorization are required.';
         approve.disabled=!v.ok||active.phase!=='prepared';
       };
       subject.addEventListener('input',()=>{active.subject=subject.value;note();});
@@ -176,12 +252,54 @@
         controls.append(button('Edit text above',()=>body.focus()));
         controls.append(button('Deny — no reply needed',
           ()=>void save(t,context,q,'denied')));
-      }else {
+      }else if(active.phase==='approved_for_manual_copy') {
         wrap.append(makeText('p','action-draft-status',
-          'Approved for manual copying only. The draft was NOT sent and no Gmail draft was created.'));
+          'Approved text is locked. No email has been sent by this review step.'));
         controls.append(button('Copy approved subject and text',()=>void copyApproved()));
         controls.append(button('Reopen for editing',
           ()=>void save(t,context,q,'draft_prepared')));
+        const read=recipients.get(t.threadId);
+        const record=sendRecords.get(t.threadId);
+        controls.append(button('Verify recipient and send status (read-only)',
+          ()=>void verifySendReadiness(t)));
+        if(read) {
+          wrap.append(makeText('p','action-draft-meta',
+            'Gmail verified sender: '+read.from+' · Recipient: '+read.to));
+          wrap.append(makeText('p','hint',
+            'Check recipient and content in the original Gmail conversation. No CC or BCC is added.'));
+        }
+        if(record?.doNotRetry) {
+          wrap.append(makeText('p','case-alert',
+            'Send intent '+record.status+'. Check Gmail Sent. Duplicate sending is blocked.'));
+        }else if(read?.sendEnabled && record?.status==='not_attempted') {
+          const reviewBox=document.createElement('input');
+          reviewBox.type='checkbox';
+          reviewBox.id='step48-send-confirm-'+t.threadId;
+          const label=makeText('label','reply-verification','');
+          label.setAttribute('for',reviewBox.id);
+          label.append(reviewBox,document.createTextNode(
+            ' I verified the actual recipient, full reply text, and event facts. I authorize sending THIS email now.'));
+          wrap.append(label);
+          const phrase=document.createElement('input');
+          phrase.type='text';phrase.maxLength=40;
+          phrase.placeholder='Type SEND THIS EMAIL';
+          phrase.setAttribute('aria-label','Step 48 explicit send confirmation');
+          wrap.append(phrase);
+          const send=button('Send this approved reply',
+            ()=>void sendApproved(t,reviewBox.checked,phrase.value),true,'primary');
+          const update=()=>{
+            send.disabled=!reviewBox.checked||phrase.value!=='SEND THIS EMAIL';
+          };
+          reviewBox.addEventListener('change',update);
+          phrase.addEventListener('input',update);
+          wrap.append(send);
+        }else {
+          wrap.append(makeText('p','hint',
+            'Verified Gmail sending is OFF until both Vercel and Apps Script opt-in switches are enabled. Manual copying is still available.'));
+        }
+      }else if(active.phase==='sent') {
+        wrap.append(makeText('p','action-draft-status',
+          'Sent — Gmail message confirmed. Close this review to move on to the next conversation.'));
       }
       async function copyApproved() {
         if(!active||active.phase!=='approved_for_manual_copy')return;
@@ -211,11 +329,14 @@
         active=null;verified.delete(t.threadId);onUpdate();
       }));
       wrap.append(controls);
-      const disabledSend=button('Send email — disabled in staging',()=>{},true);
-      disabledSend.setAttribute('aria-label','Sending disabled in Step 47');
-      wrap.append(disabledSend);
+      const read=recipients.get(t.threadId);
+      if(!read?.sendEnabled) {
+        const disabledSend=button('Send email — disabled in staging',()=>{},true);
+        disabledSend.setAttribute('aria-label','Sending requires two disabled-by-default gates');
+        wrap.append(disabledSend);
+      }
       wrap.append(makeText('p','hint',
-        'This app has no sending endpoint. Approval records only a SHA-256 fingerprint and status, never subject, body or recipient. The original Gmail thread must be checked again for final manual sending.'));
+        'Step 48: Sending requires a verified Gmail recipient, a matching owner-approved text digest, explicit confirmation, two owner-controlled switches and a unique send reservation. All are OFF by default. Never retry an uncertain send.'));
       container.append(wrap);
     }
     return {render,loadAudit,reset,getActive:()=>active};

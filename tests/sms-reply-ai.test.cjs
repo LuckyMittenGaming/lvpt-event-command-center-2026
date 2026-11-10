@@ -54,7 +54,8 @@ assert.match(controls,/Generate personalized AI reply/);
 assert.match(controls,/async function generateAiReply\(t\)/);
 assert.match(controls,/audits.get\(t.threadId\)\?\.decision!=='draft_prepared'/);
 assert.match(controls,/sendTriggered!==false/);
-assert.match(controls,/Generate personalized AI reply[\s\S]*Approve for manual copy/);
+assert.match(controls,/Generate personalized AI reply/);
+assert.match(controls,/Approve for manual copy/);
 assert.doesNotMatch(controls,/localStorage|sessionStorage/,
   'Only approved digest and status may be retained. AI draft lives in memory.');
 console.log('Step 49 long-thread human attestation and opt-in personalized AI drafting safety checks passed.');

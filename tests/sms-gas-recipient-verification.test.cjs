@@ -86,6 +86,7 @@ messages=Array.from({length:32},(_,i)=>({
   internalDate:String(Date.parse(at)-(31-i)*120000)
 }));
 result=context.lvptStep48VerifyReplyRecipient_(threadId,at);
-assert.equal(result.ok,false,
-  'Long thread recipient verification remains fail-closed until owner explicitly reviews full history');
+assert.equal(result.ok,true,
+  'Latest client sender can be verified in long threads; later send still needs the separate owner full-history audit');
+assert.equal(result.fullHistoryRequiresOwnerReview,true);
 console.log('Step 48 GAS read-only sender verification and disabled-send safety behavior passed.');

@@ -129,7 +129,7 @@ export async function GET(request:Request) {
       checkedAt:date(data.checkedAt),rangeDays:30,page,nextPage:next,
       pageSize:legacy?25:20,upgradePending:legacy,
       partial:legacy || data.partial===true || next!==null,
-      fullMailboxChecked:false,examinedThreads:count(data.examinedThreads,20),
+      fullMailboxChecked:false,examinedThreads:count(data.examinedThreads,legacy?28:20),
       excludedAutomatedCount:count(data.excludedAutomatedCount,28)+filteredSystemCount,
       filteredSystemCount,
       metadataFailures:count(data.metadataFailures,28),threads,

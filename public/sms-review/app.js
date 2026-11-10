@@ -6,6 +6,7 @@
   const evidence = window.LVPTSMSEvidence;
   const gmailEngine = window.LVPTGmailIntelligence;
   const actionQueueEngine = window.LVPTActionQueue;
+  const replyQualifier = window.LVPTReplyQualification;
   const draftHelper = window.LVPTDraftHelper;
   const $ = id => document.getElementById(id);
   let raw = null;
@@ -603,6 +604,11 @@
     const internal=rows.filter(x=>x.relationshipHint==='internal').length;
     const formLeads=inbound.filter(x=>x.sourceType==='form_lead').length;
     const possible=inbound.length-vendor;
+    const reviewed=rows.map(t=>{
+      const context=businessInboxThreadContext.get(t.threadId);
+      return context?replyQualifier.qualifyThread(t,context):null;
+    }).filter(Boolean);
+    const candidates=reviewed.filter(q=>q.outcome==='reply_candidate').length;
     status.textContent='Read-only business Gmail: '+businessInboxReview.examinedThreads+
       ' message threads checked across '+businessInboxReview.pagesLoaded+' bounded page(s); '+
       possible+' potential inquiries ('+formLeads+' form notifications), '+
@@ -613,6 +619,8 @@
         businessInboxReview.nextPage!==null?
           ' More recent-mail pages available.':
           ' No further pages available within this 30-day query.')+
+      ' '+reviewed.length+' selected thread(s) qualified locally; '+candidates+
+      ' potential reply candidate(s) among them. These are NOT authorized drafts.'+
       ' Coverage remains limited; bodies are only fetched for a selected thread. No messages sent or records changed.';
     const priority=t=>t.sourceType==='form_lead'?0:
       t.needsHumanReview&&t.relationshipHint==='vendor'?2:
@@ -664,6 +672,16 @@
       const context=businessInboxThreadContext.get(t.threadId);
       if(context?.visible) {
         const detail=makeText('div','action-draft-panel','');
+        const qualification=replyQualifier.qualifyThread(t,context);
+        const qualificationCard=makeText('div','reply-qualification','');
+        qualificationCard.append(makeText('p','reply-qualification-title',
+          'Step 46 · '+qualification.label));
+        qualificationCard.append(makeText('p','',qualification.reason));
+        qualificationCard.append(makeText('p','reply-qualification-next',
+          'Next: '+qualification.nextStep));
+        qualificationCard.append(makeText('p','hint',
+          'Rule-based interpretation of the selected excerpts only. No AI call, no approved Gmail draft, and no automatic sending.'));
+        detail.append(qualificationCard);
         detail.append(makeText('strong','',
           'Recent conversation excerpts ('+context.totalMessages+' total message(s))'));
         if(context.partial)

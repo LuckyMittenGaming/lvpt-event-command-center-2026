@@ -78,6 +78,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # Runtime route tests transpile TypeScript; install dependencies first.
+      - run: npm ci
       - run: node --check public/sms-review/review-engine.js
       - run: node --check public/sms-review/app.js
       - run: node --check public/sms-review/case-engine.js
@@ -125,5 +127,4 @@ jobs:
       - run: node tests/sms-gmail-scope-static.test.cjs
       - run: node tests/sms-review-audit-static.test.cjs
       - run: node tests/sms-review-session.test.mjs
-      - run: npm ci
       - run: npx tsc --noEmit

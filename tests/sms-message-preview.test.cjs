@@ -50,6 +50,10 @@ const context={
 const q=qualifyThread(meta,context,Date.parse('2026-11-10T15:00:00.000Z'));
 assert.notEqual(q.outcome,'reply_candidate',
   'Quoted question must never trigger a new sales reply');
+context.messages[0].excerpt=venue;
+const courtesy=qualifyThread(meta,context,Date.parse('2026-11-10T15:00:00.000Z'));
+assert.equal(courtesy.outcome,'monitor',
+  'A short courtesy note followed by a long signature should not be treated as actionable');
 context.messages[0].excerpt=client;
 const q2=qualifyThread(meta,context,Date.parse('2026-11-10T15:00:00.000Z'));
 assert.equal(q2.outcome,'reply_candidate','Real client request remains actionable');

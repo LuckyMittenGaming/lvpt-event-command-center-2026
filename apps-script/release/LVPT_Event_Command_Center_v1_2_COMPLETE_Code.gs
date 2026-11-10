@@ -1088,6 +1088,44 @@ function lvptStep48VerifyReplyRecipient_(threadId,expectedLastMessageAt) {
   if(!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(from)||
     from.length>254||/[,\r\n<>]/.test(from))
     return {ok:false,message:'Single external sender address cannot be verified'};
+  // Cross-thread duplicate guard. A client may have already been answered
+  // through a DIFFERENT subject or conversation. Never rely solely on the
+  // selected Gmail thread's last inbound/outbound direction.
+  //
+  // This search is bounded (25 messages) and uses only verified LVPT Sent
+  // metadata. Any paging or unexpected source data fails CLOSED. Results
+  // are not logged, stored in a CRM, or exposed in the public inbox list.
+  var cutoff=Utilities.formatDate(new Date(expected-86400000),
+    'Etc/UTC','yyyy/MM/dd');
+  var sentQuery='in:sent to:'+from+' after:'+cutoff+' -in:trash';
+  var sentListing=lvptGmailMetaGet_(
+    'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q='+
+    encodeURIComponent(sentQuery));
+  if(!sentListing||!Array.isArray(sentListing.messages)||
+    sentListing.nextPageToken)
+    return {ok:false,message:'Sent-mail duplicate check is incomplete; manually review this client'};
+  for(var si=0;si<sentListing.messages.length;si++) {
+    var candidate=sentListing.messages[si];
+    if(!candidate||!(/^[a-f0-9]{8,32}$/i.test(String(candidate.id||''))))
+      return {ok:false,message:'Sent-mail search yielded an invalid message'};
+    var sentMeta=lvptGmailMetaGet_(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/'+
+      encodeURIComponent(candidate.id)+
+      '?format=metadata&metadataHeaders=To&metadataHeaders=From');
+    var sentAt=Number(sentMeta.internalDate||0);
+    var sentFrom=lvptInboxEmail_(lvptInboxHeader_(sentMeta,'From'));
+    var sentTo=String(lvptInboxHeader_(sentMeta,'To')||'').toLowerCase();
+    if(!Number.isFinite(sentAt)||sentAt<=0||
+      sentFrom!==mailbox||!/\\bSENT\\b/i.test(
+        String(sentMeta.labelIds||[])))
+      return {ok:false,message:'Sent-mail metadata was not verifiable'};
+    // Inspect exact address tokens rather than substring matches, so
+    // client@example.com cannot match other-client@example.com.
+    var outgoingRecipients=sentTo.match(
+      /[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/ig)||[];
+    if(sentAt>expected&&outgoingRecipients.indexOf(from)>=0)
+      return {ok:false,message:'LVPT has sent this contact a newer email; verify full history to avoid duplicate outreach'};
+  }
   var subject=lvptInboxHeader_(last,'Subject').replace(/\s+/g,' ').trim();
   var msgId=lvptInboxHeader_(last,'Message-ID').trim();
   var refs=lvptInboxHeader_(last,'References').trim();

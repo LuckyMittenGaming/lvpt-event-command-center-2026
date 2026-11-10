@@ -63,7 +63,12 @@
         ['Ambiguous message direction']);
     const formLead=direction==='form_lead'||metadata.sourceType==='form_lead';
     const vendor=relationship==='vendor'||verifiedRole==='vendor';
-    const body=norm(latest?.excerpt);
+    // Use the current author's visible message, never quoted older questions
+    // or long signatures. The original excerpt remains intact in the browser.
+    const preview=typeof window!=='undefined'&&window.LVPTMessagePreview?
+      window.LVPTMessagePreview:typeof require==='function'?
+      require('./message-preview.js'):null;
+    const body=norm(preview?preview.focus(latest?.excerpt).body:latest?.excerpt);
     const hasQuestion=request.test(body);
     // "We need to share this with leadership" is a timing hold, not a
     // request for LVPT. A clear question/direct imperative may override it.

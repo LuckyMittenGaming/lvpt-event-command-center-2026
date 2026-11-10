@@ -773,17 +773,26 @@
         d.selectionMode==='automatic_vendor'?
         'Auto-selected venue/vendor correspondence (read-only)':
         'No eligible incoming conversation found';
+      const qualification=d.qualificationOutcome==='no_reply_suggested'?
+        'Latest message appears to be an acknowledgement, hold, or closing; no sales reply recommended':
+        d.qualificationOutcome==='possible_request'?
+        'Possible new client request — human verification required':
+        d.qualificationOutcome==='vendor_only'?
+        'Venue/vendor operations, not sales outreach':
+        d.qualificationOutcome==='needs_review'?
+        'Manual review required (incomplete or ambiguous evidence)':
+        'No reply qualification performed';
       const recipient=d.recipientStatus==='verified'?
         'Gmail recipient verification passed':
         d.recipientStatus==='blocked'?
-        'Recipient check blocked by the safety rules':
+        'Recipient verification blocked by safeguards':
         d.recipientStatus==='not_selected'?
-        'Recipient not tested':
+        'Recipient check not needed for this classification':
         'Recipient check unavailable';
       status.textContent='Diagnostic saved. Inbox: '+d.inboxStatus+
         ' ('+d.pageZeroThreads+' scanned entries). '+mode+
-        '. Conversation: '+d.threadPreviewStatus+'. '+recipient+
-        '. No emails sent and no client message data stored. Report ID: '+d.runId;
+        '. Conversation: '+d.threadPreviewStatus+'. '+qualification+
+        '. '+recipient+'. No emails sent; no client content stored. Report ID: '+d.runId;
     }catch {
       status.textContent='Diagnostic unavailable or not saved. No client emails were sent. Use the normal inbox controls and retry later.';
     }finally{

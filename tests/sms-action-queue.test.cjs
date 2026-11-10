@@ -232,7 +232,7 @@ assert.equal(buildQueue({...data,inbox:{connected:false,threads:businessInbox.th
 const completeGas=fs.readFileSync(require('node:path').join(__dirname,
   '../apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs'),'utf8');
 assert.match(completeGas,/action === 'listBusinessInboxReview'/);
-assert.match(completeGas,/function lvptReadOnlyBusinessInboxReview_\(\)/);
+assert.match(completeGas,/function lvptReadOnlyBusinessInboxReview_\(page\)/);
 const scan=completeGas.slice(completeGas.indexOf('// STEP 43'));
 assert.match(scan,/users\/me\/profile/);
 assert.match(scan,/mailboxIdentityVerified:true/);

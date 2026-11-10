@@ -795,6 +795,9 @@
         root.append(makeText('p','hint',
           dateFmt(entry.at)+' · Inbox '+entry.inboxStatus+
           ' · '+category+' · '+diagnosticReasonLabel(entry.qualificationReasonCode)+
+          ' · '+(entry.sampledThreads||0)+' thread(s) checked'+
+          ' · '+(entry.possibleRequests||0)+' potential requests'+
+          ' · '+(entry.noReplySuggestedCount||0)+' no-reply suggestions'+
           ' · Recipient '+entry.recipientStatus+
           ' · '+(entry.sendSwitchEnabled?'Send switch ON':'Send switch OFF')));
       }
@@ -847,7 +850,10 @@
         'Recipient check unavailable';
       status.textContent='Diagnostic saved. Inbox: '+d.inboxStatus+
         ' ('+d.pageZeroThreads+' scanned entries). '+mode+
-        '. Conversation: '+d.threadPreviewStatus+'. '+qualification+
+        '. Examined '+(d.sampledThreads||0)+
+        ' recent incoming conversation(s); '+(d.possibleRequests||0)+
+        ' potential requests, '+(d.noReplySuggestedCount||0)+
+        ' no-reply suggestions. Priority result: '+qualification+
         ' ('+diagnosticReasonLabel(d.qualificationReasonCode)+'). '+
         recipient+'. No emails sent; no client content stored. Report ID: '+d.runId;
       void loadInboxDiagnosticHistory();

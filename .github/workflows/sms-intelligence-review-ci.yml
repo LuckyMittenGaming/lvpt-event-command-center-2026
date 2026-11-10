@@ -112,6 +112,7 @@ jobs:
       - run: node tests/sms-inbox-diagnostics.test.cjs
       - run: node tests/sms-inbox-diagnostics-autoselect.test.mjs
       - run: node tests/sms-diagnostic-message.test.mjs
+      - run: node tests/sms-negative-gmail-canary.test.mjs
       - run: node tests/sms-gas-long-thread-preview.test.cjs
       - run: node tests/sms-gas-recipient-verification.test.cjs
       - run: node tests/sms-reply-review.test.cjs

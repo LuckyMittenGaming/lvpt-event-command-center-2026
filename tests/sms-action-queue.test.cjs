@@ -236,8 +236,8 @@ assert.match(completeGas,/function lvptReadOnlyBusinessInboxReview_\(\)/);
 const scan=completeGas.slice(completeGas.indexOf('// STEP 43'));
 assert.match(scan,/users\/me\/profile/);
 assert.match(scan,/mailboxIdentityVerified:true/);
-assert.match(scan,/maxResults=80/);
-assert.match(scan,/maxThreads=28/);
+assert.match(scan,/maxResults=100/);
+assert.match(scan,/maxThreads=20/);
 assert.match(scan,/metadataHeaders=Auto-Submitted/);
 assert.match(scan,/metadataHeaders=List-Unsubscribe/);
 assert.match(scan,/formLead=from===mailbox && lvptInboxEmail_\(to\)===mailbox/);
@@ -272,5 +272,42 @@ const reviewEndpoint=fs.readFileSync(require('node:path').join(__dirname,
 assert.match(reviewEndpoint,/gmail\|payment\|payout\|inbox/);
 assert.match(reviewEndpoint,/decision==='draft_requested' && type==='gmail'/,
   'Broad inbox review action keys cannot be approved for drafting');
+
+// Step 45: source pagination remains bounded to 20 message slots per
+// request, 15 pages, last 30 days. No automatic full-body scan.
+assert.match(completeGas,/action === 'listBusinessInboxReview'.*Number\(payload.page \|\| 0\)/);
+assert.match(completeGas,/action === 'readBusinessInboxThread'/);
+assert.match(scan,/function lvptReadOnlyBusinessInboxReview_\(page\)/);
+assert.match(scan,/page>14/);
+assert.match(scan,/listGroup=Math\.floor\(page\/5\)/);
+assert.match(scan,/slotStart=\(page%5\)\*20/);
+assert.match(scan,/slice\(slotStart,slotStart\+20\)/);
+assert.match(scan,/var nextPage=hasRemaining\?page\+1/);
+assert.match(scan,/cacheKey='lvpt_business_inbox_review_2026_v3_p'\+page/);
+assert.match(scan,/function lvptReadOnlyBusinessInboxThread_\(threadId, expectedLastMessageAt\)/);
+assert.match(scan,/expected<Date\.now\(\)-32\*86400000/);
+assert.match(scan,/new Date\(lastStamp\)\.toISOString\(\)/);
+assert.match(scan,/mailboxIdentityVerified:true/);
+assert.match(scan,/all\.slice\(-10\)/);
+assert.match(scan,/lvptGmailDraftVisibleBody_\(readText/);
+assert.match(scan,/no Gmail drafts, email sends, AI calls, or CRM writes/);
+const fullReviewRoute=fs.readFileSync(require('node:path').join(__dirname,
+  '../app/api/sms/staging/inbox-thread/route.ts'),'utf8');
+assert.match(fullReviewRoute,/authorizedReviewer\(request\)/);
+assert.match(fullReviewRoute,/mailboxIdentityVerified!==true/);
+assert.match(fullReviewRoute,/safeDate\(data.lastMessageAt\)!==expected/);
+assert.match(fullReviewRoute,/data.messages.length>10/);
+assert.match(fullReviewRoute,/noAiCalls:true,noGmailWrites:true,noMessageSent:true/);
+assert.match(inboxRoute,/data.page!==page \|\| data.pageSize!==20/);
+assert.match(inboxRoute,/const next=Number.isInteger\(data.nextPage\)/);
+assert.match(inboxRoute,/nextPage:next/);
+assert.match(html,/id="loadMoreBusinessInbox"/);
+assert.match(app,/loadMoreBusinessInbox'\)\.addEventListener/);
+assert.match(app,/async function loadBusinessInboxThread\(t\)/);
+assert.match(app,/owner_selected_read_only_thread_review/);
+assert.match(app,/new Map\(old.threads.map/);
+assert.match(app,/pagesLoaded:old.pagesLoaded\+1/);
+assert(!/GmailApp\.send|MailApp\.send|sendEmail\(/.test(fullReviewRoute),
+  'Thread preview API must never send a client email');
 
 console.log('Action Required queue and non-sending, append-only approval controls tests passed.');

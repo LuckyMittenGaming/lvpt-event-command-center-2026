@@ -46,7 +46,7 @@ export async function GET(request:Request) {
     return jsonNoStore({ok:false,reason:'staging_only'},403);
   try {
     const p=new URLSearchParams({
-      select:'run_id,created_at,inbox_status,page_zero_threads,thread_preview_status,recipient_status,selection_mode,qualification_outcome,qualification_reason_code,vercel_send_switch_enabled',
+      select:'run_id,created_at,inbox_status,page_zero_threads,thread_preview_status,recipient_status,selection_mode,qualification_outcome,qualification_reason_code,vercel_send_switch_enabled,sampled_threads,possible_requests,no_reply_suggested_count,blocked_recipients',
       tenant_id:'eq.lvpt-owner-pilot',
       order:'created_at.desc',limit:'5'
     });
@@ -80,7 +80,15 @@ export async function GET(request:Request) {
       qualificationReasonCode:typeof item.qualification_reason_code==='string'&&
         /^[a-z_]{3,40}$/.test(item.qualification_reason_code)?
         item.qualification_reason_code:'not_checked',
-      sendSwitchEnabled:item.vercel_send_switch_enabled===true
+      sendSwitchEnabled:item.vercel_send_switch_enabled===true,
+      sampledThreads:Number.isInteger(item.sampled_threads)?
+        Math.min(3,Math.max(0,Number(item.sampled_threads))):0,
+      possibleRequests:Number.isInteger(item.possible_requests)?
+        Math.min(3,Math.max(0,Number(item.possible_requests))):0,
+      noReplySuggestedCount:Number.isInteger(item.no_reply_suggested_count)?
+        Math.min(3,Math.max(0,Number(item.no_reply_suggested_count))):0,
+      blockedRecipients:Number.isInteger(item.blocked_recipients)?
+        Math.min(3,Math.max(0,Number(item.blocked_recipients))):0
     }));
     return jsonNoStore({
       ok:true,source:'lvpt_no_client_data_diagnostic_history',

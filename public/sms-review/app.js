@@ -688,26 +688,46 @@
           'Next: '+qualification.nextStep));
         qualificationCard.append(makeText('p','hint',
           'Rule-based interpretation of the selected excerpts only. No AI call, no approved Gmail draft, and no automatic sending.'));
-        detail.append(qualificationCard);
-        replyController.render(detail,t,context,qualification);
-        detail.append(makeText('strong','',
-          'Recent conversation excerpts ('+context.totalMessages+' total message(s))'));
-        if(context.partial)
-          detail.append(makeText('p','hint',
-            'Older messages or attachments may be omitted. Review the full Gmail thread before deciding.'));
-        context.messages.forEach(m=>{
+        // Step 47 UX: surface only the latest email by default. Prior
+        // correspondence remains available on demand for context and to
+        // avoid duplicate outreach; it is never a separate approval.
+        const messages=Array.isArray(context.messages)?context.messages:[];
+        const latest=messages[messages.length-1];
+        const earlier=messages.slice(0,-1);
+        const showMessage=(m,title)=>{
           const item=makeText('div','gmail-evidence-card','');
           item.append(makeText('p','gmail-evidence-label',
-            m.direction+' · '+m.relationshipHint+' · '+dateFmt(m.at)));
+            title+' · '+m.direction+' · '+dateFmt(m.at)));
           if(m.excerpt)
             item.append(makeText('p','gmail-message-excerpt',m.excerpt));
+          else
+            item.append(makeText('p','hint','Body unavailable — open Gmail to inspect it.'));
           if(m.hasAttachments)
             item.append(makeText('p','hint',
               'Attachment detected — inspect it directly in Gmail.'));
-          detail.append(item);
-        });
+          return item;
+        };
+        if(latest) {
+          detail.append(makeText('strong','','Latest email — current review focus'));
+          detail.append(showMessage(latest,'Latest message'));
+        }
+        detail.append(qualificationCard);
+        replyController.render(detail,t,context,qualification);
+        if(earlier.length) {
+          const history=document.createElement('details');
+          history.className='reply-thread-history';
+          const label=makeText('summary','',
+            'View '+earlier.length+' previous email'+
+            (earlier.length===1?'':'s')+' for context');
+          history.append(label);
+          earlier.forEach(m=>history.append(showMessage(m,'Earlier correspondence')));
+          detail.append(history);
+        }
+        if(context.partial)
+          detail.append(makeText('p','hint',
+            'Older messages or attachments may be omitted. Review the full Gmail thread before deciding.'));
         detail.append(makeText('p','hint',
-          'No email draft created. Check CRM, conversation chronology, and whether a response is genuinely needed.'));
+          'Only the latest message is the current review target. No email draft is created automatically.'));
         card.append(detail);
       }
       items.append(card);
@@ -765,7 +785,19 @@
 
   async function loadBusinessInboxThread(t) {
     if(!sessionToken||!t?.threadId || businessInboxThreadLoading)return;
+    // A review in progress cannot silently jump to a different recipient.
+    const pending=replyController.getActive();
+    if(pending && pending.threadId!==t.threadId) {
+      businessInboxThreadError.set(t.threadId,
+        'Finish or close the active reply review before opening another conversation.');
+      renderBusinessInboxReview();return;
+    }
     const old=businessInboxThreadContext.get(t.threadId);
+    // Keep exactly one selected conversation visible at a time, while
+    // retaining earlier previews in memory without Gmail writes.
+    businessInboxThreadContext.forEach((value,key)=>{
+      if(key!==t.threadId)businessInboxThreadContext.set(key,{...value,visible:false});
+    });
     if(old) {
       businessInboxThreadContext.set(t.threadId,{...old,visible:!old.visible});
       renderBusinessInboxReview();return;

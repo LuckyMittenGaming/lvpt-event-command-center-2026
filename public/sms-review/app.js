@@ -699,9 +699,19 @@
           const item=makeText('div','gmail-evidence-card','');
           item.append(makeText('p','gmail-evidence-label',
             title+' · '+m.direction+' · '+dateFmt(m.at)));
-          if(m.excerpt)
-            item.append(makeText('p','gmail-message-excerpt',m.excerpt));
-          else
+          if(m.excerpt) {
+            const preview=window.LVPTMessagePreview.focus(m.excerpt);
+            item.append(makeText('p','gmail-message-excerpt',preview.body));
+            if(preview.shortened) {
+              const hidden=document.createElement('details');
+              hidden.className='reply-message-extras';
+              hidden.append(makeText('summary','',
+                preview.reason==='quoted_history'?
+                  'Show quoted email history':'Show signature and additional text'));
+              hidden.append(makeText('p','gmail-message-excerpt',preview.hidden));
+              item.append(hidden);
+            }
+          }else
             item.append(makeText('p','hint','Body unavailable — open Gmail to inspect it.'));
           if(m.hasAttachments)
             item.append(makeText('p','hint',

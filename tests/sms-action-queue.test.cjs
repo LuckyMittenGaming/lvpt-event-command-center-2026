@@ -290,7 +290,7 @@ assert.match(scan,/new Date\(lastStamp\)\.toISOString\(\)/);
 assert.match(scan,/mailboxIdentityVerified:true/);
 assert.match(scan,/all\.slice\(-10\)/);
 assert.match(scan,/lvptGmailDraftVisibleBody_\(readText/);
-assert.match(scan,/no Gmail drafts, email sends, AI calls, or CRM writes/);
+assert.match(scan,/No Gmail drafts, email sends, AI calls, or CRM writes/i);
 const fullReviewRoute=fs.readFileSync(require('node:path').join(__dirname,
   '../app/api/sms/staging/inbox-thread/route.ts'),'utf8');
 assert.match(fullReviewRoute,/authorizedReviewer\(request\)/);

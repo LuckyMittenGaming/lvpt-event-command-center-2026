@@ -187,7 +187,7 @@
       const alreadyShown=new Set((Array.isArray(data.gmail)?data.gmail:[])
         .flatMap(r=>Array.isArray(r?.threads)?r.threads:[])
         .map(t=>String(t?.threadId||'')));
-      inbox.threads.slice(0,25).forEach(t=>{
+      inbox.threads.slice(0,100).forEach(t=>{
         const id=text(t?.threadId,40);
         if(!/^[0-9a-f]{8,32}$/i.test(id)||alreadyShown.has(id))return;
         const at=String(t?.lastMessageAt||'');

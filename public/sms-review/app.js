@@ -750,6 +750,26 @@
       'Load more business Gmail (page '+(businessInboxReview.nextPage??0)+')';
   }
 
+  function diagnosticReasonLabel(code) {
+    const labels={
+      acknowledgement:'Acknowledged or submitted',
+      client_declined:'Opportunity declined',
+      client_reviewing:'Client-controlled timing',
+      explicit_request:'Potential new request',
+      history_incomplete:'Older messages omitted',
+      latest_message_incomplete:'Latest email incomplete',
+      vendor_operations:'Vendor or venue correspondence',
+      internal:'Internal correspondence',
+      lvpt_replied_last:'LVPT replied last',
+      unknown_sender:'Sender unverified',
+      empty_latest_body:'No readable latest message',
+      chronology_unverified:'Conversation changed or unverified',
+      ambiguous_latest_message:'Manual interpretation needed',
+      not_checked:'No classification made'
+    };
+    return labels[String(code||'')]||'Review needed';
+  }
+
   async function loadInboxDiagnosticHistory() {
     const root=$('inboxDiagnosticHistory');
     if(!root || !sessionToken || !report || report.source!=='staging')return;
@@ -774,7 +794,8 @@
           'Not qualified';
         root.append(makeText('p','hint',
           dateFmt(entry.at)+' · Inbox '+entry.inboxStatus+
-          ' · '+category+' · Recipient '+entry.recipientStatus+
+          ' · '+category+' · '+diagnosticReasonLabel(entry.qualificationReasonCode)+
+          ' · Recipient '+entry.recipientStatus+
           ' · '+(entry.sendSwitchEnabled?'Send switch ON':'Send switch OFF')));
       }
     }catch {
@@ -827,7 +848,8 @@
       status.textContent='Diagnostic saved. Inbox: '+d.inboxStatus+
         ' ('+d.pageZeroThreads+' scanned entries). '+mode+
         '. Conversation: '+d.threadPreviewStatus+'. '+qualification+
-        '. '+recipient+'. No emails sent; no client content stored. Report ID: '+d.runId;
+        ' ('+diagnosticReasonLabel(d.qualificationReasonCode)+'). '+
+        recipient+'. No emails sent; no client content stored. Report ID: '+d.runId;
       void loadInboxDiagnosticHistory();
     }catch {
       status.textContent='Diagnostic unavailable or not saved. No client emails were sent. Use the normal inbox controls and retry later.';

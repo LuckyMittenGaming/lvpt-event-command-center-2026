@@ -118,3 +118,7 @@
 .reply-message-extras .gmail-message-excerpt{margin-top:8px;opacity:.86}
 .inbox-diagnostics-controls{padding:12px 0 16px}
 .inbox-diagnostics-controls .source-status{margin:8px 0 0;overflow-wrap:anywhere}
+
+.inbox-diagnostic-history{padding:4px 0 8px;border-top:1px solid var(--border,#506078);margin-top:8px}
+.inbox-diagnostic-history strong{display:block;margin:8px 0}
+.inbox-diagnostic-history p{margin:5px 0;line-height:1.4}

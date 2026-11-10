@@ -105,6 +105,10 @@
 .reply-review-workflow textarea{white-space:pre-wrap;min-height:180px;resize:vertical}
 .reply-verification{display:flex;align-items:flex-start;gap:8px;margin:12px 0;line-height:1.45}
 .reply-verification input{margin-top:4px;flex:none}
+/* Override the generic 100%-wide draft input styling for this small control.
+   Keep the checkbox and confirmation copy together on desktop and mobile. */
+.reply-review-workflow .reply-verification{display:flex;align-items:flex-start;justify-content:flex-start;gap:10px;max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
+.reply-review-workflow .reply-verification input[type="checkbox"]{box-sizing:border-box;display:block;flex:0 0 18px;width:18px;min-width:18px;max-width:18px;height:18px;min-height:18px;max-height:18px;padding:0;margin:2px 0 0;accent-color:#4b91f8;cursor:pointer}
 .reply-review-workflow button{max-width:100%;white-space:normal}
 
 /* Keep prior email history available without overwhelming the active reply. */

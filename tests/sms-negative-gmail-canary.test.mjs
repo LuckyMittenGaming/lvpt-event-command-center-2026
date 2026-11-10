@@ -47,6 +47,10 @@ const app=fs.readFileSync('public/sms-review/app.js','utf8');
 assert.match(route,/candidates.length===0/);
 assert.match(route,/selectDiagnosticNegativeControl\(inbox.threads\)/);
 assert.match(route,/selected.selectionMode==='negative_outbound'/);
+assert.match(route,/selected.selectionMode==='manual'&&/,
+  'Owner-selected already-answered conversations must support the read-only negative control');
+assert.match(route,/negativeControlStatus='failed'/,
+  'Outbound rejection checks must fail closed until GAS rejects the recipient');
 assert.match(route,/outcome==='no_reply_suggested'&&reason==='lvpt_replied_last'/);
 assert.match(route,/error==='Not a complete verified external client request'/);
 assert.match(route,/negative_control_status:negativeControlStatus/);

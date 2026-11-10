@@ -79,6 +79,41 @@
         return false;
       }finally {working='';onUpdate();}
     }
+    async function generateAiReply(t) {
+      if(working||!active||active.phase!=='prepared'||
+         active.threadId!==t.threadId||
+         verified.get(t.threadId)!==t.lastMessageAt||
+         audits.get(t.threadId)?.decision!=='draft_prepared')return;
+      working=t.threadId;onUpdate();
+      try {
+        // Only thread ID and revision cross the first boundary. The server
+        // separately re-reads and redacts the verified source after checking
+        // explicit owner draft preparation in its audit.
+        const d=await getProtected('/api/sms/staging/reply-personalized-draft',{
+          body:{threadId:t.threadId,lastMessageAt:t.lastMessageAt}
+        });
+        if(!d.ok||d.source!=='owner_requested_ai_reply_preview'||
+           d.threadId!==t.threadId||d.lastMessageAt!==t.lastMessageAt||
+           d.sendTriggered!==false||d.gmailDraftCreated!==false||
+           typeof d.subject!=='string'||typeof d.body!=='string')
+          throw Error('AI reply suggestion unavailable or unverified');
+        const valid=workflow.validation(d.subject,d.body);
+        // A model may flag unverified details; the owner must fix them before
+        // approving. Never silently auto-approve or change recipients.
+        active={...active,subject:d.subject,body:d.body,generatedBy:'ai',
+          aiRationale:String(d.rationale||'').slice(0,500),
+          aiNeedsReview:Array.isArray(d.needsReview)?
+            d.needsReview.slice(0,5).map(x=>String(x).slice(0,120)):[]};
+        status.set(t.threadId,valid.ok?
+          'Personalized AI suggestion ready for owner editing and review. Nothing was sent or saved to Gmail.':
+          'AI suggestion needs edits before approval: '+valid.reason);
+      }catch(error) {
+        status.set(t.threadId,'AI draft not generated: '+
+          (error instanceof Error?error.message:'Model unavailable')+
+          '. Existing editable draft is preserved. No email sent.');
+      }finally {working='';onUpdate();}
+    }
+
     async function verifySendReadiness(t) {
       if(working||!active||active.phase!=='approved_for_manual_copy'||
          active.threadId!==t.threadId)return;
@@ -253,6 +288,17 @@
       note();
       wrap.append(validationNote);
       if(active.phase==='prepared') {
+        controls.append(button('Generate personalized AI reply',
+          ()=>void generateAiReply(t),false,'primary'));
+        wrap.append(makeText('p','hint',
+          'Optional: this click shares limited redacted email excerpts with the configured Vercel AI Gateway/model. The AI draft is editable; it never sends, saves, or approves an email.'));
+        if(active.generatedBy==='ai') {
+          wrap.append(makeText('p','action-draft-status',
+            'AI draft rationale: '+String(active.aiRationale||'Review this suggestion.')));
+          if(Array.isArray(active.aiNeedsReview)&&active.aiNeedsReview.length)
+            wrap.append(makeText('p','case-alert',
+              'Facts to verify: '+active.aiNeedsReview.join('; ')));
+        }
         controls.append(approve);
         controls.append(button('Edit text above',()=>body.focus()));
         controls.append(button('Deny — no reply needed',

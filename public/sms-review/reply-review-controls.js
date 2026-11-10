@@ -273,6 +273,9 @@
           if(read.subject)
             wrap.append(makeText('p','action-draft-meta',
               'Verified Gmail thread subject: '+read.subject));
+          if(read.fullHistoryRequiresOwnerReview===true)
+            wrap.append(makeText('p','case-alert',
+              'LONG THREAD: Earlier emails are omitted from the preview. This recipient verification does not replace your attested complete Gmail and CRM review.'));
           wrap.append(makeText('p','hint',
             'Check recipient and content in the original Gmail conversation. No CC or BCC is added.'));
         }

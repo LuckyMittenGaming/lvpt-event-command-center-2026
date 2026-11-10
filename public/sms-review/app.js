@@ -91,7 +91,8 @@
   const replyWorkflow=window.LVPTReplyWorkflow;
   const replyController=window.LVPTReplyReviewControls.createController({
     getProtected,makeText,qualification:replyQualifier,workflow:replyWorkflow,
-    onUpdate:()=>renderBusinessInboxReview()
+    onUpdate:()=>renderBusinessInboxReview(),
+    onNext:threadId=>advanceToNextInboxThread(threadId)
   });
 
   async function runSyntheticAiTest() {
@@ -781,6 +782,22 @@
       renderBusinessInboxReview();
       renderActionQueue();
     }
+  }
+
+  function advanceToNextInboxThread(previousThreadId) {
+    if(!sessionToken || !businessInboxReview?.connected)return;
+    const candidates=(businessInboxReview.threads||[])
+      .filter(t=>t.needsHumanReview===true &&
+        t.lastDirection==='inbound' &&
+        t.sourceType==='email_thread' &&
+        t.relationshipHint==='unclassified')
+      .sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
+    const previous=candidates.findIndex(t=>t.threadId===previousThreadId);
+    const next=candidates.slice(previous+1).find(t=>t.threadId!==previousThreadId);
+    if(!next)return;
+    void loadBusinessInboxThread(next);
+    const heading=$('inboxReviewTitle');
+    if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});
   }
 
   async function loadBusinessInboxThread(t) {

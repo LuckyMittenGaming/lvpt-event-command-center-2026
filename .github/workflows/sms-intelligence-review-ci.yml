@@ -113,6 +113,7 @@ jobs:
       - run: node tests/sms-gas-recipient-verification.test.cjs
       - run: node tests/sms-reply-review.test.cjs
       - run: node tests/sms-reply-send.test.cjs
+      - run: node tests/sms-reply-send-runtime.test.cjs
       - run: node tests/sms-reply-send-ui.test.cjs
       - run: node tests/sms-reply-ai.test.cjs
       - run: node tests/sms-draft-preview.test.cjs

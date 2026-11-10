@@ -2,7 +2,7 @@ import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
 import { getAiGatewayCredential } from '../../../../../lib/lvpt-ai-gateway-auth';
-import { qualifyDiagnosticPreview } from '../../../../../lib/lvpt-diagnostic-message.mjs';
+import { authoredText, qualifyDiagnosticPreview } from '../../../../../lib/lvpt-diagnostic-message.mjs';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -134,9 +134,10 @@ export async function POST(request:Request) {
        classified.reasonCode!=='explicit_request') {
       // For long threads this is a conservative safeguard, not permission
       // to reinterpret a courtesy closing or old quoted request as new.
+      const newest=authoredText(latest.excerpt);
       if(!(context.partial===true&&
-           /\?|\b(?:please|can you|could you|would you)\b/i.test(String(latest.excerpt||'')) &&
-           !/\b(?:declined|not moving forward|still reviewing|out of town)\b/i.test(String(latest.excerpt||''))))
+           /\?|\b(?:please\s+(?:send|confirm|provide|share|advise)|can you|could you|would you)\b/i.test(newest) &&
+           !/\b(?:declined|not moving forward|still reviewing|out of town|will get back to you)\b/i.test(newest)))
         return jsonNoStore({ok:false,reason:'no_explicit_unanswered_client_question'},409);
     }
 

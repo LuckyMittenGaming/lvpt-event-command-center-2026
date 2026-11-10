@@ -8,6 +8,10 @@ const app=read('public/sms-review/app.js');
 const html=read('public/sms-review/index.html');
 
 assert.match(api,/hasReviewSession\(request\)/);
+assert.match(api,/export async function GET\(request:Request\)/);
+assert.match(api,/lvpt_no_client_data_diagnostic_history/);
+assert.match(api,/clientDataIncluded:false/);
+assert.match(api,/order:'created_at.desc',limit:'5'/);
 assert.match(api,/allowedReviewMutation\(request\)/);
 assert.match(api,/process.env.VERCEL_ENV==='production'/);
 assert.match(api,/Object.keys\(body\)\.some\(key=>!\['threadId','lastMessageAt'\]\.includes\(key\)\)/);
@@ -30,6 +34,9 @@ assert.doesNotMatch(ddl,/\b(?:recipient|thread_id|email_body|subject|message_id)
   'Report table must not contain fields that can store client identity or text');
 assert.match(html,/id="runInboxDiagnostics"/);
 assert.match(html,/id="inboxDiagnosticStatus"/);
+assert.match(html,/id="inboxDiagnosticHistory"/);
+assert.match(app,/async function loadInboxDiagnosticHistory\(\)/);
+assert.match(app,/void loadInboxDiagnosticHistory\(\)/);
 assert.match(app,/async function runInboxDiagnostics\(\)/);
 assert.match(app,/const selection=\(businessInboxReview\?\.threads\|\|\[\]\)\.find/);
 assert.match(app,/getProtected\('\/api\/sms\/staging\/inbox-diagnostics',\{body\}\)/);

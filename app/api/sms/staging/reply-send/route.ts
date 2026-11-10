@@ -35,13 +35,15 @@ function inputValidation(v:Record<string,unknown>) {
   const lastMessageAt=normalizeTimestamp(v.lastMessageAt);
   const intentId=String(v.intentId||'').toLowerCase();
   const recipient=String(v.recipient||'').toLowerCase();
-  const subject=String(v.subject||'').trim();
-  const body=String(v.body||'').trim();
+  // Preserve byte-for-byte approval digest. Do not trim after the owner
+  // signed off on the exact subject and body (including trailing newlines).
+  const subject=String(v.subject||'');
+  const body=String(v.body||'');
   if(!THREAD.test(threadId)||!lastMessageAt||!UUID.test(intentId)||
     !EMAIL.test(recipient)||recipient.length>254||
     recipient==='book@pokertraininglasvegas.com'||
-    subject.length<5||subject.length>180||/[\r\n]/.test(subject)||
-    body.length<45||body.length>5000||
+    subject.trim().length<5||subject.length>180||/[\r\n]/.test(subject)||
+    body.trim().length<45||body.length>5000||
     /\[(?:write|insert|verify|confirm|add|recipient|date|price|time|venue)[^\]]*\]/i.test(body)||
     /\b(?:TODO|TBD|PLACEHOLDER)\b/i.test(body)||
     v.confirmation!=='SEND THIS EMAIL'||v.ownerReviewed!==true)

@@ -1101,11 +1101,14 @@ function lvptStep48VerifyReplyRecipient_(threadId,expectedLastMessageAt) {
   var sentListing=lvptGmailMetaGet_(
     'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q='+
     encodeURIComponent(sentQuery));
-  if(!sentListing||!Array.isArray(sentListing.messages)||
+  if(!sentListing||typeof sentListing!=='object'||
+    (sentListing.messages!==undefined&&!Array.isArray(sentListing.messages))||
     sentListing.nextPageToken)
     return {ok:false,message:'Sent-mail duplicate check is incomplete; manually review this client'};
-  for(var si=0;si<sentListing.messages.length;si++) {
-    var candidate=sentListing.messages[si];
+  // Gmail omits the "messages" array entirely when there are zero matches.
+  var foundSent=sentListing.messages||[];
+  for(var si=0;si<foundSent.length;si++) {
+    var candidate=foundSent[si];
     if(!candidate||!(/^[a-f0-9]{8,32}$/i.test(String(candidate.id||''))))
       return {ok:false,message:'Sent-mail search yielded an invalid message'};
     var sentMeta=lvptGmailMetaGet_(
@@ -1116,13 +1119,13 @@ function lvptStep48VerifyReplyRecipient_(threadId,expectedLastMessageAt) {
     var sentFrom=lvptInboxEmail_(lvptInboxHeader_(sentMeta,'From'));
     var sentTo=String(lvptInboxHeader_(sentMeta,'To')||'').toLowerCase();
     if(!Number.isFinite(sentAt)||sentAt<=0||
-      sentFrom!==mailbox||!/\\bSENT\\b/i.test(
-        String(sentMeta.labelIds||[])))
+      sentFrom!==mailbox||!Array.isArray(sentMeta.labelIds)||
+      sentMeta.labelIds.indexOf('SENT')<0)
       return {ok:false,message:'Sent-mail metadata was not verifiable'};
     // Inspect exact address tokens rather than substring matches, so
     // client@example.com cannot match other-client@example.com.
     var outgoingRecipients=sentTo.match(
-      /[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/ig)||[];
+      /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/ig)||[];
     if(sentAt>expected&&outgoingRecipients.indexOf(from)>=0)
       return {ok:false,message:'LVPT has sent this contact a newer email; verify full history to avoid duplicate outreach'};
   }

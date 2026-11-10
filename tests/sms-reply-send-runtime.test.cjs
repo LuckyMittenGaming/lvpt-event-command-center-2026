@@ -37,7 +37,7 @@ function harness(options={}){
   const seen={requests:[],apps:[],reservations:[],patches:[],gated:false};
   const mod={exports:{}};
   const env={LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND:
-    options.off?'false':'true'};
+    options.off?'false':'true',VERCEL_ENV:options.production?'production':'preview'};
   const verified={
     ok:true,source:'verified_lvpt_gmail_reply_recipient',
     mailboxIdentityVerified:true,sendingEnabled:true,
@@ -117,8 +117,14 @@ function harness(options={}){
   return {seen,post};
 }
 (async()=>{
-  let h=harness({off:true});
+  let h=harness({production:true});
   let x=await h.post();
+  assert.equal(x.status,403);
+  assert.equal(x.json.reason,'staging_only_no_production_send');
+  assert.equal(h.seen.apps.length,0);
+  assert.equal(h.seen.requests.length,0);
+  h=harness({off:true});
+  x=await h.post();
   assert.equal(x.status,403);
   assert.equal(x.json.reason,'live_gmail_sending_disabled');
   assert.equal(h.seen.apps.length,0);

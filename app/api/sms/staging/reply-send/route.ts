@@ -145,6 +145,10 @@ export async function GET(request:Request) {
   }
 }
 export async function POST(request:Request) {
+  // This is an experimental owner-pilot flow. Even a mistaken production
+  // environment configuration cannot activate sending in the live app.
+  if(process.env.VERCEL_ENV==='production')
+    return jsonNoStore({ok:false,reason:'staging_only_no_production_send'},403);
   if(!allowedReviewMutation(request))return jsonNoStore({ok:false,reason:'same_origin_required'},403);
   if(!ready())return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);
   if(!hasReviewSession(request))return jsonNoStore({ok:false,reason:'unauthorized'},401);

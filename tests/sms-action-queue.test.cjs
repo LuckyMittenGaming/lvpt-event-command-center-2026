@@ -297,7 +297,7 @@ const fullReviewRoute=fs.readFileSync(require('node:path').join(__dirname,
   '../app/api/sms/staging/inbox-thread/route.ts'),'utf8');
 assert.match(fullReviewRoute,/authorizedReviewer\(request\)/);
 assert.match(fullReviewRoute,/mailboxIdentityVerified!==true/);
-assert.match(fullReviewRoute,/safeDate\(data.lastMessageAt\)!==expected/);
+assert.match(fullReviewRoute,/safeRecentDate\(data.lastMessageAt\)!==expected/);
 assert.match(fullReviewRoute,/data.messages.length>10/);
 assert.match(fullReviewRoute,/function safeMessageDate\(value:unknown\)/,
   'Historical messages must remain valid context');

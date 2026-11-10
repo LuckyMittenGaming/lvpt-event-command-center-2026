@@ -13,7 +13,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
 const SHA=/^[a-f0-9]{64}$/;
 const EMAIL=/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const TABLE='lvpt_reply_send_intents';
-type Approved={decision?:string;last_message_at?:string;draft_digest?:string;recorded_at?:string};
+type Approved={decision?:string;last_message_at?:string;draft_digest?:string;recorded_at?:string;owner_reviewed_full_thread?:boolean};
 type Verified={ok?:boolean;source?:string;mailboxIdentityVerified?:boolean;
   threadId?:string;lastMessageAt?:string;recipient?:string;subject?:string;
   sendingEnabled?:boolean};
@@ -52,7 +52,7 @@ function inputValidation(v:Record<string,unknown>) {
 }
 async function approvedDigest(threadId:string,lastAt:string) {
   const p=new URLSearchParams({
-    select:'decision,last_message_at,draft_digest,recorded_at',
+    select:'decision,last_message_at,draft_digest,recorded_at,owner_reviewed_full_thread',
     tenant_id:'eq.'+TENANT,thread_id:'eq.'+threadId,
     order:'recorded_at.desc,request_id.desc',limit:'1'
   });
@@ -65,6 +65,7 @@ async function approvedDigest(threadId:string,lastAt:string) {
   const row=rows[0];
   const approvedAt=Date.parse(String(row?.recorded_at||''));
   if(row?.decision!=='approved_for_manual_copy'||
+    row.owner_reviewed_full_thread!==true||
     normalizeTimestamp(row.last_message_at)!==lastAt||
     !Number.isFinite(approvedAt)||approvedAt>Date.now()+60000||
     approvedAt<Date.now()-24*3600000)return '';

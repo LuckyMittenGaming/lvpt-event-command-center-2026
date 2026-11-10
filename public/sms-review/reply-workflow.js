@@ -18,9 +18,12 @@
        meta.lastMessageAt!==context.lastMessageAt ||
        meta.sourceType==='form_lead' ||
        BLOCKED.includes(String(meta.relationshipHint||'')) ||
-       context.partial===true || !Array.isArray(context.messages) ||
+       !Array.isArray(context.messages) ||
        !context.messages.length || context.messages.length>10 ||
-       context.messages.length<Number(context.totalMessages||0))return false;
+       Number(context.totalMessages||0)>150)return false;
+    // Omitted older messages are allowed ONLY for an explicitly qualifying
+    // latest client question plus the owner's separate full-thread attestation.
+    // Newest body truncation/attachments always block. No auto-send.
     const latest=context.messages[context.messages.length-1];
     return latest?.direction==='inbound' &&
       latest?.relationshipHint==='unclassified' &&

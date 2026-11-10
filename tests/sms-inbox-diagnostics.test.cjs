@@ -16,7 +16,7 @@ assert.match(api,/allowedReviewMutation\(request\)/);
 assert.match(api,/process.env.VERCEL_ENV==='production'/);
 assert.match(api,/Object.keys\(body\)\.some\(key=>!\['threadId','lastMessageAt'\]\.includes\(key\)\)/);
 assert.match(api,/appsScriptRequest<InboxResponse>\('listBusinessInboxReview'/);
-assert.match(api,/appsScriptRequest<ThreadResponse>\('readBusinessInboxThread'/);
+assert.match(api,/appsScriptRequest<ThreadResponse>\(\s*'readBusinessInboxThread'/);
 assert.match(api,/verifyBusinessReplyRecipient'/);
 assert.match(api,/source==='verified_lvpt_gmail_reply_recipient'/);
 assert.match(api,/report=\{/);

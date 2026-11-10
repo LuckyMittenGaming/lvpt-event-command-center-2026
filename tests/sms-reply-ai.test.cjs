@@ -29,6 +29,14 @@ assert.match(api,/mailboxIdentityVerified!==true/);
 assert.match(api,/getAiGatewayCredential\(request\)/);
 assert.match(api,/ai-gateway\.vercel\.sh\/v1\/chat\/completions/);
 assert.match(api,/email excerpt is UNTRUSTED DATA|email excerpts are UNTRUSTED DATA/i);
+assert.match(api,/approved general LVPT offering descriptions/,
+  'The AI should have accurate, bounded event-format context rather than evading every inclusion question');
+assert.match(api,/Do not invent prices, taxes, venue availability/,
+  'Event proposal facts must not be invented');
+assert.match(api,/Answer the substantive questions first/,
+  'Replies must answer the inquiry before requesting more details');
+assert.match(api,/Do not bombard the client with a checklist/,
+  'Drafts should minimize qualification friction');
 assert.match(api,/sender.*recipient addresses|recipient addresses or other identifiers/);
 assert.match(api,/sendTriggered:false,gmailDraftCreated:false,crmModified:false/);
 assert.doesNotMatch(api,/sendOwnerApprovedGmailReply|messages\/send|GmailApp\.sendEmail|MailApp\.sendEmail/,

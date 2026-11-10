@@ -26,6 +26,8 @@ function doPost(e) {
     if (action === 'listGmailThreadEvidence') return lvptJson_(lvptReadOnlyGmailEvidence_(String(payload.eventKey || '')));
     if (action === 'listBusinessInboxReview') return lvptJson_(lvptReadOnlyBusinessInboxReview_(Number(payload.page || 0)));
     if (action === 'readBusinessInboxThread') return lvptJson_(lvptReadOnlyBusinessInboxThread_(String(payload.threadId || ''), String(payload.expectedLastMessageAt || '')));
+    if (action === 'verifyBusinessReplyRecipient') return lvptJson_(lvptStep48VerifyReplyRecipient_(String(payload.threadId || ''), String(payload.expectedLastMessageAt || '')));
+    if (action === 'sendOwnerApprovedGmailReply') return lvptJson_(lvptStep48SendApprovedReply_(payload));
     if (action === 'readGmailDraftContext') return lvptJson_(lvptReadOnlyGmailDraftContext_(String(payload.eventKey || ''), String(payload.threadId || ''), String(payload.expectedLastMessageAt || '')));
     if (action === 'saveAllEvents') return lvptJson_(lvptSaveAllEvents_(payload));
     if (action === 'uploadDocument') return lvptJson_(lvptUploadDocument_(payload));
@@ -1023,4 +1025,146 @@ function lvptReadOnlyBusinessInboxThread_(threadId, expectedLastMessageAt) {
     messages:messages,
     advisory:'Selected thread only. Redacted excerpts, not attachments. No Gmail drafts, email sends, AI calls, or CRM writes.'
   };
+}
+
+
+// STEP 48 — Verified sender and owner-only gated send.
+// No automatic emails, schedules or batch sends. These functions are invoked
+// exclusively through the authenticated Vercel bridge after a recorded owner
+// approval. The write action is OFF until LVPT explicitly opts in by setting
+// LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND=true in Script Properties. Never
+// expose the shared secret or enable the write property for an untested release.
+function lvptStep48VerifyReplyRecipient_(threadId,expectedLastMessageAt) {
+  var mailbox='book@pokertraininglasvegas.com';
+  if(!/^[a-f0-9]{8,32}$/i.test(threadId))
+    return {ok:false,message:'Invalid Gmail thread ID'};
+  var expected=Date.parse(expectedLastMessageAt);
+  if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(expectedLastMessageAt)||
+    !isFinite(expected)||expected>Date.now()+86400000||
+    expected<Date.now()-32*86400000)
+    return {ok:false,message:'Recent verified last-message timestamp required'};
+  var profile=lvptGmailMetaGet_('https://gmail.googleapis.com/gmail/v1/users/me/profile');
+  if(String(profile.emailAddress||'').toLowerCase()!==mailbox)
+    return {ok:false,message:'Authenticated sender is not LVPT business Gmail'};
+  var prior=lvptReadOnlyBusinessInboxThread_(threadId,expectedLastMessageAt);
+  if(prior.ok!==true||prior.mailboxIdentityVerified!==true ||
+    prior.partial===true||prior.messages.length!==prior.totalMessages||
+    !prior.messages.length)
+    return {ok:false,message:'Conversation contains incomplete excerpts or unverified history'};
+  var priorLast=prior.messages[prior.messages.length-1];
+  if(priorLast.direction!=='inbound'||priorLast.relationshipHint!=='unclassified'||
+    priorLast.hasAttachments||priorLast.truncated||!priorLast.excerpt.trim())
+    return {ok:false,message:'Not a complete verified external client request'};
+  var thread=lvptGmailMetaGet_('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+
+    encodeURIComponent(threadId)+'?format=metadata&metadataHeaders=From'+
+    '&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Reply-To'+
+    '&metadataHeaders=Message-ID&metadataHeaders=References'+
+    '&metadataHeaders=Auto-Submitted&metadataHeaders=List-Unsubscribe'+
+    '&metadataHeaders=Precedence');
+  var all=thread.messages||[];
+  if(!Array.isArray(all)||!all.length)return {ok:false,message:'Conversation not found'};
+  var last=all[all.length-1];
+  if(new Date(Number(last.internalDate||0)).toISOString()!==
+    new Date(expected).toISOString())
+    return {ok:false,message:'Conversation changed since owner review'};
+  var from=lvptInboxEmail_(lvptInboxHeader_(last,'From'));
+  var replyTo=lvptInboxEmail_(lvptInboxHeader_(last,'Reply-To'));
+  var to=lvptInboxEmail_(lvptInboxHeader_(last,'To'));
+  if(to!==mailbox||!from||from===mailbox ||
+    (replyTo&&replyTo!==from)||lvptInboxAutomated_(last) ||
+    (last.labelIds||[]).indexOf('SENT')>=0 ||
+    lvptInboxRelationship_(from,to,false,false)!=='unclassified')
+    return {ok:false,message:'Recipient or source relationship cannot be verified'};
+  if(!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(from)||
+    from.length>254||/[,\r\n<>]/.test(from))
+    return {ok:false,message:'Single external sender address cannot be verified'};
+  var subject=lvptInboxHeader_(last,'Subject').replace(/\s+/g,' ').trim();
+  var msgId=lvptInboxHeader_(last,'Message-ID').trim();
+  var refs=lvptInboxHeader_(last,'References').trim();
+  if(!subject||subject.length>160||/[\r\n]/.test(subject)||
+    !/^<[^<>\r\n ]{3,180}>$/.test(msgId)||
+    (refs && /[\r\n]/.test(refs)))
+    return {ok:false,message:'Threading headers are missing or unsafe'};
+  return {
+    ok:true,source:'verified_lvpt_gmail_reply_recipient',
+    mailboxIdentityVerified:true,threadId:threadId,
+    lastMessageAt:new Date(expected).toISOString(),
+    recipient:from,subject:subject,lastGmailMessageId:String(last.id||''),
+    inReplyTo:msgId,references:refs,
+    // The ability to SEND is separately gated on both systems.
+    sendingEnabled:lvptProperties_().getProperty(
+      'LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND')==='true'
+  };
+}
+function lvptStep48SendApprovedReply_(payload) {
+  if(lvptProperties_().getProperty('LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND')!=='true')
+    return {ok:false,message:'Live Gmail sending has not been enabled by LVPT'};
+  var intent=String(payload.intentId||'').toLowerCase();
+  var threadId=String(payload.threadId||'');
+  var lastAt=String(payload.expectedLastMessageAt||'');
+  var recipient=String(payload.recipient||'').trim().toLowerCase();
+  var subject=String(payload.subject||'').trim();
+  var body=String(payload.body||'');
+  if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/.test(intent)||
+    !/^[a-f0-9]{8,32}$/i.test(threadId)||body.length<45||body.length>5000||
+    subject.length<5||subject.length>180||/[\r\n]/.test(subject)||
+    /[\r\n,<>]/.test(recipient))
+    return {ok:false,message:'Invalid owner-approved reply content'};
+  var verified=lvptStep48VerifyReplyRecipient_(threadId,lastAt);
+  if(verified.ok!==true)return verified;
+  if(verified.recipient!==recipient)
+    return {ok:false,message:'Recipient changed; sender verification must restart'};
+  function canonical(value) {
+    return String(value||'').replace(/^(?:(?:re|fw|fwd):\s*)+/ig,'')
+      .replace(/\s+/g,' ').trim().toLowerCase();
+  }
+  if(canonical(subject)!==canonical(verified.subject))
+    return {ok:false,message:'Edited subject no longer matches the verified Gmail thread'};
+  var referenceLine=(verified.references?
+    verified.references+' '+verified.inReplyTo:verified.inReplyTo).trim();
+  if(referenceLine.length>420)
+    return {ok:false,message:'Thread references exceed safe header length'};
+  var mailSubject='=?UTF-8?B?'+Utilities.base64Encode(
+    Utilities.newBlob('Re: '+canonicalSubject_(verified.subject)).getBytes())+'?=';
+  var bodyB64=Utilities.base64Encode(Utilities.newBlob(
+    body.replace(/\r?\n/g,'\r\n')).getBytes()).replace(/.{1,76}/g,'$&\r\n').trim();
+  var raw=[
+    'From: Las Vegas Poker Training <book@pokertraininglasvegas.com>',
+    'To: '+recipient,
+    'Subject: '+mailSubject,
+    'In-Reply-To: '+verified.inReplyTo,
+    'References: '+referenceLine,
+    'Message-ID: <lvpt-'+intent+'@pokertraininglasvegas.com>',
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    bodyB64
+  ].join('\r\n');
+  // One direct call only; never retry if Gmail's response is uncertain.
+  var response=UrlFetchApp.fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{
+      method:'post',contentType:'application/json',
+      headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},
+      payload:JSON.stringify({
+        threadId:threadId,
+        raw:Utilities.base64EncodeWebSafe(Utilities.newBlob(raw).getBytes())
+          .replace(/=+$/,'')
+      }),
+      muteHttpExceptions:true
+    });
+  var status=response.getResponseCode();
+  if(status<200||status>=300)
+    return {ok:false,message:'Gmail send result was not successful; inspect Sent before retrying'};
+  var sent=JSON.parse(response.getContentText()||'{}');
+  if(!/^[a-f0-9]{8,32}$/i.test(String(sent.id||'')) ||
+    String(sent.threadId||'')!==threadId)
+    return {ok:false,message:'Gmail response could not be confirmed. Inspect Sent; do not retry'};
+  return {ok:true,source:'lvpt_owner_approved_gmail_send',
+    gmailMessageId:String(sent.id),threadId:threadId,
+    mailboxIdentityVerified:true};
+}
+function canonicalSubject_(subject) {
+  return String(subject||'').replace(/^(?:(?:re|fw|fwd):\s*)+/ig,'')
+    .replace(/\s+/g,' ').trim();
 }

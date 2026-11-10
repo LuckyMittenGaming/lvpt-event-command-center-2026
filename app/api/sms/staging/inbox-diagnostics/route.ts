@@ -3,6 +3,7 @@ import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { hasReviewSession, allowedReviewMutation } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
 import { selectDiagnosticThread } from '../../../../../lib/lvpt-diagnostic-selection.mjs';
+import { qualifyDiagnosticPreview } from '../../../../../lib/lvpt-diagnostic-message.mjs';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -17,7 +18,8 @@ type InboxResponse={
 type ThreadResponse={
   ok?:boolean;connected?:boolean;source?:string;
   mailboxIdentityVerified?:boolean;threadId?:string;lastMessageAt?:string;
-  messages?:unknown[];
+  messages?:Array<{at?:unknown;direction?:unknown;relationshipHint?:unknown;excerpt?:unknown;truncated?:unknown;hasAttachments?:unknown}>;
+  totalMessages?:unknown;partial?:unknown;
 };
 type RecipientResponse={
   ok?:boolean;source?:string;mailboxIdentityVerified?:boolean;
@@ -25,6 +27,7 @@ type RecipientResponse={
 };
 type PreviewStatus='not_selected'|'passed'|'blocked'|'failed';
 type RecipientStatus='not_selected'|'verified'|'blocked'|'failed';
+type QualificationStatus='not_checked'|'no_reply_suggested'|'possible_request'|'needs_review'|'vendor_only';
 
 function recentTime(value:unknown):string {
   const s=String(value||'');
@@ -64,6 +67,8 @@ export async function POST(request:Request) {
       threadId?'manual':'none';
     let threadPreviewStatus:PreviewStatus=threadId?'failed':'not_selected';
     let recipientStatus:RecipientStatus=threadId?'failed':'not_selected';
+    let qualificationOutcome:QualificationStatus='not_checked';
+    let qualificationReasonCode='not_checked';
     try {
       const inbox=await appsScriptRequest<InboxResponse>('listBusinessInboxReview',{page:0});
       if(inbox.ok===true&&inbox.connected===true&&
@@ -105,6 +110,15 @@ export async function POST(request:Request) {
            Array.isArray(preview.messages)&&preview.messages.length>0&&
            preview.messages.length<=10){
           threadPreviewStatus='passed';
+          // Classify only the selected, read-only, redacted latest excerpt.
+          // Acknowledgements and truncated/ambiguous messages must not
+          // trigger recipient verification or an implied request to reply.
+          const classification=qualifyDiagnosticPreview(
+            preview,selectionMode==='automatic_vendor'?'vendor':'unclassified'
+          );
+          qualificationOutcome=classification.outcome as QualificationStatus;
+          qualificationReasonCode=classification.reasonCode;
+          if(qualificationOutcome==='possible_request') {
           try {
             const recipient=await appsScriptRequest<RecipientResponse>(
               'verifyBusinessReplyRecipient',{
@@ -119,15 +133,23 @@ export async function POST(request:Request) {
               recipient.lastMessageAt===selectedLastMessageAt?
               'verified':'blocked';
           }catch(error) {
-            // A vendor, self-addressed form, old reply, truncated message or
-            // courtesy acknowledgement may be correctly rejected by GAS.
+            // An expected rejection cannot be confused with a verified
+            // address. Don't store the source error or recipient.
             recipientStatus=/Unknown action/i.test(String(error))?'failed':'blocked';
+          }
+          }else{
+            // No reply recommended; there is no reason to look up the address.
+            recipientStatus='not_selected';
           }
         }else{
           threadPreviewStatus='blocked';recipientStatus='blocked';
+          qualificationOutcome='needs_review';
+          qualificationReasonCode='chronology_unverified';
         }
       }catch {
         threadPreviewStatus='failed';recipientStatus='blocked';
+        qualificationOutcome='needs_review';
+        qualificationReasonCode='chronology_unverified';
       }
     }
     const runId=randomUUID();
@@ -138,6 +160,8 @@ export async function POST(request:Request) {
       inbox_status:inboxStatus,page_zero_threads:pageZeroThreads,
       thread_preview_status:threadPreviewStatus,recipient_status:recipientStatus,
       selection_mode:selectionMode,
+      qualification_outcome:qualificationOutcome,
+      qualification_reason_code:qualificationReasonCode,
       vercel_send_switch_enabled:
         process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND==='true'
     };
@@ -152,7 +176,7 @@ export async function POST(request:Request) {
     return jsonNoStore({
       ok:true,source:'lvpt_read_only_staging_diagnostic',
       runId,inboxStatus,pageZeroThreads,threadPreviewStatus,recipientStatus,
-      selectionMode,
+      selectionMode,qualificationOutcome,qualificationReasonCode,
       sendingInvoked:false,gmailWrites:false,clientDetailsStored:false
     },200);
   }catch {

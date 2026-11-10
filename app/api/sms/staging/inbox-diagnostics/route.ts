@@ -207,10 +207,14 @@ export async function POST(request:Request) {
           outcome=classification.outcome as QualificationStatus;
           reason=classification.reasonCode;
           if(outcome==='no_reply_suggested')noReplySuggestedCount++;
-          if(selected.selectionMode==='negative_outbound') {
+          if(selected.selectionMode==='negative_outbound'||
+             (selected.selectionMode==='manual'&&
+              outcome==='no_reply_suggested'&&reason==='lvpt_replied_last')) {
             // A real outbound message must never be sendable as a new
-            // incoming inquiry. Check the newly deployed GAS action via
-            // the same authenticated read-only bridge, with no Gmail writes.
+            // incoming inquiry. This also enables an owner to manually
+            // verify an already-answered thread while genuine unanswered
+            // inquiries still exist. No Gmail write action is invoked.
+            negativeControlStatus='failed';
             if(outcome==='no_reply_suggested'&&reason==='lvpt_replied_last') {
               try {
                 const v=await appsScriptRequest<RecipientResponse>(

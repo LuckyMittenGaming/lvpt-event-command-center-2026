@@ -65,6 +65,9 @@
     const vendor=relationship==='vendor'||verifiedRole==='vendor';
     const body=norm(latest?.excerpt);
     const hasQuestion=request.test(body);
+    // "We need to share this with leadership" is a timing hold, not a
+    // request for LVPT. A clear question/direct imperative may override it.
+    const directAsk=/\?|\b(?:can|could|would|do|does|is|are|have|has)\s+(?:you|we|your team|the team)\b|\bplease\s+(?:send|confirm|provide|share|advise|clarify|update|quote|schedule|call)\b/i.test(body);
     const isDecline=decline.test(body);
     const isHolding=holding.test(body);
     const isCourtesy=courtesy.test(body);
@@ -93,11 +96,11 @@
         'Conversation excerpts are incomplete, truncated, or include an attachment.',
         [hasQuestion?'Possible request in partial context':'Limited source context'],
         'Read the original Gmail thread and any attachments. Do not infer that a reply is required from partial excerpts.');
-    if(isDecline && !hasQuestion)
+    if(isDecline && !directAsk)
       return result('client_declined','The client appears to have declined or stopped the opportunity.',
         ['Decline language found'],
         'Record or verify the decline in the CRM. Do not create a sales follow-up.');
-    if(isHolding && !hasQuestion)
+    if(isHolding && !directAsk)
       return result('hold','The client indicates a review, absence, or intention to respond later.',
         ['Client-controlled timing'],
         'Respect their timing; consult the full thread before considering a later follow-up.');

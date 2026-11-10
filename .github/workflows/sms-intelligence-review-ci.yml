@@ -16,6 +16,7 @@ on:
       - 'tests/sms-reply-send.test.cjs'
       - 'tests/sms-reply-send-ui.test.cjs'
       - 'tests/sms-reply-ai.test.cjs'
+      - 'tests/sms-reply-send-runtime.test.cjs'
       - 'app/api/sms/staging/reply-personalized-draft/route.ts'
       - 'tests/sms-message-preview.test.cjs'
       - 'tests/sms-inbox-diagnostics.test.cjs'

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { hasReviewSession, allowedReviewMutation } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
-import { selectDiagnosticThread } from '../../../../../lib/lvpt-diagnostic-selection.mjs';
+import { selectDiagnosticThreads } from '../../../../../lib/lvpt-diagnostic-selection.mjs';
 import { qualifyDiagnosticPreview } from '../../../../../lib/lvpt-diagnostic-message.mjs';
 
 export const runtime='nodejs';
@@ -115,95 +115,107 @@ export async function POST(request:Request) {
 
     let inboxStatus:'passed'|'failed'='failed';
     let pageZeroThreads=0;
-    let selectedThreadId=threadId;
-    let selectedLastMessageAt=lastMessageAt;
+    const candidates:Array<{threadId:string;lastMessageAt:string;
+      selectionMode:'manual'|'automatic_client'|'automatic_vendor'}>=
+      threadId?[{threadId,lastMessageAt,selectionMode:'manual'}]:[];
     let selectionMode:'none'|'manual'|'automatic_client'|'automatic_vendor'=
       threadId?'manual':'none';
     let threadPreviewStatus:PreviewStatus=threadId?'failed':'not_selected';
     let recipientStatus:RecipientStatus=threadId?'failed':'not_selected';
     let qualificationOutcome:QualificationStatus='not_checked';
     let qualificationReasonCode='not_checked';
+    let sampledThreads=0,possibleRequests=0,noReplySuggestedCount=0;
+    let blockedRecipients=0;
+    let bestRank=-1;
     try {
       const inbox=await appsScriptRequest<InboxResponse>('listBusinessInboxReview',{page:0});
       if(inbox.ok===true&&inbox.connected===true&&
          inbox.source==='read_only_business_inbox_metadata'&&
          inbox.mailboxIdentityVerified===true&&inbox.page===0&&
          inbox.pageSize===20&&Array.isArray(inbox.threads)&&
-         inbox.threads.length<=20){
+         inbox.threads.length<=20) {
         inboxStatus='passed';
         pageZeroThreads=inbox.threads.length;
-        // When the owner did not expand a thread, select a single eligible
-        // metadata candidate rather than requiring another manual action.
-        // All subsequent actions stay READ ONLY. Never persist its identity.
-        if(!selectedThreadId) {
-          const picked=selectDiagnosticThread(inbox.threads);
-          if(picked) {
-            selectedThreadId=picked.threadId;
-            selectedLastMessageAt=picked.lastMessageAt;
-            if(picked.selectionMode==='automatic_client'||
-               picked.selectionMode==='automatic_vendor')
-              selectionMode=picked.selectionMode;
-            threadPreviewStatus='failed';
-            recipientStatus='failed';
-          }
+        // An owner-selected thread is reviewed alone. Otherwise inspect
+        // at most three distinct recent inbound messages, never the full
+        // mailbox. No selected identifiers are persisted in the audit.
+        if(!threadId) {
+          candidates.push(...selectDiagnosticThreads(inbox.threads,Date.now(),3));
         }
       }
     }catch {
-      // Only a fixed status code is recorded; no raw source data or errors.
+      // Only fixed status codes are persisted, not raw errors or mail.
     }
-    if(selectedThreadId) {
+    for(const selected of candidates) {
+      sampledThreads++;
+      let previewStatus:PreviewStatus='failed';
+      let recipientCheck:RecipientStatus='not_selected';
+      let outcome:QualificationStatus='needs_review';
+      let reason='chronology_unverified';
       try {
-        const preview=await appsScriptRequest<ThreadResponse>('readBusinessInboxThread',{
-          threadId:selectedThreadId,expectedLastMessageAt:selectedLastMessageAt
-        });
+        const preview=await appsScriptRequest<ThreadResponse>(
+          'readBusinessInboxThread',{
+            threadId:selected.threadId,
+            expectedLastMessageAt:selected.lastMessageAt
+          }
+        );
         if(preview.ok===true&&preview.connected===true&&
            preview.source==='read_only_business_thread_preview'&&
            preview.mailboxIdentityVerified===true&&
-           preview.threadId===selectedThreadId&&
-           preview.lastMessageAt===selectedLastMessageAt&&
-           Array.isArray(preview.messages)&&preview.messages.length>0&&
-           preview.messages.length<=10){
-          threadPreviewStatus='passed';
-          // Classify only the selected, read-only, redacted latest excerpt.
-          // Acknowledgements and truncated/ambiguous messages must not
-          // trigger recipient verification or an implied request to reply.
+           preview.threadId===selected.threadId&&
+           preview.lastMessageAt===selected.lastMessageAt&&
+           Array.isArray(preview.messages)&&
+           preview.messages.length>0&&preview.messages.length<=10) {
+          previewStatus='passed';
           const classification=qualifyDiagnosticPreview(
-            preview,selectionMode==='automatic_vendor'?'vendor':'unclassified'
+            preview,selected.selectionMode==='automatic_vendor'?
+              'vendor':'unclassified'
           );
-          qualificationOutcome=classification.outcome as QualificationStatus;
-          qualificationReasonCode=classification.reasonCode;
-          if(qualificationOutcome==='possible_request') {
-          try {
-            const recipient=await appsScriptRequest<RecipientResponse>(
-              'verifyBusinessReplyRecipient',{
-                threadId:selectedThreadId,
-                expectedLastMessageAt:selectedLastMessageAt
-              }
-            );
-            recipientStatus=recipient.ok===true&&
-              recipient.source==='verified_lvpt_gmail_reply_recipient'&&
-              recipient.mailboxIdentityVerified===true&&
-              recipient.threadId===selectedThreadId&&
-              recipient.lastMessageAt===selectedLastMessageAt?
-              'verified':'blocked';
-          }catch(error) {
-            // An expected rejection cannot be confused with a verified
-            // address. Don't store the source error or recipient.
-            recipientStatus=/Unknown action/i.test(String(error))?'failed':'blocked';
+          outcome=classification.outcome as QualificationStatus;
+          reason=classification.reasonCode;
+          if(outcome==='no_reply_suggested')noReplySuggestedCount++;
+          if(outcome==='possible_request') {
+            possibleRequests++;
+            // Only a possible, explicit client request merits read-only
+            // recipient verification. This is never permission to send.
+            try {
+              const verified=await appsScriptRequest<RecipientResponse>(
+                'verifyBusinessReplyRecipient',{
+                  threadId:selected.threadId,
+                  expectedLastMessageAt:selected.lastMessageAt
+                }
+              );
+              recipientCheck=verified.ok===true&&
+                verified.source==='verified_lvpt_gmail_reply_recipient'&&
+                verified.mailboxIdentityVerified===true&&
+                verified.threadId===selected.threadId&&
+                verified.lastMessageAt===selected.lastMessageAt?
+                'verified':'blocked';
+            }catch {
+              recipientCheck='blocked';
+            }
+            if(recipientCheck==='blocked')blockedRecipients++;
           }
-          }else{
-            // No reply recommended; there is no reason to look up the address.
-            recipientStatus='not_selected';
-          }
-        }else{
-          threadPreviewStatus='blocked';recipientStatus='blocked';
-          qualificationOutcome='needs_review';
-          qualificationReasonCode='chronology_unverified';
+        }else {
+          previewStatus='blocked';
         }
       }catch {
-        threadPreviewStatus='failed';recipientStatus='blocked';
-        qualificationOutcome='needs_review';
-        qualificationReasonCode='chronology_unverified';
+        // Failure stays non-actionable; never retry or escalate to sending.
+        previewStatus='failed';
+      }
+      // The summary shows the most actionable classification and its
+      // corresponding preview/recipient status, not arbitrary first mail.
+      const rank=outcome==='possible_request'?
+        recipientCheck==='verified'?5:4:
+        outcome==='needs_review'?3:
+        outcome==='no_reply_suggested'?2:
+        outcome==='vendor_only'?1:0;
+      if(rank>bestRank) {
+        bestRank=rank;selectionMode=selected.selectionMode;
+        threadPreviewStatus=previewStatus;
+        recipientStatus=recipientCheck;
+        qualificationOutcome=outcome;
+        qualificationReasonCode=reason;
       }
     }
     const runId=randomUUID();
@@ -216,6 +228,10 @@ export async function POST(request:Request) {
       selection_mode:selectionMode,
       qualification_outcome:qualificationOutcome,
       qualification_reason_code:qualificationReasonCode,
+      sampled_threads:sampledThreads,
+      possible_requests:possibleRequests,
+      no_reply_suggested_count:noReplySuggestedCount,
+      blocked_recipients:blockedRecipients,
       vercel_send_switch_enabled:
         process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND==='true'
     };
@@ -231,6 +247,7 @@ export async function POST(request:Request) {
       ok:true,source:'lvpt_read_only_staging_diagnostic',
       runId,inboxStatus,pageZeroThreads,threadPreviewStatus,recipientStatus,
       selectionMode,qualificationOutcome,qualificationReasonCode,
+      sampledThreads,possibleRequests,noReplySuggestedCount,blockedRecipients,
       sendingInvoked:false,gmailWrites:false,clientDetailsStored:false
     },200);
   }catch {

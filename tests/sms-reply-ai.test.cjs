@@ -20,7 +20,7 @@ assert.match(api,/preparedApproval\(threadId,lastMessageAt\)/);
 assert.match(api,/rows\[0\]\.decision==='draft_prepared'/);
 assert.match(api,/rows\[0\]\.owner_reviewed_full_thread===true/);
 assert.match(api,/appsScriptRequest<Context>\('readBusinessInboxThread'/);
-assert.match(api,/last\.direction!=='inbound'/);
+assert.match(api,/latest.direction!=='inbound'/);
 assert.match(api,/latest\.hasAttachments===true/);
 assert.match(api,/qualifyDiagnosticPreview\(context\)/);
 assert.match(api,/no_explicit_unanswered_client_question/);

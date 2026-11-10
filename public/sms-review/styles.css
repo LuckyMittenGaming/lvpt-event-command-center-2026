@@ -97,3 +97,12 @@
 .reply-qualification{border:1px solid var(--border,#506078);border-radius:8px;padding:12px;margin:8px 0 16px;background:rgba(18,32,54,.65)}
 .reply-qualification-title{font-weight:700;margin:0 0 7px}
 .reply-qualification-next{margin:10px 0 6px;overflow-wrap:anywhere}
+
+/* Step 47: owner-only, one-email-at-a-time manual-copy approval. */
+.reply-review-workflow{border:1px solid var(--border,#506078);border-radius:10px;padding:14px;margin:14px 0;background:rgba(11,25,46,.8)}
+.reply-review-workflow>strong{display:block;margin-bottom:10px}
+.reply-review-workflow input[type="text"],.reply-review-workflow textarea{display:block;width:100%;box-sizing:border-box;margin:8px 0;line-height:1.5}
+.reply-review-workflow textarea{white-space:pre-wrap;min-height:180px;resize:vertical}
+.reply-verification{display:flex;align-items:flex-start;gap:8px;margin:12px 0;line-height:1.45}
+.reply-verification input{margin-top:4px;flex:none}
+.reply-review-workflow button{max-width:100%;white-space:normal}

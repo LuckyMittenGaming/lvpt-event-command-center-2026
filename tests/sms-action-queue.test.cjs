@@ -246,7 +246,7 @@ assert.match(scan,/function lvptInboxRelationship_\(sender,recipient,isFormLead,
 assert.match(scan,/wsopamatt@gmail\.com/);
 assert.match(scan,/elevatedbarservices/);
 assert.match(scan,/relationshipHint:relationship/);
-assert.match(scan,/lvpt_business_inbox_review_2026_v2/);
+assert.match(scan,/lvpt_business_inbox_review_2026_v3_p/);
 assert(!/GmailApp\.sendEmail|MailApp\.sendEmail|SpreadsheetApp|DriveApp|\.send\(/.test(scan),
   'Read-only inbox scanner must not send messages or write business records');
 const inboxRoute=fs.readFileSync(require('node:path').join(__dirname,

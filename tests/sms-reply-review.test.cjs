@@ -76,8 +76,20 @@ const read=(node,predicate)=>{
   return null;
 };
 const button=(node,label)=>read(node,x=>x.tag==='button'&&x.textContent===label);
-const posted=[];
+const posted=[],aiRequests=[];
 const fetchMock=async (url,options={})=>{
+  if(url==='/api/sms/staging/reply-personalized-draft'&&options.body){
+    aiRequests.push(options.body);
+    return {
+      ok:true,source:'owner_requested_ai_reply_preview',
+      threadId:thread.threadId,lastMessageAt:at,
+      subject:'Re: Poker event availability',
+      body:'Thanks for reaching out about poker training! Could you confirm your preferred event date and approximate guest count? I can then put together the right options for your group.',
+      rationale:'Ask for the two missing facts before quoting.',
+      needsReview:['Exact event date','Guest count'],
+      sendTriggered:false,gmailDraftCreated:false
+    };
+  }
   if(options.body){
     const v=options.body;posted.push(v);
     return {ok:true,saved:1,audited:true,
@@ -131,6 +143,19 @@ async function sequence() {
   assert(button(root,'Approve for manual copy'));
   assert(button(root,'Approve for manual copy').disabled,
     'Placeholder cannot be approved');
+  assert(button(root,'Generate personalized AI reply'),
+    'An explicitly prepared conversation may request an optional AI suggestion');
+  button(root,'Generate personalized AI reply').trigger('click');
+  await settle();await settle();
+  assert.equal(aiRequests.length,1);
+  assert.deepEqual(Object.keys(aiRequests[0]).sort(),['lastMessageAt','threadId']);
+  assert.equal(posted.length,1,
+    'AI suggestions do not create an approval or send an email');
+  root=new Node('div');c.render(root,thread,context,q);
+  const aiEditor=read(root,node=>node.tag==='textarea');
+  assert.match(aiEditor.value,/preferred event date/);
+  assert(button(root,'Approve for manual copy').disabled===false,
+    'Human review is still mandatory; AI suggestion may be further edited');
   const editor=read(root,x=>x.tag==='textarea');
   assert(editor);
   editor.value=written;

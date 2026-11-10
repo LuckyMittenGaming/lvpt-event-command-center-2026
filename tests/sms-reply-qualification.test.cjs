@@ -71,10 +71,10 @@ expectOutcome('website notification','manual_review',{
 expectOutcome('truncated request','manual_review',{
   message:{truncated:true}
 });
-expectOutcome('partial thread','manual_review',{
+expectOutcome('partial thread','reply_candidate',{
   context:{partial:true}
 });
-expectOutcome('missing prior history','manual_review',{
+expectOutcome('missing prior history','reply_candidate',{
   context:{totalMessages:4}
 });
 expectOutcome('attachment not inspected','manual_review',{

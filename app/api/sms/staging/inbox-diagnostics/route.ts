@@ -37,6 +37,60 @@ function recentTime(value:unknown):string {
     return '';
   return new Date(n).toISOString();
 }
+// Compact owner-only history. Only fixed status codes/counters are returned;
+// never original thread IDs, recipients, subjects, or message text.
+export async function GET(request:Request) {
+  if(!ready())return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);
+  if(!hasReviewSession(request))return jsonNoStore({ok:false,reason:'unauthorized'},401);
+  if(process.env.VERCEL_ENV==='production')
+    return jsonNoStore({ok:false,reason:'staging_only'},403);
+  try {
+    const p=new URLSearchParams({
+      select:'run_id,created_at,inbox_status,page_zero_threads,thread_preview_status,recipient_status,selection_mode,qualification_outcome,qualification_reason_code,vercel_send_switch_enabled',
+      tenant_id:'eq.lvpt-owner-pilot',
+      order:'created_at.desc',limit:'5'
+    });
+    const r=await fetch(supabaseEndpoint('lvpt_staging_diagnostic_runs?'+p),{
+      headers:supabaseHeaders(),cache:'no-store',signal:AbortSignal.timeout(12000)
+    });
+    if(!r.ok)throw Error('diagnostic_history_unavailable');
+    const raw=await r.json() as Array<Record<string,unknown>>;
+    if(!Array.isArray(raw)||raw.length>5)throw Error('diagnostic_history_invalid');
+    const safe=new Set([
+      'not_checked','no_reply_suggested','possible_request',
+      'needs_review','vendor_only'
+    ]);
+    const entries=raw.map(item=>({
+      runId:typeof item.run_id==='string'&&
+        /^[0-9a-f-]{36}$/i.test(item.run_id)?item.run_id:null,
+      at:typeof item.created_at==='string'&&
+        Number.isFinite(Date.parse(item.created_at))?
+        new Date(item.created_at).toISOString():null,
+      inboxStatus:item.inbox_status==='passed'?'passed':'failed',
+      pageZeroThreads:Number.isInteger(item.page_zero_threads)?
+        Math.min(20,Math.max(0,Number(item.page_zero_threads))):0,
+      threadPreviewStatus:['not_selected','passed','blocked','failed'].includes(
+        String(item.thread_preview_status))?item.thread_preview_status:'failed',
+      recipientStatus:['not_selected','verified','blocked','failed'].includes(
+        String(item.recipient_status))?item.recipient_status:'failed',
+      selectionMode:['none','manual','automatic_client','automatic_vendor'].includes(
+        String(item.selection_mode))?item.selection_mode:'none',
+      qualificationOutcome:safe.has(String(item.qualification_outcome))?
+        item.qualification_outcome:'not_checked',
+      qualificationReasonCode:typeof item.qualification_reason_code==='string'&&
+        /^[a-z_]{3,40}$/.test(item.qualification_reason_code)?
+        item.qualification_reason_code:'not_checked',
+      sendSwitchEnabled:item.vercel_send_switch_enabled===true
+    }));
+    return jsonNoStore({
+      ok:true,source:'lvpt_no_client_data_diagnostic_history',
+      entries,clientDataIncluded:false,noGmailWrites:true
+    },200);
+  }catch {
+    return jsonNoStore({ok:false,reason:'diagnostic_history_unavailable'},503);
+  }
+}
+
 export async function POST(request:Request) {
   if(!allowedReviewMutation(request))return jsonNoStore({ok:false,reason:'same_origin_required'},403);
   if(!ready()||!syncConfigured())return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);

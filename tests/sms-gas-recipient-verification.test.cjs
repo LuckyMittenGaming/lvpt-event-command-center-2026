@@ -25,10 +25,12 @@ const make=(from,headers={},labels=['INBOX'])=>({
   }
 });
 let messages=[make(external)],senderProfile=mailbox,reads=[];
+let sentMatches=[],sentDetails={},sentPaging=false;
 const context={
   Date,Buffer,console,
   PropertiesService:{getScriptProperties:()=>({getProperty:()=>''})},
   Utilities:{
+    formatDate:date=>new Date(date).toISOString().slice(0,10).replace(/-/g,'/'),
     base64DecodeWebSafe:v=>Buffer.from(v,'base64url'),
     newBlob:v=>({getDataAsString:()=>Buffer.from(v).toString('utf8')})
   }
@@ -39,6 +41,13 @@ context.lvptGmailMetaGet_=url=>{
   reads.push(url);
   if(url.endsWith('/profile'))return {emailAddress:senderProfile};
   if(url.includes('/threads/'+threadId))return {id:threadId,messages};
+  if(url.includes('/messages?maxResults=25&q='))return {
+    messages:sentMatches,...(sentPaging?{nextPageToken:'more'}:{})
+  };
+  if(url.includes('/messages/')) {
+    const id=url.split('/messages/')[1].split('?')[0];
+    if(sentDetails[id])return sentDetails[id];
+  }
   throw Error('Unexpected Gmail API lookup');
 };
 let result=context.lvptStep48VerifyReplyRecipient_(threadId,at);
@@ -50,7 +59,7 @@ assert.equal(result.subject,'Poker training event inquiry');
 assert.equal(result.inReplyTo,'<client-inquiry-1@example.com>');
 assert.equal(result.sendingEnabled,false,'The GAS sender switch is OFF by default');
 assert(reads.every(url=>!url.includes('/messages/send')),'No Gmail writes');
-assert.equal(reads.length,4,'Only mailbox and selected-thread lookups allowed');
+assert.equal(reads.length,5,'Only mailbox, selected thread and bounded Sent search allowed');
 assert.equal(context.lvptStep48SendApprovedReply_({intentId:'00000000-0000-4000-8000-000000000000'}).ok,false,
   'Even a simulated send cannot proceed with GAS switch disabled');
 
@@ -79,6 +88,35 @@ senderProfile='wsopamatt@gmail.com';
 result=context.lvptStep48VerifyReplyRecipient_(threadId,at);
 assert.equal(result.ok,false,'Personal Gmail must never impersonate LVPT');
 senderProfile=mailbox;
+
+const sentId='1111222233334444';
+function sentMail(to,stamp) {
+  return {
+    id:sentId,internalDate:String(stamp),labelIds:['SENT'],
+    payload:{headers:[
+      {name:'From',value:mailbox},{name:'To',value:to}
+    ]}
+  };
+}
+sentMatches=[{id:sentId,threadId:'9999888877776666'}];
+sentDetails[sentId]=sentMail(external,Date.parse(at)+5000);
+result=context.lvptStep48VerifyReplyRecipient_(threadId,at);
+assert.equal(result.ok,false,
+  'A newer LVPT email to the same contact in ANOTHER thread must block duplicate follow-up');
+assert.match(result.message,/newer email/i);
+sentDetails[sentId]=sentMail(external,Date.parse(at)-5000);
+result=context.lvptStep48VerifyReplyRecipient_(threadId,at);
+assert.equal(result.ok,true,
+  'An older LVPT email cannot block replying to a genuinely new client inquiry');
+sentDetails[sentId]=sentMail('other-client@example.com',Date.parse(at)+5000);
+result=context.lvptStep48VerifyReplyRecipient_(threadId,at);
+assert.equal(result.ok,true,
+  'Matching a different recipient must not trigger false duplicate prevention');
+sentPaging=true;
+result=context.lvptStep48VerifyReplyRecipient_(threadId,at);
+assert.equal(result.ok,false,
+  'An incomplete multi-page Sent search must fail closed');
+sentPaging=false;sentMatches=[];sentDetails={};
 
 messages=Array.from({length:32},(_,i)=>({
   ...make(external),

@@ -111,3 +111,10 @@
 .reply-thread-history{border-top:1px solid var(--border,#506078);margin-top:15px;padding-top:10px}
 .reply-thread-history summary{cursor:pointer;font-weight:600;padding:7px 0}
 .reply-thread-history .gmail-evidence-card{margin-top:9px;opacity:.94}
+
+/* Readable message previews and no-screenshot staging diagnostics */
+.reply-message-extras{margin:10px 0 0;padding:8px 10px;border-top:1px solid var(--border,#506078)}
+.reply-message-extras summary{cursor:pointer;font-size:.9em;font-weight:600}
+.reply-message-extras .gmail-message-excerpt{margin-top:8px;opacity:.86}
+.inbox-diagnostics-controls{padding:12px 0 16px}
+.inbox-diagnostics-controls .source-status{margin:8px 0 0;overflow-wrap:anywhere}

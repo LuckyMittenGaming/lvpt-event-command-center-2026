@@ -268,7 +268,7 @@ assert.match(inboxRoute,/filteredSystemCount\+\+/);
 assert.match(inboxRoute,/excludedAutomatedCount:count\(data.excludedAutomatedCount,28\)\+filteredSystemCount/);
 
 assert.match(app,/loadBusinessInboxReview\(\)/);
-assert.match(app,/Review latest incoming message|Inbox-wide review only/);
+assert.match(app,/Review latest incoming message|Open this thread in Recent business Gmail review/);
 const reviewEndpoint=fs.readFileSync(require('node:path').join(__dirname,
   '../app/api/sms/staging/action-decisions/route.ts'),'utf8');
 assert.match(reviewEndpoint,/gmail\|payment\|payout\|inbox/);

@@ -265,6 +265,9 @@
         if(read) {
           wrap.append(makeText('p','action-draft-meta',
             'Gmail verified sender: '+read.from+' · Recipient: '+read.to));
+          if(read.subject)
+            wrap.append(makeText('p','action-draft-meta',
+              'Verified Gmail thread subject: '+read.subject));
           wrap.append(makeText('p','hint',
             'Check recipient and content in the original Gmail conversation. No CC or BCC is added.'));
         }

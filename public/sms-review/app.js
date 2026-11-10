@@ -799,6 +799,7 @@
           ' · '+(entry.possibleRequests||0)+' potential requests'+
           ' · '+(entry.noReplySuggestedCount||0)+' no-reply suggestions'+
           ' · Recipient '+entry.recipientStatus+
+          ' · Negative-control '+(entry.negativeControlStatus||'not_checked')+
           ' · '+(entry.sendSwitchEnabled?'Send switch ON':'Send switch OFF')));
       }
     }catch {
@@ -831,6 +832,8 @@
         'Auto-selected incoming correspondence (read-only)':
         d.selectionMode==='automatic_vendor'?
         'Auto-selected venue/vendor correspondence (read-only)':
+        d.selectionMode==='negative_outbound'?
+        'Already-answered conversation chosen as a negative-control safety test':
         'No eligible incoming conversation found';
       const qualification=d.qualificationOutcome==='no_reply_suggested'?
         'Latest message appears to be an acknowledgement, hold, or closing; no sales reply recommended':
@@ -855,7 +858,9 @@
         ' potential requests, '+(d.noReplySuggestedCount||0)+
         ' no-reply suggestions. Priority result: '+qualification+
         ' ('+diagnosticReasonLabel(d.qualificationReasonCode)+'). '+
-        recipient+'. No emails sent; no client content stored. Report ID: '+d.runId;
+        recipient+'. Negative-control safety test: '+
+        (d.negativeControlStatus||'not_checked')+
+        '. No emails sent; no client content stored. Report ID: '+d.runId;
       void loadInboxDiagnosticHistory();
     }catch {
       status.textContent='Diagnostic unavailable or not saved. No client emails were sent. Use the normal inbox controls and retry later.';

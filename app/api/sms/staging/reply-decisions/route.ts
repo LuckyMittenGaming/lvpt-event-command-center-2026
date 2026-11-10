@@ -19,12 +19,12 @@ type Decision='draft_prepared'|'approved_for_manual_copy'|'denied';
 type Stored={
   request_id:string;tenant_id:string;thread_id:string;
   last_message_at:string;decision:Decision;draft_digest:string|null;
-  recorded_at:string
+  recorded_at:string;owner_reviewed_full_thread:boolean
 };
 type Context={
   ok?:boolean;connected?:boolean;source?:unknown;
   mailboxIdentityVerified?:boolean;threadId?:unknown;
-  lastMessageAt?:unknown;partial?:boolean;
+  lastMessageAt?:unknown;partial?:boolean;totalMessages?:unknown;
   messages?:Array<{
     at?:unknown;direction?:unknown;relationshipHint?:unknown;
     excerpt?:unknown;truncated?:boolean;hasAttachments?:boolean
@@ -42,7 +42,7 @@ function evidenceFingerprint(id:string,at:string) {
 }
 function queryFor(threadId:string) {
   const p=new URLSearchParams({
-    select:'request_id,thread_id,last_message_at,decision,draft_digest,recorded_at',
+    select:'request_id,thread_id,last_message_at,decision,draft_digest,recorded_at,owner_reviewed_full_thread',
     tenant_id:'eq.'+TENANT,thread_id:'eq.'+threadId,
     order:'recorded_at.desc,request_id.desc',limit:'1'
   });
@@ -71,6 +71,7 @@ export async function GET(request:Request) {
       lastMessageAt:row?.last_message_at||null,
       // Digest is only for detecting changed local draft text; no body stored.
       draftDigest:row?.draft_digest||null,
+      ownerReviewedOriginal:row?.owner_reviewed_full_thread===true,
       recordedAt:row?.recorded_at||null,
       noGmailWrites:true,noAutomaticSend:true
     },200);
@@ -98,10 +99,12 @@ export async function POST(request:Request) {
     const decision=String(data.decision||'');
     const digest=String(data.draftDigest||'');
     const requestId=String(data.requestId||'').toLowerCase();
+    const ownerReviewedOriginal=data.ownerReviewedOriginal===true;
     if(!THREAD.test(threadId)||!lastMessageAt||
        !['draft_prepared','approved_for_manual_copy','denied'].includes(decision)||
        !UUID.test(requestId)||
-       (decision==='approved_for_manual_copy'?!DIGEST.test(digest):digest!==''))
+       (decision==='approved_for_manual_copy'?!DIGEST.test(digest):digest!=='')||
+       (decision!=='denied'&&!ownerReviewedOriginal))
       return jsonNoStore({ok:false,reason:'invalid_reply_review'},400);
 
     // Re-read exactly the current Gmail conversation. The browser's
@@ -118,18 +121,23 @@ export async function POST(request:Request) {
        timestamp(last.at)!==lastMessageAt||
        last.direction!=='inbound'||last.relationshipHint!=='unclassified'||
        typeof last.excerpt!=='string'||!last.excerpt.trim()||
-       source.partial===true||last.truncated===true||last.hasAttachments===true)
+       (source.partial===true&&!ownerReviewedOriginal)||
+       !Number.isInteger(source.totalMessages)||
+       Number(source.totalMessages)>150||
+       last.truncated===true||last.hasAttachments===true)
       return jsonNoStore({ok:false,reason:'reply_source_stale_incomplete_or_not_client'},409);
     if(decision==='approved_for_manual_copy'){
       const previous=await latest(threadId);
       if(!previous||previous.decision!=='draft_prepared'||
+         previous.owner_reviewed_full_thread!==true||
          timestamp(previous.last_message_at)!==lastMessageAt)
         return jsonNoStore({ok:false,reason:'prepare_draft_before_approval'},409);
     }
     const insert={
       request_id:requestId,tenant_id:TENANT,
       thread_id:threadId,last_message_at:lastMessageAt,
-      decision,draft_digest:decision==='approved_for_manual_copy'?digest:null
+      decision,draft_digest:decision==='approved_for_manual_copy'?digest:null,
+      owner_reviewed_full_thread:ownerReviewedOriginal
     };
     const r=await fetch(supabaseEndpoint(TABLE+'?on_conflict=request_id'),{
       method:'POST',cache:'no-store',

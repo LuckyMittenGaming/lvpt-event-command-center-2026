@@ -46,7 +46,8 @@
         const data=await getProtected('/api/sms/staging/reply-decisions',{
           body:{
             threadId:t.threadId,lastMessageAt:t.lastMessageAt,
-            decision,draftDigest,requestId:window.crypto.randomUUID()
+            decision,draftDigest,requestId:window.crypto.randomUUID(),
+            ownerReviewedOriginal:verified.get(t.threadId)===t.lastMessageAt
           }
         });
         if(!data.ok||data.saved!==1||data.audited!==true||
@@ -184,13 +185,17 @@
         container.append(wrap);return;
       }
       if(!active) {
+        if(context.partial===true||
+           context.messages.length<Number(context.totalMessages||0))
+          wrap.append(makeText('p','case-alert',
+            'Older emails are omitted from this preview. You MUST review the complete original thread in Gmail before authorizing any draft.'));
         const check=document.createElement('input');
         check.type='checkbox';check.id='verify-reply-'+t.threadId;
         check.checked=verified.get(t.threadId)===t.lastMessageAt;
         const label=makeText('label','reply-verification','');
         label.setAttribute('for',check.id);
         label.append(check,document.createTextNode(
-          ' I checked the original Gmail conversation and CRM/event notes. This question still needs an answer.'));
+          ' I checked the COMPLETE original Gmail conversation (including any omitted older emails), CRM and event notes. The latest client question remains unanswered.'));
         check.addEventListener('change',()=>{
           if(check.checked)verified.set(t.threadId,t.lastMessageAt);
           else verified.delete(t.threadId);

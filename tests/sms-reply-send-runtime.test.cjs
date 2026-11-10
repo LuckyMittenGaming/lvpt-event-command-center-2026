@@ -160,6 +160,13 @@ function harness(options={}){
   h=harness({verified:{sendingEnabled:false}});
   x=await h.post();
   assert.equal(x.status,409,'GAS sending gate must be enabled separately');
+  h=harness({verified:{subject:'Re: A completely different Gmail thread'}});
+  x=await h.post();
+  assert.equal(x.status,409,'Edited subject must be rejected before creating any send intent');
+  assert.equal(x.json.reason,'subject_must_match_verified_gmail_thread');
+  assert.equal(h.seen.reservations.length,0,
+    'A mismatched subject must not consume the permanent one-time send reservation');
+  assert(!h.seen.apps.some(v=>v.action==='sendOwnerApprovedGmailReply'));
   h=harness({duplicate:true});
   x=await h.post();
   assert.equal(x.status,409);
@@ -194,5 +201,5 @@ function harness(options={}){
   assert.equal(x.json.doNotRetry,true);
   assert.equal(h.seen.patches.length,1);
   assert.equal(h.seen.patches[0].status,'uncertain');
-  console.log('Step 50: 13 synthetic auth, opt-in, digest, recipient, duplicate, send-ack and audit-reconciliation scenarios passed. No external requests.');
+  console.log('Step 52: 14 synthetic auth, opt-in, digest, recipient, duplicate, send-ack and audit-reconciliation scenarios passed. No external requests.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

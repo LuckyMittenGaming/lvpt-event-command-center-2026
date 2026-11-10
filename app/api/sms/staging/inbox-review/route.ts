@@ -18,6 +18,7 @@ type InboxRaw={
   rangeDays?:unknown;checkedAt?:unknown;threads?:InboxRawThread[];
   examinedThreads?:unknown;excludedAutomatedCount?:unknown;
   metadataFailures?:unknown;partial?:unknown;
+  page?:unknown;nextPage?:unknown;pageSize?:unknown;
 };
 const HEX=/^[0-9a-f]{8,32}$/i;
 function date(value:unknown):string|null {
@@ -89,12 +90,17 @@ export async function GET(request:Request) {
   if(!ready())return jsonNoStore({ok:false,reason:'staging_unconfigured'},503);
   if(!authorizedReviewer(request))return jsonNoStore({ok:false,reason:'unauthorized'},401);
   if(!syncConfigured())return jsonNoStore({ok:false,reason:'command_center_source_unconfigured'},503);
+  const pageParam=new URL(request.url).searchParams.get('page')||'0';
+  if(!/^(?:[0-9]|1[0-4])$/.test(pageParam))
+    return jsonNoStore({ok:false,reason:'invalid_inbox_review_page'},400);
+  const page=Number(pageParam);
   try {
-    const data=await appsScriptRequest<InboxRaw>('listBusinessInboxReview');
+    const data=await appsScriptRequest<InboxRaw>('listBusinessInboxReview',{page});
     if(data?.ok!==true || data.connected!==true ||
        data.source!=='read_only_business_inbox_metadata' ||
        data.mailboxIdentityVerified!==true ||
-       !Array.isArray(data.threads) || data.threads.length>25)
+       !Array.isArray(data.threads) || data.threads.length>20 ||
+       data.page!==page || data.pageSize!==20)
       return jsonNoStore({ok:false,reason:'inbox_review_backend_not_deployed'},503);
     const seen=new Set<string>();
     let filteredSystemCount=0;
@@ -107,12 +113,17 @@ export async function GET(request:Request) {
       }
       return true;
     }).sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));
-    // Do not falsely claim exhaustive coverage: the Apps Script source caps
-    // the recent messages and threads; older/other mail may still exist.
+    // Each page checks at most 20 message slots. The next page must be
+    // strictly forward and bounded to avoid arbitrary Gmail scanning.
+    const next=Number.isInteger(data.nextPage)&&
+      Number(data.nextPage)>page&&Number(data.nextPage)<=14?
+      Number(data.nextPage):null;
+    // Do not falsely claim exhaustive coverage across older mail.
     return jsonNoStore({
       ok:true,connected:true,source:'lvpt_read_only_business_inbox_review',
-      checkedAt:date(data.checkedAt),rangeDays:30,partial:data.partial===true,
-      fullMailboxChecked:false,examinedThreads:count(data.examinedThreads,28),
+      checkedAt:date(data.checkedAt),rangeDays:30,page,nextPage:next,
+      pageSize:20,partial:data.partial===true || next!==null,
+      fullMailboxChecked:false,examinedThreads:count(data.examinedThreads,20),
       excludedAutomatedCount:count(data.excludedAutomatedCount,28)+filteredSystemCount,
       filteredSystemCount,
       metadataFailures:count(data.metadataFailures,28),threads,

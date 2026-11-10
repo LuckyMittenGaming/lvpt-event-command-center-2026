@@ -81,7 +81,9 @@ export async function POST(request:Request) {
           if(picked) {
             selectedThreadId=picked.threadId;
             selectedLastMessageAt=picked.lastMessageAt;
-            selectionMode=picked.selectionMode;
+            if(picked.selectionMode==='automatic_client'||
+               picked.selectionMode==='automatic_vendor')
+              selectionMode=picked.selectionMode;
             threadPreviewStatus='failed';
             recipientStatus='failed';
           }

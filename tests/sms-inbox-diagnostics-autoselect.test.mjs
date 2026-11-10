@@ -42,7 +42,7 @@ assert.equal(selectDiagnosticThreads([client,other],now,20).length,2,
 const api=fs.readFileSync('app/api/sms/staging/inbox-diagnostics/route.ts','utf8');
 const ddl=fs.readFileSync('docs/staging-migrations/2026-11-10-staging-diagnostics-autoselection.sql','utf8');
 const app=fs.readFileSync('public/sms-review/app.js','utf8');
-assert.match(api,/import \{ selectDiagnosticThreads \}/);
+assert.match(api,/import \{ selectDiagnosticThreads, selectDiagnosticNegativeControl \}/);
 assert.match(api,/if\(!threadId\)/);
 assert.match(api,/selectDiagnosticThreads\(inbox.threads,Date.now\(\),3\)/);
 assert.match(api,/selection_mode:selectionMode/);

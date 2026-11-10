@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { hasReviewSession, allowedReviewMutation } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
-import { selectDiagnosticThreads } from '../../../../../lib/lvpt-diagnostic-selection.mjs';
+import { selectDiagnosticThreads, selectDiagnosticNegativeControl } from '../../../../../lib/lvpt-diagnostic-selection.mjs';
 import { qualifyDiagnosticPreview } from '../../../../../lib/lvpt-diagnostic-message.mjs';
 
 export const runtime='nodejs';
@@ -46,7 +46,7 @@ export async function GET(request:Request) {
     return jsonNoStore({ok:false,reason:'staging_only'},403);
   try {
     const p=new URLSearchParams({
-      select:'run_id,created_at,inbox_status,page_zero_threads,thread_preview_status,recipient_status,selection_mode,qualification_outcome,qualification_reason_code,vercel_send_switch_enabled,sampled_threads,possible_requests,no_reply_suggested_count,blocked_recipients',
+      select:'run_id,created_at,inbox_status,page_zero_threads,thread_preview_status,recipient_status,selection_mode,qualification_outcome,qualification_reason_code,vercel_send_switch_enabled,sampled_threads,possible_requests,no_reply_suggested_count,blocked_recipients,negative_control_status',
       tenant_id:'eq.lvpt-owner-pilot',
       order:'created_at.desc',limit:'5'
     });
@@ -73,7 +73,7 @@ export async function GET(request:Request) {
         String(item.thread_preview_status))?item.thread_preview_status:'failed',
       recipientStatus:['not_selected','verified','blocked','failed'].includes(
         String(item.recipient_status))?item.recipient_status:'failed',
-      selectionMode:['none','manual','automatic_client','automatic_vendor'].includes(
+      selectionMode:['none','manual','automatic_client','automatic_vendor','negative_outbound'].includes(
         String(item.selection_mode))?item.selection_mode:'none',
       qualificationOutcome:safe.has(String(item.qualification_outcome))?
         item.qualification_outcome:'not_checked',
@@ -88,7 +88,9 @@ export async function GET(request:Request) {
       noReplySuggestedCount:Number.isInteger(item.no_reply_suggested_count)?
         Math.min(3,Math.max(0,Number(item.no_reply_suggested_count))):0,
       blockedRecipients:Number.isInteger(item.blocked_recipients)?
-        Math.min(3,Math.max(0,Number(item.blocked_recipients))):0
+        Math.min(3,Math.max(0,Number(item.blocked_recipients))):0,
+      negativeControlStatus:['not_checked','passed','failed'].includes(
+        String(item.negative_control_status))?item.negative_control_status:'not_checked'
     }));
     return jsonNoStore({
       ok:true,source:'lvpt_no_client_data_diagnostic_history',
@@ -124,9 +126,9 @@ export async function POST(request:Request) {
     let inboxStatus:'passed'|'failed'='failed';
     let pageZeroThreads=0;
     const candidates:Array<{threadId:string;lastMessageAt:string;
-      selectionMode:'manual'|'automatic_client'|'automatic_vendor'}>=
+      selectionMode:'manual'|'automatic_client'|'automatic_vendor'|'negative_outbound'}>=
       threadId?[{threadId,lastMessageAt,selectionMode:'manual'}]:[];
-    let selectionMode:'none'|'manual'|'automatic_client'|'automatic_vendor'=
+    let selectionMode:'none'|'manual'|'automatic_client'|'automatic_vendor'|'negative_outbound'=
       threadId?'manual':'none';
     let threadPreviewStatus:PreviewStatus=threadId?'failed':'not_selected';
     let recipientStatus:RecipientStatus=threadId?'failed':'not_selected';
@@ -134,6 +136,7 @@ export async function POST(request:Request) {
     let qualificationReasonCode='not_checked';
     let sampledThreads=0,possibleRequests=0,noReplySuggestedCount=0;
     let blockedRecipients=0;
+    let negativeControlStatus:'not_checked'|'passed'|'failed'='not_checked';
     let bestRank=-1;
     try {
       const inbox=await appsScriptRequest<InboxResponse>('listBusinessInboxReview',{page:0});
@@ -157,6 +160,13 @@ export async function POST(request:Request) {
               });
             }
           }
+          if(candidates.length===0) {
+            // No genuine unanswered inbound to test? Check exactly ONE
+            // outbound thread and prove the GAS recipient gate rejects it.
+            // A positive validation here is a security FAILURE, not a lead.
+            const negative=selectDiagnosticNegativeControl(inbox.threads);
+            if(negative)candidates.push(negative);
+          }
         }
       }
     }catch {
@@ -168,6 +178,8 @@ export async function POST(request:Request) {
       let recipientCheck:RecipientStatus='not_selected';
       let outcome:QualificationStatus='needs_review';
       let reason='chronology_unverified';
+      if(selected.selectionMode==='negative_outbound')
+        negativeControlStatus='failed';
       try {
         const preview=await appsScriptRequest<ThreadResponse>(
           'readBusinessInboxThread',{
@@ -190,7 +202,32 @@ export async function POST(request:Request) {
           outcome=classification.outcome as QualificationStatus;
           reason=classification.reasonCode;
           if(outcome==='no_reply_suggested')noReplySuggestedCount++;
-          if(outcome==='possible_request') {
+          if(selected.selectionMode==='negative_outbound') {
+            // A real outbound message must never be sendable as a new
+            // incoming inquiry. Check the newly deployed GAS action via
+            // the same authenticated read-only bridge, with no Gmail writes.
+            if(outcome==='no_reply_suggested'&&reason==='lvpt_replied_last') {
+              try {
+                const v=await appsScriptRequest<RecipientResponse>(
+                  'verifyBusinessReplyRecipient',{
+                    threadId:selected.threadId,
+                    expectedLastMessageAt:selected.lastMessageAt
+                  }
+                );
+                if(v.ok===false) {
+                  negativeControlStatus='passed';
+                  recipientCheck='blocked';
+                }
+              }catch(err) {
+                const error=String(err instanceof Error?err.message:'');
+                if(error==='Not a complete verified external client request'||
+                   error==='Recipient or source relationship cannot be verified') {
+                  negativeControlStatus='passed';
+                  recipientCheck='blocked';
+                }
+              }
+            }
+          }else if(outcome==='possible_request') {
             possibleRequests++;
             // Only a possible, explicit client request merits read-only
             // recipient verification. This is never permission to send.
@@ -248,6 +285,7 @@ export async function POST(request:Request) {
       possible_requests:possibleRequests,
       no_reply_suggested_count:noReplySuggestedCount,
       blocked_recipients:blockedRecipients,
+      negative_control_status:negativeControlStatus,
       vercel_send_switch_enabled:
         process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND==='true'
     };
@@ -264,6 +302,7 @@ export async function POST(request:Request) {
       runId,inboxStatus,pageZeroThreads,threadPreviewStatus,recipientStatus,
       selectionMode,qualificationOutcome,qualificationReasonCode,
       sampledThreads,possibleRequests,noReplySuggestedCount,blockedRecipients,
+      negativeControlStatus,
       sendingInvoked:false,gmailWrites:false,clientDetailsStored:false
     },200);
   }catch {

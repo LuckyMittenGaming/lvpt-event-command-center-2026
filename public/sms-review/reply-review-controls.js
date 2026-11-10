@@ -6,6 +6,9 @@
   'use strict';
   // All email prose remains only in this browser's memory. The separate
   // audit contains statuses and an opaque digest, never recipients or bodies.
+  const canonicalSubject=v=>String(v||'')
+    .replace(/^(?:(?:re|fw|fwd):\s*)+/ig,'')
+    .replace(/\s+/g,' ').trim().toLowerCase();
   function createController({getProtected,makeText,qualification,workflow,onUpdate,onNext}) {
     const audits=new Map(),verified=new Map();
     const recipients=new Map(),sendRecords=new Map();
@@ -130,14 +133,21 @@
         const record=await getProtected('/api/sms/staging/reply-send?'+p);
         if(!record.ok||record.source!=='lvpt_deduplicated_send_status')
           throw Error('Send history was unavailable');
-        recipients.set(t.threadId,recipient);
+        const subjectMatches=typeof recipient.subject==='string'&&
+          canonicalSubject(recipient.subject)===canonicalSubject(active.subject);
+        // Manual copying remains available; direct send cannot be armed
+        // unless the approved subject still matches the original Gmail thread.
+        recipients.set(t.threadId,{...recipient,
+          sendEnabled:recipient.sendEnabled===true&&subjectMatches});
         sendRecords.set(t.threadId,record);
         status.set(t.threadId,record.doNotRetry?
           'This Gmail message has a recorded send attempt ('+
           record.status+'). Do not retry. Inspect Sent mail.':
+          !subjectMatches?
+            'The approved subject differs from the verified Gmail thread. Reopen editing and restore the original subject. Sending is blocked; no email sent.':
           recipient.sendEnabled?
-            'Verified business Gmail recipient. Review the address below and explicitly confirm before sending.':
-            'Verified recipient. Live sending remains disabled until both owner-controlled switches are enabled.');
+            'Verified business Gmail recipient and subject. Review the address below and explicitly confirm before sending.':
+            'Verified recipient and subject. Live sending remains disabled until both owner-controlled switches are enabled.');
       }catch {
         recipients.delete(t.threadId);
         status.set(t.threadId,

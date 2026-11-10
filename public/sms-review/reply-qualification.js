@@ -13,7 +13,7 @@
     manual_review:'Human review needed',
     reply_candidate:'Potential reply needed — verify status',
     monitor:'Monitor — no reply suggested',
-    client_decined:'Client declined — no sales follow-up',
+    client_declined:'Client declined — no sales follow-up',
     hold:'Client reviewing / unavailable — hold',
     vendor_operations:'Vendor / venue operations — review',
     internal:'Internal correspondence — no sales outreach'
@@ -33,7 +33,7 @@
   const decline=/(?:\b(?:not|no longer|won['’]?t|will not|aren['’]?t|are not|have decided not to|decided not to)\s+(?:be\s+)?(?:moving forward|proceed(?:ing)?|interested|need(?:ing)?)\b|\b(?:went|going|move|moving)\s+(?:with|in)\s+(?:another|a different)\s+(?:direction|provider|option)\b|\b(?:cancel(?:led|ed)?|declin(?:e|ed)|not this time)\b)/i;
   const holding=/(?:\b(?:out of town|out of (?:the )?office|on vacation|on holiday|on leave)\b|\b(?:when (?:i|we)['’]?(?:m|re)? back|once (?:i|we)['’]?(?:m|re)? back|back in (?:a few|several|two|three)\s+weeks?)\b|\b(?:still reviewing|internal review|internal approval|review with (?:my|our|the)|share (?:it|this) with (?:the )?(?:team|leadership)|get back to you|be in touch|follow up (?:when|after))\b)/i;
   const courtesy=/^(?:(?:hi|hello|hey|dear)\b[^,.!?\n]{0,30}[,.!]\s*)?(?:(?:thanks?(?:\s+so much)?|thank you(?:\s+(?:very much|again))?|perfect|great|awesome|sounds good|got it|received|all set|understood|appreciated|much appreciated|will do|that works|absolutely|no problem|you['’]?re welcome|glad to hear it)(?:[\s.!,-]*(?:you|again|matt|team|for (?:the|your|all)|very much|so much|everyone|guys))?[\s.!,-]*){1,5}$/i;
-  const request=/(?:\?|\b(?:can|could|would|will|do|does|is|are|have|has)\s+(?:you|we|your team|the team)\b|\b(?:what|when|where|which|how much|how many|how soon)\b|\bplease\s+(?:send|confirm|provide|share|let me know|advise|clarify|explain|update|quote|review|check|schedule|call)\b|\b(?:we|i)\s+(?:need|would like|want)\s+(?:a|an|the|to|you|your)\b)/i;
+  const request=/(?:\?|\b(?:can|could|would|will|do|does|is|are|have|has)\s+(?:you|we|your team|the team)\b|\b(?:what|when|where|which)\s+(?:is|are|would|can|do|does|will|time|date|options|pricing)\b|\bhow\s+(?:much|many|soon|long)\b|\bplease\s+(?:send|confirm|provide|share|advise|clarify|explain|update|quote|review|check|schedule|call)\b|\b(?:we|i)\s+(?:need|would like|want)\s+(?:a|an|the|to|you|your)\b)/i;
 
   function qualifyThread(metadata,context,nowMs=Date.now()) {
     const messages=Array.isArray(context?.messages)?context.messages:[];
@@ -88,8 +88,13 @@
     if(!body)
       return result('manual_review','The last message has no readable excerpt.',
         ['Missing message text']);
+    if(incomplete)
+      return result('manual_review',
+        'Conversation excerpts are incomplete, truncated, or include an attachment.',
+        [hasQuestion?'Possible request in partial context':'Limited source context'],
+        'Read the original Gmail thread and any attachments. Do not infer that a reply is required from partial excerpts.');
     if(isDecline && !hasQuestion)
-      return result('client_decined','The client appears to have declined or stopped the opportunity.',
+      return result('client_declined','The client appears to have declined or stopped the opportunity.',
         ['Decline language found'],
         'Record or verify the decline in the CRM. Do not create a sales follow-up.');
     if(isHolding && !hasQuestion)
@@ -100,11 +105,6 @@
       return result('monitor','The latest response appears to be an acknowledgement or courtesy closing.',
         ['No actionable question detected'],
         'No reply suggested. Reopen only if another message or obligation requires attention.');
-    if(incomplete)
-      return result('manual_review',
-        'Conversation excerpts are incomplete, truncated, or include an attachment.',
-        [hasQuestion?'Possible request in partial context':'Limited source context'],
-        'Read the original Gmail thread and any attachments. Do not infer that a reply is required from partial excerpts.');
     if(hasQuestion)
       return result('reply_candidate',
         'The most recent incoming message contains a possible question or action request.',

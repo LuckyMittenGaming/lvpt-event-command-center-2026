@@ -96,11 +96,16 @@ export async function GET(request:Request) {
   const page=Number(pageParam);
   try {
     const data=await appsScriptRequest<InboxRaw>('listBusinessInboxReview',{page});
+    // During the owner-controlled GAS redeployment, keep Step 44's first
+    // page available rather than breaking the previously verified inbox.
+    // Legacy responses never claim that further pages were scanned.
+    const legacy=page===0 && data.page===undefined && data.pageSize===undefined &&
+      Array.isArray(data.threads) && data.threads.length<=25;
     if(data?.ok!==true || data.connected!==true ||
        data.source!=='read_only_business_inbox_metadata' ||
        data.mailboxIdentityVerified!==true ||
-       !Array.isArray(data.threads) || data.threads.length>20 ||
-       data.page!==page || data.pageSize!==20)
+       !Array.isArray(data.threads) ||
+       (!legacy && (data.threads.length>20 || data.page!==page || data.pageSize!==20)))
       return jsonNoStore({ok:false,reason:'inbox_review_backend_not_deployed'},503);
     const seen=new Set<string>();
     let filteredSystemCount=0;
@@ -115,14 +120,15 @@ export async function GET(request:Request) {
     }).sort((a,b)=>b.lastMessageAt.localeCompare(a.lastMessageAt));
     // Each page checks at most 20 message slots. The next page must be
     // strictly forward and bounded to avoid arbitrary Gmail scanning.
-    const next=Number.isInteger(data.nextPage)&&
+    const next=!legacy&&Number.isInteger(data.nextPage)&&
       Number(data.nextPage)>page&&Number(data.nextPage)<=14?
       Number(data.nextPage):null;
     // Do not falsely claim exhaustive coverage across older mail.
     return jsonNoStore({
       ok:true,connected:true,source:'lvpt_read_only_business_inbox_review',
       checkedAt:date(data.checkedAt),rangeDays:30,page,nextPage:next,
-      pageSize:20,partial:data.partial===true || next!==null,
+      pageSize:legacy?25:20,upgradePending:legacy,
+      partial:legacy || data.partial===true || next!==null,
       fullMailboxChecked:false,examinedThreads:count(data.examinedThreads,20),
       excludedAutomatedCount:count(data.excludedAutomatedCount,28)+filteredSystemCount,
       filteredSystemCount,

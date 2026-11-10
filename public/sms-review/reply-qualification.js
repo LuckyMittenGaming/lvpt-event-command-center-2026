@@ -33,6 +33,7 @@
   const decline=/(?:\b(?:not|no longer|won['’]?t|will not|aren['’]?t|are not|have decided not to|decided not to)\s+(?:be\s+)?(?:moving forward|proceed(?:ing)?|interested|need(?:ing)?)\b|\b(?:went|going|move|moving)\s+(?:with|in)\s+(?:another|a different)\s+(?:direction|provider|option)\b|\b(?:cancel(?:led|ed)?|declin(?:e|ed)|not this time)\b)/i;
   const holding=/(?:\b(?:out of town|out of (?:the )?office|on vacation|on holiday|on leave)\b|\b(?:when (?:i|we)['’]?(?:m|re)? back|once (?:i|we)['’]?(?:m|re)? back|back in (?:a few|several|two|three)\s+weeks?)\b|\b(?:still reviewing|internal review|internal approval|review with (?:my|our|the)|share (?:it|this) with (?:the )?(?:team|leadership)|get back to you|be in touch|follow up (?:when|after))\b)/i;
   const courtesy=/^(?:(?:hi|hello|hey|dear)\b[^,.!?\n]{0,30}[,.!]\s*)?(?:(?:thanks?(?:\s+so much)?|thank you(?:\s+(?:very much|again))?|perfect|great|awesome|sounds good|got it|received|all set|understood|appreciated|much appreciated|will do|that works|absolutely|no problem|you['’]?re welcome|glad to hear it)(?:[\s.!,-]*(?:you|again|matt|team|for (?:the|your|all)|very much|so much|everyone|guys))?[\s.!,-]*){1,5}$/i;
+  const completedAcknowledgement=/^(?:(?:thanks?(?:\s+again)?|thank you(?:\s+again)?)[.!,-]?\s*)?(?:this|it|the invoice|the document|the payment|the agreement)\s+(?:has\s+been|was|is)\s+(?:submitted|sent|received|processed|paid)(?:\s+(?:to|by)\s+(?:accounting|our team))?[.!]*$/i;
   const request=/(?:\?|\b(?:can|could|would|will|do|does|is|are|have|has)\s+(?:you|we|your team|the team)\b|\b(?:what|when|where|which)\s+(?:is|are|would|can|do|does|will|time|date|options|pricing)\b|\bhow\s+(?:much|many|soon|long)\b|\bplease\s+(?:send|confirm|provide|share|advise|clarify|explain|update|quote|review|check|schedule|call)\b|\b(?:we|i)\s+(?:need|would like|want)\s+(?:a|an|the|to|you|your)\b)/i;
 
   function qualifyThread(metadata,context,nowMs=Date.now()) {
@@ -101,6 +102,15 @@
     if(!body)
       return result('manual_review','The last message has no readable excerpt.',
         ['Missing message text']);
+    // Short, COMPLETE acknowledgements can close a long conversation even
+    // when earlier history was intentionally omitted. Truncation/attachments
+    // still demand full human review, and an actual request always wins.
+    if((isCourtesy||completedAcknowledgement.test(body))&&!hasQuestion&&
+       latest.truncated!==true&&latest.hasAttachments!==true)
+      return result('monitor',
+        'The latest complete message appears to acknowledge prior correspondence, without requesting a new response.',
+        ['Client acknowledgement or submission confirmation'],
+        'Monitor the associated event or payment separately. Do not send a duplicate email.');
     if(incomplete)
       return result('manual_review',
         'Conversation excerpts are incomplete, truncated, or include an attachment.',
@@ -114,10 +124,6 @@
       return result('hold','The client indicates a review, absence, or intention to respond later.',
         ['Client-controlled timing'],
         'Respect their timing; consult the full thread before considering a later follow-up.');
-    if(isCourtesy && !hasQuestion)
-      return result('monitor','The latest response appears to be an acknowledgement or courtesy closing.',
-        ['No actionable question detected'],
-        'No reply suggested. Reopen only if another message or obligation requires attention.');
     if(hasQuestion)
       return result('reply_candidate',
         'The most recent incoming message contains a possible question or action request.',

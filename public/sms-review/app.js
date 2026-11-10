@@ -590,6 +590,7 @@
     const more=$('loadMoreBusinessInbox');
     items.replaceChildren();
     $('refreshBusinessInbox').disabled=!sessionToken || businessInboxLoading;
+    $('runInboxDiagnostics').disabled=!sessionToken || businessInboxLoading;
     more.hidden=true;
     if(!sessionToken || !report || report.source!=='staging') {
       status.textContent='Unlock and load the protected staging inbox to check read-only Gmail headers.';
@@ -747,6 +748,40 @@
     more.disabled=businessInboxLoading;
     more.textContent=businessInboxLoading?'Loading more…':
       'Load more business Gmail (page '+(businessInboxReview.nextPage??0)+')';
+  }
+
+  async function runInboxDiagnostics() {
+    if(!sessionToken||!report||report.source!=='staging')return;
+    const button=$('runInboxDiagnostics');
+    const status=$('inboxDiagnosticStatus');
+    if(button.disabled)return;
+    button.disabled=true;
+    status.textContent='Running read-only Gmail checks; recording no client content…';
+    try {
+      const selection=(businessInboxReview?.threads||[]).find(t=>
+        businessInboxThreadContext.get(t.threadId)?.visible);
+      const body=selection?
+        {threadId:selection.threadId,lastMessageAt:selection.lastMessageAt}:{};
+      const d=await getProtected('/api/sms/staging/inbox-diagnostics',{body});
+      if(d.source!=='lvpt_read_only_staging_diagnostic'||!d.runId||
+         d.gmailWrites!==false||d.sendingInvoked!==false)
+        throw Error('Invalid diagnostic response');
+      const recipient=d.recipientStatus==='verified'?
+        'Verified recipient for selected conversation':
+        d.recipientStatus==='blocked'?
+        'Recipient intentionally blocked for this conversation':
+        d.recipientStatus==='not_selected'?
+        'No selected conversation; recipient not tested':
+        'Recipient check unavailable';
+      status.textContent='Diagnostic saved. Inbox: '+d.inboxStatus+
+        ' ('+d.pageZeroThreads+' scanned entries). Conversation: '+
+        d.threadPreviewStatus+'. '+recipient+
+        '. No emails sent and no client message data stored. Report ID: '+d.runId;
+    }catch {
+      status.textContent='Diagnostic unavailable or not saved. No client emails were sent. Use the normal inbox controls and retry later.';
+    }finally{
+      button.disabled=!sessionToken||businessInboxLoading;
+    }
   }
 
   async function loadBusinessInboxReview(append=false) {
@@ -1672,6 +1707,7 @@
   $('runSyntheticAiTest').addEventListener('click',runSyntheticAiTest);
   $('refreshGmailEvidence').addEventListener('click',loadGmailEvidence);
   $('refreshBusinessInbox').addEventListener('click',()=>loadBusinessInboxReview(false));
+  $('runInboxDiagnostics').addEventListener('click',()=>void runInboxDiagnostics());
   $('loadMoreBusinessInbox').addEventListener('click',()=>loadBusinessInboxReview(true));
   $('toggleActionMonitoring').addEventListener('click',()=>{
     showActionMonitoring=!showActionMonitoring;

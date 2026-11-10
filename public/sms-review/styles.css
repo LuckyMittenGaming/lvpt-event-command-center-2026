@@ -92,3 +92,8 @@
 .gmail-message-excerpt{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;margin:8px 0;padding:9px 12px;background:rgba(9,20,40,.65);border-radius:8px;color:var(--ink)!important}
 #loadMoreBusinessInbox{margin-top:12px}
 .gmail-evidence-card>a{display:inline-block;margin:8px 0 8px 12px}
+
+/* Step 46: local, non-sending reply qualification. */
+.reply-qualification{border:1px solid var(--border,#506078);border-radius:8px;padding:12px;margin:8px 0 16px;background:rgba(18,32,54,.65)}
+.reply-qualification-title{font-weight:700;margin:0 0 7px}
+.reply-qualification-next{margin:10px 0 6px;overflow-wrap:anywhere}

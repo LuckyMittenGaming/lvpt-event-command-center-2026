@@ -750,6 +750,41 @@
       'Load more business Gmail (page '+(businessInboxReview.nextPage??0)+')';
   }
 
+  async function loadInboxDiagnosticHistory() {
+    const root=$('inboxDiagnosticHistory');
+    if(!root || !sessionToken || !report || report.source!=='staging')return;
+    try {
+      const data=await getProtected('/api/sms/staging/inbox-diagnostics');
+      if(!data?.ok||data.source!=='lvpt_no_client_data_diagnostic_history'||
+         data.clientDataIncluded!==false||!Array.isArray(data.entries))
+        throw Error('Invalid read-only history');
+      root.replaceChildren();
+      const entries=data.entries.slice(0,3);
+      if(entries.length)root.append(makeText('strong','',
+        'Recent diagnostic checks (no client content)'));
+      for(const entry of entries) {
+        const category=entry.qualificationOutcome==='no_reply_suggested'?
+          'No sales reply suggested':
+          entry.qualificationOutcome==='possible_request'?
+          'Possible request; owner review needed':
+          entry.qualificationOutcome==='needs_review'?
+          'Incomplete/ambiguous; manual review':
+          entry.qualificationOutcome==='vendor_only'?
+          'Vendor operations':
+          'Not qualified';
+        root.append(makeText('p','hint',
+          dateFmt(entry.at)+' · Inbox '+entry.inboxStatus+
+          ' · '+category+' · Recipient '+entry.recipientStatus+
+          ' · '+(entry.sendSwitchEnabled?'Send switch ON':'Send switch OFF')));
+      }
+    }catch {
+      // Fail closed. Do not display cached private diagnostic state.
+      root.replaceChildren();
+      root.append(makeText('p','hint',
+        'Past diagnostic history is temporarily unavailable.'));
+    }
+  }
+
   async function runInboxDiagnostics() {
     if(!sessionToken||!report||report.source!=='staging')return;
     const button=$('runInboxDiagnostics');
@@ -793,6 +828,7 @@
         ' ('+d.pageZeroThreads+' scanned entries). '+mode+
         '. Conversation: '+d.threadPreviewStatus+'. '+qualification+
         '. '+recipient+'. No emails sent; no client content stored. Report ID: '+d.runId;
+      void loadInboxDiagnosticHistory();
     }catch {
       status.textContent='Diagnostic unavailable or not saved. No client emails were sent. Use the normal inbox controls and retry later.';
     }finally{
@@ -842,6 +878,7 @@
       businessInboxLoading=false;
       renderBusinessInboxReview();
       renderActionQueue();
+      if(!append)void loadInboxDiagnosticHistory();
     }
   }
 

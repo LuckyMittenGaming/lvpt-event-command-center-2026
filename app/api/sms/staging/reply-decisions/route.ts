@@ -68,7 +68,10 @@ export async function GET(request:Request) {
     return jsonNoStore({
       ok:true,source:'append_only_owner_reply_audit',
       decision:row?.decision||null,
-      lastMessageAt:row?.last_message_at||null,
+      // PostgreSQL timestamptz can serialize as +00:00 while Apps Script
+      // returns .000Z. Always emit a canonical instant for revision matching.
+      lastMessageAt:row?.last_message_at?
+        new Date(row.last_message_at).toISOString():null,
       // Digest is only for detecting changed local draft text; no body stored.
       draftDigest:row?.draft_digest||null,
       ownerReviewedOriginal:row?.owner_reviewed_full_thread===true,

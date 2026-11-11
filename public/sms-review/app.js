@@ -620,10 +620,11 @@
     const inbound=rows.filter(x=>x.needsHumanReview===true);
     const vendor=inbound.filter(x=>x.relationshipHint==='vendor').length;
     const internal=rows.filter(x=>x.relationshipHint==='internal').length;
-    const formLeads=inbound.filter(x=>x.sourceType==='form_lead').length;
+    const formLeads=inbound.filter(x=>x.sourceType==='form_lead'||
+      x.relationshipHint==='form_notification').length;
     const operational=inbound.filter(x=>x.relationshipHint==='operational_notice').length;
     const possible=inbound.filter(x=>x.relationshipHint==='unclassified'||
-      x.sourceType==='form_lead').length;
+      x.sourceType==='form_lead'||x.relationshipHint==='form_notification').length;
     const reviewed=rows.map(t=>{
       const context=businessInboxThreadContext.get(t.threadId);
       return context?replyQualifier.qualifyThread(t,context):null;
@@ -644,7 +645,7 @@
       ' potential reply candidate(s) among them. These are NOT authorized drafts.'+
       ' Coverage remains limited; bodies are only fetched for a selected thread. No messages sent or records changed.';
     const priority=t=>replyController.deniedRevision(t)?6:
-      t.sourceType==='form_lead'?0:
+      (t.sourceType==='form_lead'||t.relationshipHint==='form_notification')?0:
       t.needsHumanReview&&t.relationshipHint==='unclassified'?1:
       t.relationshipHint==='vendor'?2:
       t.relationshipHint==='operational_notice'?3:
@@ -664,6 +665,8 @@
       const role=dismissed?'Dismissed by owner — no reply needed':
         cachedQualification?.outcome==='monitor'?
           'Acknowledgement or LVPT replied — no new reply suggested':
+        t.relationshipHint==='form_notification'?
+          'Customer form inquiry — verify client in CRM, not the form platform':
         t.sourceType==='form_lead'?'Website form — verify original client and prior replies':
         t.relationshipHint==='internal'?'Internal correspondence — no sales outreach':
         t.relationshipHint==='vendor'?'Vendor / venue operations':
@@ -683,6 +686,8 @@
           'The latest message does not require a new customer reply. Keep the event opportunity and its follow-up status separate.':
         t.relationshipHint==='internal'?
           'Internal owner correspondence. Not a customer lead.':
+        t.relationshipHint==='form_notification'?
+          'Potential customer inquiry delivered by a third-party form system. Verify the true requester and previous outreach in Gmail and CRM; never reply to the platform address.':
         t.relationshipHint==='vendor'?
           'Vendor logistics require operational review, not sales outreach.':
         t.relationshipHint==='operational_notice'?
@@ -753,8 +758,8 @@
           detail.append(showMessage(latest,'Latest message'));
         }
         detail.append(qualificationCard);
-        if(['operational_notice','monitor','hold','client_declined'].includes(
-          qualification.outcome)) {
+        if(['operational_notice','form_notification','monitor','hold',
+            'client_declined','manual_review'].includes(qualification.outcome)) {
           const continueQueue=makeText('button','neutral',
             'Continue to next customer inquiry');
           continueQueue.type='button';
@@ -961,7 +966,8 @@
       .filter(t=>t.needsHumanReview===true &&
         t.lastDirection==='inbound' &&
         t.sourceType==='email_thread' &&
-        t.relationshipHint==='unclassified')
+        (t.relationshipHint==='unclassified'||
+         t.relationshipHint==='form_notification'))
       .sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
     const previous=candidates.findIndex(t=>t.threadId===previousThreadId);
     if(previous<0)return candidates;

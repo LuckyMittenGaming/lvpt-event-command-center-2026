@@ -16,6 +16,7 @@
     client_declined:'Client declined — no sales follow-up',
     hold:'Client reviewing / unavailable — hold',
     vendor_operations:'Vendor / venue operations — review',
+    operational_notice:'Contract / document notification — operations review',
     internal:'Internal correspondence — no sales outreach'
   });
 
@@ -62,6 +63,13 @@
     if(!['inbound','form_lead'].includes(direction))
       return result('manual_review','The latest message is not verified as an external inquiry.',
         ['Ambiguous message direction']);
+    // Verified DocuSign platform correspondence may require signing or
+    // document tracking, but never a prospect-reply draft.
+    if(relationship==='operational_notice')
+      return result('operational_notice',
+        'Electronic signature or contract service notice, not an incoming sales inquiry.',
+        ['Operational document workflow'],
+        'Review the document or signing status in Gmail and the client event record. Do not draft a customer sales reply.');
     const formLead=direction==='form_lead'||metadata.sourceType==='form_lead';
     const vendor=relationship==='vendor'||verifiedRole==='vendor';
     // Use the current author's visible message, never quoted older questions

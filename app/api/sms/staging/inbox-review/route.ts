@@ -1,7 +1,7 @@
 import { jsonNoStore, ready } from '../_lib';
 import { authorizedReviewer } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
-import { isDocumentWorkflowNotice } from '../_inbox-routing';
+import { isDocumentWorkflowNotice, isAutomatedLeadNotification } from '../_inbox-routing';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -69,7 +69,10 @@ function cleanThread(row:InboxRawThread) {
     direction==='outbound'?'outbound':
     ['elevatedbarservices.com','venetianlasvegas.com','pokergo.com'].includes(domain)?
       'vendor':'unclassified';
-  const routedHint=direction==='inbound'&&sourceType==='email_thread'&&
+  const formServiceLead=direction==='inbound'&&sourceType==='email_thread'&&
+    hint==='unclassified'&&isAutomatedLeadNotification(domain,row.subject);
+  const routedHint=formServiceLead?'form_notification':
+    direction==='inbound'&&sourceType==='email_thread'&&
     hint==='unclassified'&&isDocumentWorkflowNotice(domain,row.subject)?
       'operational_notice':hint;
   // An inbound self-addressed form is not an ordinary sender reply.

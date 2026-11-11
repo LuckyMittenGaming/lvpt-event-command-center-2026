@@ -98,7 +98,9 @@ function harness(options={}){
     },
     '../_inbox-routing':{
       isDocumentWorkflowNotice:(domain,subject)=>
-        /(?:^|\.)docusign\.net$/i.test(String(domain||''))
+        /(?:^|\.)docusign\.net$/i.test(String(domain||'')),
+      isBizlyMailServiceDomain:domain=>
+        /(?:^|\.)bizlyapp\.com$/i.test(String(domain||''))
     }
   };
   const sandbox={
@@ -165,6 +167,13 @@ function harness(options={}){
   h=harness({verified:{recipient:'different@example.com'}});
   x=await h.post();
   assert.equal(x.status,409,'Recipient mismatch cannot be sent');
+  assert(!h.seen.apps.some(v=>v.action==='sendOwnerApprovedGmailReply'));
+  h=harness({verified:{recipient:'team@b.bizlyapp.com',
+    subject:'New Contact Form Submission from Customer'}});
+  x=await h.post({...baseline,recipient:'team@b.bizlyapp.com'});
+  assert.equal(x.status,409,'Bizly form-service sender must never receive customer reply');
+  assert.equal(x.json.reason,'form_service_sender_not_client');
+  assert.equal(h.seen.reservations.length,0);
   assert(!h.seen.apps.some(v=>v.action==='sendOwnerApprovedGmailReply'));
   h=harness({verified:{recipient:'notice@docusign.net',
     subject:'Complete with Docusign: Please sign your document'}});

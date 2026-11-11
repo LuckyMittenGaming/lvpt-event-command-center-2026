@@ -144,6 +144,10 @@ function harness(rows,options={}) {
   await h.queue.advanceToNextInboxThread(a.threadId);
   assert.deepEqual(h.seen.opened,[]);
   assert.match(h.seen.status.at(-1),/Review paused/);
+  // Verified talent must not enter the prospect reply queue.
+  h=harness([a,{...b,relationshipHint:'talent'},c],{current:a.threadId});
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.deepEqual(h.seen.opened,[c.threadId]);
   // Never select vendor, internal, form, outgoing or no-review metadata.
   h=harness([a,{...b,relationshipHint:'vendor'},{...c,lastDirection:'outbound'}],
     {current:a.threadId});

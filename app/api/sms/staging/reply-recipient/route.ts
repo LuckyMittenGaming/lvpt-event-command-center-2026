@@ -1,6 +1,7 @@
 import { jsonNoStore, ready } from '../_lib';
 import { hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { isDocumentWorkflowNotice } from '../_inbox-routing';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -33,6 +34,8 @@ export async function GET(request:Request) {
       threadId,expectedLastMessageAt:lastMessageAt
     });
     const email=String(data.recipient||'').toLowerCase();
+    if(isDocumentWorkflowNotice(email.split('@')[1],data.subject))
+      return jsonNoStore({ok:false,reason:'operational_notice_not_a_client_reply'},409);
     if(data.ok!==true||data.source!=='verified_lvpt_gmail_reply_recipient'||
       data.mailboxIdentityVerified!==true||data.threadId!==threadId||
       data.lastMessageAt!==lastMessageAt||

@@ -1,7 +1,7 @@
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
-import { isDocumentWorkflowNotice } from '../_inbox-routing';
+import { isDocumentWorkflowNotice, isBizlyMailServiceDomain } from '../_inbox-routing';
 import { getAiGatewayCredential } from '../../../../../lib/lvpt-ai-gateway-auth';
 import { authoredText, qualifyDiagnosticPreview } from '../../../../../lib/lvpt-diagnostic-message.mjs';
 
@@ -138,7 +138,8 @@ export async function POST(request:Request) {
        !Number.isInteger(context.totalMessages)||Number(context.totalMessages)>150||
        latest.at!==lastMessageAt||latest.direction!=='inbound'||
        latest.relationshipHint!=='unclassified'||
-       isDocumentWorkflowNotice(latest.senderDomain,'')||latest.truncated===true||
+       (isDocumentWorkflowNotice(latest.senderDomain,'')||
+        isBizlyMailServiceDomain(latest.senderDomain))||latest.truncated===true||
        latest.hasAttachments===true||typeof latest.excerpt!=='string'||
        !latest.excerpt.trim())
       return jsonNoStore({ok:false,reason:'source_stale_ambiguous_or_unverified'},409);

@@ -9,16 +9,27 @@ const begin=gas.indexOf('function lvptInboxHeader_(');
 const end=gas.indexOf('// A narrow, source-verified relationship hint.',begin);
 const quoteBegin=gas.indexOf('function lvptGmailDraftVisibleBody_(');
 const quoteEnd=gas.indexOf('// Read-only test that logs counts',quoteBegin);
-assert(begin>0&&end>begin&&quoteBegin>0&&quoteEnd>quoteBegin);
+const roleBegin=gas.indexOf('function lvptInboxRelationship_(');
+const roleEnd=gas.indexOf('function lvptReadOnlyBusinessInboxReview_(',roleBegin);
+assert(begin>0&&end>begin&&quoteBegin>0&&quoteEnd>quoteBegin&&
+  roleBegin>0&&roleEnd>roleBegin);
 const script=[
   gas.slice(begin,end),
   gas.slice(quoteBegin,quoteEnd),
-  'this.helpers={lvptInboxAutomated_,lvptGmailDraftVisibleBody_};'
+  gas.slice(roleBegin,roleEnd),
+  'this.helpers={lvptInboxAutomated_,lvptGmailDraftVisibleBody_,lvptInboxRelationship_};'
 ].join('\n');
 const sandbox=vm.createContext({});
 new vm.Script(script,{filename:'gas-safety-pure.js'}).runInContext(sandbox,{timeout:1500});
 const {lvptInboxAutomated_:automated,lvptGmailDraftVisibleBody_:visible}=
   sandbox.helpers;
+const {lvptInboxRelationship_:relationship}=sandbox.helpers;
+assert.equal(relationship('kennajamespoker@gmail.com',
+  'book@pokertraininglasvegas.com',false,false),'talent');
+assert.equal(relationship('unknown@gmail.com',
+  'book@pokertraininglasvegas.com',false,false),'unclassified');
+assert.equal(relationship('wsopamatt@gmail.com',
+  'book@pokertraininglasvegas.com',false,false),'internal');
 const msg=(from,subject,extra=[])=>({
   payload:{headers:[
     {name:'From',value:from},

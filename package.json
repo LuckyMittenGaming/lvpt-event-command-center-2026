@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:staging-safety": "node tests/sms-inbox-diagnostics.test.cjs && node tests/sms-inbox-diagnostics-autoselect.test.mjs && node tests/sms-diagnostic-message.test.mjs && node tests/sms-gas-long-thread-preview.test.cjs && node tests/sms-gas-recipient-verification.test.cjs && node tests/sms-reply-qualification.test.cjs && node tests/sms-reply-review.test.cjs && node tests/sms-reply-send.test.cjs && node tests/sms-reply-send-ui.test.cjs && node tests/sms-reply-ai.test.cjs && node tests/sms-reply-send-runtime.test.cjs && node tests/sms-negative-gmail-canary.test.mjs",
+    "test:staging-safety": "node tests/sms-inbox-diagnostics.test.cjs && node tests/sms-inbox-diagnostics-autoselect.test.mjs && node tests/sms-diagnostic-message.test.mjs && node tests/sms-gas-long-thread-preview.test.cjs && node tests/sms-gas-recipient-verification.test.cjs && node tests/sms-reply-qualification.test.cjs && node tests/sms-reply-review.test.cjs && node tests/sms-reply-send.test.cjs && node tests/sms-reply-send-ui.test.cjs && node tests/sms-reply-ai.test.cjs && node tests/sms-reply-send-runtime.test.cjs && node tests/sms-negative-gmail-canary.test.mjs && node tests/sms-reply-queue-navigation.test.cjs",
     "prebuild": "npm run test:staging-safety"
   },
   "dependencies": {

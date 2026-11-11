@@ -17,11 +17,13 @@
   }
   function createController({getProtected,makeText,qualification,workflow,onUpdate,onNext}) {
     const audits=new Map(),verified=new Map();
+    // Browser-session-only outcome: copied is NOT the same as sent.
+    const finished=new Map();
     const recipients=new Map(),sendRecords=new Map();
     const status=new Map();
     let active=null,working='';
     function reset() {
-      audits.clear();verified.clear();recipients.clear();sendRecords.clear();
+      audits.clear();verified.clear();finished.clear();recipients.clear();sendRecords.clear();
       status.clear();active=null;working='';
     }
     const fingerprint=(text)=>window.crypto.subtle.digest('SHA-256',
@@ -48,6 +50,11 @@
       if(!t?.threadId||!d?.ok||d.source!=='append_only_owner_reply_audit')return false;
       audits.set(t.threadId,{ready:true,...d});
       onUpdate();return true;
+    }
+    function handledThisSession(t) {
+      const finishedRevision=finished.get(t?.threadId);
+      return sameRevision(finishedRevision?.lastMessageAt,t?.lastMessageAt)?
+        finishedRevision.kind:null;
     }
     function deniedRevision(t) {
       const a=audits.get(t?.threadId);
@@ -79,6 +86,7 @@
         });
         status.set(t.threadId,'Decision recorded in separate append-only review audit. No email sent.');
         if(decision==='draft_prepared') {
+          finished.delete(t.threadId);
           recipients.delete(t.threadId);
           const draft=active&&active.threadId===t.threadId?
             active:workflow.draftStarter(t);
@@ -89,6 +97,7 @@
         }else if(decision==='approved_for_manual_copy') {
           active={...active,phase:'approved_for_manual_copy',draftDigest};
         }else if(decision==='denied') {
+          finished.delete(t.threadId);
           recipients.delete(t.threadId);active=null;
           verified.delete(t.threadId);
           moveNext=true;
@@ -222,6 +231,7 @@
       // Advance only after a positive Gmail acknowledgement, never on
       // uncertain or failed delivery; preserve the send audit.
       if(active?.phase==='sent'&&active.threadId===t.threadId) {
+        finished.set(t.threadId,{kind:'sent',lastMessageAt:t.lastMessageAt});
         active=null;verified.delete(t.threadId);onUpdate();
         if(typeof onNext==='function')onNext(t.threadId);
       }
@@ -435,6 +445,7 @@
         // An explicit user-initiated successful clipboard copy releases the
         // single-email lock. Never advance on failure or mere approval.
         if(copied) {
+          finished.set(t.threadId,{kind:'copied_not_sent',lastMessageAt:t.lastMessageAt});
           active=null;
           verified.delete(t.threadId);
           onUpdate();
@@ -458,7 +469,8 @@
         'Step 48: Sending requires a verified Gmail recipient, a matching owner-approved text digest, explicit confirmation, two owner-controlled switches and a unique send reservation. All are OFF by default. Never retry an uncertain send.'));
       container.append(wrap);
     }
-    return {render,loadAudit,rememberAudit,deniedRevision,reset,getActive:()=>active};
+    return {render,loadAudit,rememberAudit,deniedRevision,
+      handledThisSession,reset,getActive:()=>active};
   }
   return {createController,sameRevision};
 });

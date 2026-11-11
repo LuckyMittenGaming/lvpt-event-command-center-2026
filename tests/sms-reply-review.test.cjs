@@ -205,6 +205,31 @@ async function sequence() {
     'A denied email revision must not reopen until a new incoming message');
   assert(updates>0);
   c.reset();
+  // Reload the audit exactly as PostgREST historically serialized it.
+  // It MUST NOT reenable a previously denied email after a page refresh.
+  const postgresAt=at.replace(/\.000Z$/,'+00:00');
+  const restored=controls.createController({
+    getProtected:async()=>({
+      ok:true,source:'append_only_owner_reply_audit',
+      decision:'denied',lastMessageAt:postgresAt,
+      ownerReviewedOriginal:true
+    }),
+    makeText,qualification:{},workflow,onUpdate:()=>{}
+  });
+  await restored.loadAudit(thread);
+  root=new Node('div');restored.render(root,thread,context,q);
+  assert(!button(root,'Prepare editable reply'),
+    'Persisted denial in PostgreSQL timestamp format must block the same email revision');
+  assert(read(root,x=>String(x.textContent||'').includes('owner already denied')),
+    'Previously denied email should explain its closed state');
+  // A real NEW inbound message in that thread is a different revision.
+  const newAt=new Date(Date.parse(at)+60000).toISOString();
+  const newThread={...thread,lastMessageAt:newAt};
+  const newContext={...context,lastMessageAt:newAt,messages:[{...reply,at:newAt}]};
+  const newQ=qualifyThread(newThread,newContext);
+  root=new Node('div');restored.render(root,newThread,newContext,newQ);
+  assert(button(root,'Prepare editable reply'),
+    'A newer incoming client message must be eligible for separate human review');
 }
 sequence().then(()=>{
   const api=fs.readFileSync(path.join(__dirname,

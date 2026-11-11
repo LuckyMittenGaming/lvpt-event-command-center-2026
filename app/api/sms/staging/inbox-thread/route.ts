@@ -62,7 +62,7 @@ export async function GET(request:Request) {
       if(!m||typeof m!=='object')return jsonNoStore({ok:false,reason:'unsafe_thread_context'},502);
       const at=safeMessageDate(m.at);
       if(!at||!['inbound','outbound','form_lead','other'].includes(String(m.direction))||
-         !['internal','vendor','form_lead','outbound','unclassified'].includes(String(m.relationshipHint))||
+         !['internal','vendor','talent','form_lead','outbound','unclassified'].includes(String(m.relationshipHint))||
          typeof m.excerpt!=='string'||m.excerpt.length>1200)
         return jsonNoStore({ok:false,reason:'unsafe_thread_context'},502);
       const domain=String(m.senderDomain||'').toLowerCase();

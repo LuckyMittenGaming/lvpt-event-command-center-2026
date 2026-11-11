@@ -819,6 +819,10 @@ function lvptInboxRelationship_(sender,recipient,isFormLead,isSent) {
   // Owner's known personal mailbox is internal, whether sender or recipient.
   if(from==='wsopamatt@gmail.com' || to==='wsopamatt@gmail.com')
     return 'internal';
+  // Verified LVPT training professional; this is talent/event coordination,
+  // not a customer inquiry. Preserve it for operations, never sales outreach.
+  if(from==='kennajamespoker@gmail.com')
+    return 'talent';
   // Verified LVPT vendors/venues; classify as operational, never as sales leads.
   if(/@(elevatedbarservices\.com|venetianlasvegas\.com|pokergo\.com)$/i.test(from))
     return 'vendor';

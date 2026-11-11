@@ -130,6 +130,15 @@ function harness(rows,options={}) {
   assert.deepEqual(h.seen.opened,[a.threadId]);
   assert.equal(h.contexts.get(a.threadId).visible,false);
   assert.match(h.seen.status.at(-1),/non-reply messages skipped/);
+  // A Bizly form lead remains visible for CRM intake, but can never
+  // silently become a direct reply to the platform mailbox.
+  h=harness([a,{...b,relationshipHint:'form_notification'},c],{
+    current:a.threadId,qualifications:{[b.threadId]:'form_notification'}
+  });
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.deepEqual(h.seen.opened,[b.threadId],
+    'Third-party form inquiries must remain in manual lead intake');
+  assert.equal(h.contexts.get(b.threadId).visible,true);
   // Audit failure is fail-closed: do not open or send anything.
   h=harness([a,b],{current:a.threadId,failAudit:b.threadId});
   await h.queue.advanceToNextInboxThread(a.threadId);

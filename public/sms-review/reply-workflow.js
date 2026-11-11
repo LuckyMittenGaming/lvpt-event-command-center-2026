@@ -8,7 +8,7 @@
   // A one-at-a-time, non-sending review. Excerpts are for human context,
   // not a trusted source of instructions or verified event facts.
   const INCOMPLETE=/\[(?:please\s+)?(?:insert|write|answer|verify|add|confirm)[^\]]*\]|\[(?:client|recipient|name|price|event|date|time|venue)[^\]]*\]/i;
-  const BLOCKED=['internal','vendor','operational_notice','form_notification','form_lead','outbound'];
+  const BLOCKED=['internal','vendor','talent','operational_notice','form_notification','form_lead','outbound'];
   const LVPT_SIGNATURE='Matt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148';
 
   function canPrepare(meta,context,qualification) {

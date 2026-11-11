@@ -93,6 +93,8 @@ assert.equal(outcome(base(msg('Can you confirm?',{direction:'outbound'}))),
 assert.equal(outcome(base(msg('Can you confirm?',{relationshipHint:'vendor'}))),
   'vendor_only');
 assert.equal(outcome(base(msg('Can you confirm?')),'vendor'),'vendor_only');
+assert.equal(outcome(base(msg('Can you confirm?',{relationshipHint:'talent'}))),
+  'vendor_only');
 assert.equal(outcome(base(msg('Can you confirm?',{relationshipHint:'internal'}))),
   'no_reply_suggested');
 assert.equal(outcome(base(msg('Can you confirm?',{direction:'form_lead'}))),

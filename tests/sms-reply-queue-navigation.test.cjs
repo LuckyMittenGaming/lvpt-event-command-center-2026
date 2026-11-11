@@ -9,6 +9,11 @@ const start=app.indexOf('  function orderedInboxCandidates(');
 const end=app.indexOf('\n  async function loadBusinessInboxThread(t) {',start);
 assert(start>=0&&end>start,'Inbox navigation implementation not found');
 assert.match(html,/id="businessInboxQueueStatus"/);
+assert.match(html,/id="continueBusinessInboxQueue"/);
+assert.match(app,/\$\('continueBusinessInboxQueue'\)\.addEventListener\('click'/,
+  'Owner can explicitly resume the queue after a browser refresh');
+assert.match(app,/Boolean\(replyController\.getActive\(\)\)/,
+  'An active owner draft must prevent advancing to another email');
 const code=app.slice(start,end)+'\nthis.queue={orderedInboxCandidates,advanceToNextInboxThread};';
 const now=new Date().toISOString();
 const mk=(id,minutesAgo)=>({
@@ -65,6 +70,12 @@ function harness(rows,options={}) {
   h=harness([a,b,c],{current:c.threadId});
   await h.queue.advanceToNextInboxThread(c.threadId);
   assert.deepEqual(h.seen.opened,[a.threadId]);
+  // After refresh, resume from the first eligible unreviewed email.
+  h=harness([a,b,c],{current:a.threadId,denied:[a.threadId]});
+  await h.queue.advanceToNextInboxThread(null);
+  assert.deepEqual(h.seen.opened,[b.threadId]);
+  assert.equal(h.contexts.get(a.threadId).visible,false,
+    'Resuming should collapse an old denied preview');
   // When current thread was the only one, do not leave it expanded or imply all Gmail is clear.
   h=harness([a],{current:a.threadId});
   await h.queue.advanceToNextInboxThread(a.threadId);

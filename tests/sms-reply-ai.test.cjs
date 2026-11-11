@@ -41,8 +41,10 @@ assert.match(api,/natural first-person LVPT owner voice/,
   'Drafts must sound like a real LVPT event professional');
 assert.match(api,/reply body should begin with a natural greeting/,
   'Replies must include a human opening');
-assert.match(api,/End with a simple warm closing/,
-  'Replies should finish with a concise, genuine sign-off');
+assert.match(api,/exact verified four-line LVPT business signature/,
+  'AI prompt must describe the server-appended verified sender signature');
+assert.match(api,/withLvptSignature\(sanitizedExcerptLong\(p.body\)\)/,
+  'The server must append the verified signature even if the AI forgets it');
 assert.match(api,/Do not repeat a controlled workflow test label/,
   'Test-only instructions should not pollute customer-facing text');
 assert.match(api,/sender.*recipient addresses|recipient addresses or other identifiers/);
@@ -51,6 +53,31 @@ assert.doesNotMatch(api,/sendOwnerApprovedGmailReply|messages\/send|GmailApp\.se
   'AI generation may not contain ANY Gmail sending mechanism');
 assert.doesNotMatch(api,/\b(?:sendTo|sendEmail|createDraft)\(/,
   'No Gmail draft writing may be reachable from the AI endpoint');
+
+// Test the actual server-side signature formatter, not just the prompt.
+const ts=require('typescript'),vm=require('node:vm');
+const beginning=api.indexOf('// Exact business signature');
+const ending=api.indexOf('function parseDraft(');
+assert(beginning>0&&ending>beginning,'Signature helper is missing');
+const code=ts.transpileModule(api.slice(beginning,ending)+
+  '\nmodule.exports={LVPT_SIGNATURE,withLvptSignature};',{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}
+}).outputText;
+const runtime={module:{exports:{}}};
+vm.runInNewContext(code,runtime,{timeout:1000});
+const {LVPT_SIGNATURE,withLvptSignature}=runtime.module.exports;
+assert.equal(LVPT_SIGNATURE,
+  'Matt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148');
+const sample='Hi,\n\nThanks for your inquiry. We can outline training options for 12 guests.';
+for(const input of [sample,sample+'\n\nThanks,\nMatt',
+  sample+'\n\nThanks,\n\n'+LVPT_SIGNATURE]) {
+  const answer=withLvptSignature(input);
+  assert(answer.endsWith(LVPT_SIGNATURE),'Exact signature required');
+  assert.equal(answer.split('Matt Carpenter').length,2,'Full signature must appear once');
+  assert.equal(answer.split('Thanks,').length,2,'Sign-off must not duplicate');
+}
+assert.match(api,/body:draft.body,rationale:draft.rationale/,
+  'Send the formatted, signed AI draft to the owner for approval');
 
 // Long conversations are allowed only when newest message is readable and
 // owner attested they inspected omitted ORIGINAL correspondence and CRM.

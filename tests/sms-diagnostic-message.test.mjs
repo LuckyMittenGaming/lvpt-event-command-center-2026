@@ -41,6 +41,35 @@ assert.equal(reason(base(msg(namedThanks))),'acknowledgement');
 assert.equal(outcome(base(msg(namedThanks.replace('for the email.',
   'for the email. Could you share possible dates?')))),'possible_request');
 assert.equal(outcome(base(msg(namedThanks,{hasAttachments:true}))),'needs_review');
+const kennaQuoted=[
+  'Awesome! Thanks for this and Llook forward to connecting this weekend.',
+  '',
+  'KJ',
+  '',
+  'Kenna James',
+  'KennaJames.com <[link]>',
+  'X @Kenna_James <[link]>',
+  'Instagram <[link]>',
+  '',
+  'On Wed, Oct 21, 2026 at 12:40 PM Las Vegas Poker Training <',
+  '[email]> wrote:',
+  '> Could you provide a quote?'
+].join('\n');
+assert.equal(authoredText(kennaQuoted),
+  'Awesome! Thanks for this and Llook forward to connecting this weekend.');
+assert.equal(outcome(base(msg(kennaQuoted,{truncated:true}))),'no_reply_suggested',
+  'Clipped old forwarded quote must not turn Kenna courtesy into a new client inquiry');
+assert.equal(reason(base(msg(kennaQuoted,{truncated:true}))),'acknowledgement');
+assert.equal(outcome(base(msg(kennaQuoted,{hasAttachments:true,truncated:true}))),'needs_review');
+assert.equal(outcome(base(msg(kennaQuoted.split('On Wed,')[0],{truncated:true}))),'needs_review',
+  'Without a clear quoted-history boundary, a clipped message must stay in review');
+const actualAsk=kennaQuoted.replace(
+  'Awesome! Thanks for this and Llook forward to connecting this weekend.',
+  'Thanks for this. Could you send the final contract today?');
+assert.equal(outcome(base(msg(actualAsk,{truncated:true}))),'needs_review',
+  'A direct question before forwarded history cannot be silently skipped');
+assert.equal(outcome(base(msg(actualAsk))),'possible_request');
+
 
 assert.equal(outcome(base(msg('We will get back to you after internal review.'))),'no_reply_suggested');
 assert.equal(reason(base(msg('We need to share this with leadership and will get back to you.'))),

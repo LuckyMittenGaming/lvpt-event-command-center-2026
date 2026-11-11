@@ -14,6 +14,8 @@ const route=fs.readFileSync('app/api/sms/staging/reply-decisions/route.ts','utf8
 assert.match(route,/new Date\(row.last_message_at\)\.toISOString\(\)/,
   'Server must normalize audit timestamps to canonical UTC');
 assert.match(html,/id="continueBusinessInboxQueue"/);
+assert.match(app,/Dismissed by owner — no reply needed/,
+  'Denied emails should not remain labeled as new potential inquiries');
 assert.match(app,/\$\('continueBusinessInboxQueue'\)\.addEventListener\('click'/,
   'Owner can explicitly resume the queue after a browser refresh');
 assert.match(app,/Boolean\(replyController\.getActive\(\)\)/,
@@ -26,12 +28,13 @@ const mk=(id,minutesAgo)=>({
   sourceType:'email_thread',relationshipHint:'unclassified'
 });
 function harness(rows,options={}) {
-  const seen={opened:[],status:[],audits:[],pages:0,render:0,scroll:0};
+  const seen={opened:[],status:[],audits:[],remembered:[],pages:0,render:0,scroll:0};
   const contexts=new Map(rows.map(x=>[x.threadId,{visible:x.threadId===options.current}]));
   const data={connected:true,threads:rows,nextPage:options.nextPage??null};
   const sandbox={
     sessionToken:'owner-session',businessInboxReview:data,
     window:{LVPTReplyReviewControls:{sameRevision}},
+    replyController:{rememberAudit:(t,d)=>{seen.remembered.push({id:t.threadId,decision:d.decision});}},
     businessInboxThreadContext:contexts,businessInboxError:'',
     inboxQueueBusy:false,
     renderBusinessInboxReview:()=>{seen.render++;},

@@ -656,9 +656,14 @@
         'No eligible entries in these bounded pages. This does not prove the entire business inbox is clear.'));
     sorted.forEach(t=>{
       const dismissed=replyController.deniedRevision(t);
+      const cachedContext=businessInboxThreadContext.get(t.threadId);
+      const cachedQualification=cachedContext?
+        replyQualifier.qualifyThread(t,cachedContext):null;
       const card=makeText('div','gmail-evidence-card','');
       card.append(makeText('strong','',t.subject||'(no subject)'));
       const role=dismissed?'Dismissed by owner — no reply needed':
+        cachedQualification?.outcome==='monitor'?
+          'Acknowledgement or LVPT replied — no new reply suggested':
         t.sourceType==='form_lead'?'Website form — verify original client and prior replies':
         t.relationshipHint==='internal'?'Internal correspondence — no sales outreach':
         t.relationshipHint==='vendor'?'Vendor / venue operations':
@@ -674,6 +679,8 @@
       const needs=t.needsHumanReview;
       card.append(makeText('p','gmail-evidence-explain',
         dismissed?'Owner denied this email revision. It is excluded from the approval queue until a new client message arrives.':
+        cachedQualification?.outcome==='monitor'?
+          'The latest message does not require a new customer reply. Keep the event opportunity and its follow-up status separate.':
         t.relationshipHint==='internal'?
           'Internal owner correspondence. Not a customer lead.':
         t.relationshipHint==='vendor'?
@@ -746,7 +753,8 @@
           detail.append(showMessage(latest,'Latest message'));
         }
         detail.append(qualificationCard);
-        if(qualification.outcome==='operational_notice') {
+        if(['operational_notice','monitor','hold','client_declined'].includes(
+          qualification.outcome)) {
           const continueQueue=makeText('button','neutral',
             'Continue to next customer inquiry');
           continueQueue.type='button';
@@ -971,10 +979,10 @@
     if(!previousThreadId)businessInboxThreadContext.forEach((value,key)=>
       businessInboxThreadContext.set(key,{...value,visible:false}));
     renderBusinessInboxReview();
-    showInboxQueueStatus(previousThreadId?
-      'Denial saved. Checking the next eligible LVPT conversation (read-only)…':
+    showInboxQueueStatus(
       'Checking the next eligible LVPT conversation (read-only)…');
     const examined=new Set();
+    let skippedNoReply=0;
     try {
       // Load a bounded number of additional metadata pages on demand.
       // This never reads message bodies until a selected thread is opened.
@@ -1005,11 +1013,24 @@
             return;
           }
           await loadBusinessInboxThread(next);
-          if(!businessInboxThreadContext.get(next.threadId)?.visible) {
+          const opened=businessInboxThreadContext.get(next.threadId);
+          if(!opened?.visible) {
             showInboxQueueStatus('Next email could not be opened for review. Refresh the inbox and retry. No email sent.');
             return;
           }
-          showInboxQueueStatus('Next eligible incoming email opened for owner review. Nothing was approved or sent automatically.');
+          const qualification=replyQualifier.qualifyThread(next,opened);
+          if(['monitor','hold','client_declined','vendor_operations',
+              'internal','operational_notice'].includes(qualification.outcome)) {
+            // Read-only classification never means that an associated event
+            // or client opportunity is closed. Hide this non-reply and keep
+            // searching; do not record an owner denial automatically.
+            businessInboxThreadContext.set(next.threadId,
+              {...opened,visible:false});
+            skippedNoReply++;
+            renderBusinessInboxReview();
+            continue;
+          }
+          showInboxQueueStatus('Next potential inquiry opened for owner review. Nothing was approved or sent automatically.');
           const heading=$('inboxReviewTitle');
           if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});
           return;
@@ -1026,8 +1047,10 @@
       }
       const more=businessInboxReview?.nextPage!==null;
       showInboxQueueStatus(more?
-        'No further eligible inquiry found in the pages checked. More pages may be available; use Load more business Gmail to continue.':
-        'Review queue complete for the scanned recent-mail window. No other eligible incoming email found. This does not mean the entire mailbox is clear.');
+        'No further potential reply found in the pages checked ('+skippedNoReply+
+          ' non-reply messages skipped). More pages may be available; use Load more business Gmail to continue.':
+        'Reply queue complete for the scanned recent-mail window ('+skippedNoReply+
+          ' non-reply messages skipped). No further potential reply found. This does not mean the entire mailbox is clear, or that event follow-ups are complete.');
     }finally {
       inboxQueueBusy=false;
     }

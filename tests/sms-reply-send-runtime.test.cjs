@@ -98,7 +98,7 @@ function harness(options={}){
     },
     '../_inbox-routing':{
       isDocumentWorkflowNotice:(domain,subject)=>
-        /(?:^|\\.)docusign\\.net$/i.test(String(domain||''))
+        /(?:^|\.)docusign\.net$/i.test(String(domain||''))
     }
   };
   const sandbox={

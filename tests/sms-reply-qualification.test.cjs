@@ -131,6 +131,10 @@ expectOutcome('client absent','hold',{
 expectOutcome('internal review','hold',{
   message:{excerpt:'We need to share this with leadership and will get back to you.'}
 });
+expectOutcome('talent coordinator request','talent_operations',{
+  metadata:{relationshipHint:'talent'},
+  message:{relationshipHint:'talent',excerpt:'Could you send the seminar outline?'}
+});
 expectOutcome('vendor operations','vendor_operations',{
   metadata:{relationshipHint:'vendor'},
   message:{relationshipHint:'vendor',excerpt:'Can you confirm the load-in time?'}

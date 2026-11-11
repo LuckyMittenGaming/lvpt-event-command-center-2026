@@ -21,3 +21,8 @@ export function isAutomatedLeadNotification(senderDomain:unknown,subject:unknown
   return isBizlyMailServiceDomain(senderDomain)&&
     /^(?:new\s+(?:contact\s+form|website\s+(?:contact|lead)|corporate\s+(?:poker\s+)?builder)\s+(?:submission|lead)|new\s+.{0,60}\s+lead\s+received)/i.test(String(subject||'').trim());
 }
+
+/** Verified from the actual LVPT Gmail conversation, not a name guess. */
+export function isVerifiedTalentEmail(address:unknown):boolean {
+  return String(address||'').trim().toLowerCase()==='kennajamespoker@gmail.com';
+}

@@ -597,6 +597,8 @@
     const more=$('loadMoreBusinessInbox');
     items.replaceChildren();
     $('refreshBusinessInbox').disabled=!sessionToken || businessInboxLoading;
+    $('continueBusinessInboxQueue').disabled=!sessionToken||businessInboxLoading||
+      inboxQueueBusy||!businessInboxReview?.connected||Boolean(replyController.getActive());
     $('runInboxDiagnostics').disabled=!sessionToken || businessInboxLoading;
     more.hidden=true;
     if(!sessionToken || !report || report.source!=='staging') {
@@ -945,6 +947,8 @@
     const previous=businessInboxThreadContext.get(previousThreadId);
     if(previous)businessInboxThreadContext.set(previousThreadId,
       {...previous,visible:false});
+    if(!previousThreadId)businessInboxThreadContext.forEach((value,key)=>
+      businessInboxThreadContext.set(key,{...value,visible:false}));
     renderBusinessInboxReview();
     showInboxQueueStatus('Denial saved. Checking the next eligible LVPT conversation (read-only)…');
     const examined=new Set();
@@ -1861,6 +1865,13 @@
   $('runSyntheticAiTest').addEventListener('click',runSyntheticAiTest);
   $('refreshGmailEvidence').addEventListener('click',loadGmailEvidence);
   $('refreshBusinessInbox').addEventListener('click',()=>loadBusinessInboxReview(false));
+  $('continueBusinessInboxQueue').addEventListener('click',()=>{
+    if(replyController.getActive()){
+      showInboxQueueStatus('Finish or close the current draft before continuing the queue.');
+      return;
+    }
+    void advanceToNextInboxThread(null);
+  });
   $('runInboxDiagnostics').addEventListener('click',()=>void runInboxDiagnostics());
   $('loadMoreBusinessInbox').addEventListener('click',()=>loadBusinessInboxReview(true));
   $('toggleActionMonitoring').addEventListener('click',()=>{

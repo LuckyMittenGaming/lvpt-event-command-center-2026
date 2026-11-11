@@ -9,6 +9,12 @@
   const canonicalSubject=v=>String(v||'')
     .replace(/^(?:(?:re|fw|fwd):\s*)+/ig,'')
     .replace(/\s+/g,' ').trim().toLowerCase();
+  function sameRevision(a,b) {
+    // Gmail ISO UTC and PostgREST timestamptz may use different text forms.
+    if(typeof a!=='string'||typeof b!=='string')return false;
+    const left=Date.parse(a),right=Date.parse(b);
+    return Number.isFinite(left)&&Number.isFinite(right)&&left===right;
+  }
   function createController({getProtected,makeText,qualification,workflow,onUpdate,onNext}) {
     const audits=new Map(),verified=new Map();
     const recipients=new Map(),sendRecords=new Map();
@@ -221,14 +227,14 @@
           audit?.error||'Checking separate owner reply-approval audit…'));
         container.append(wrap);return;
       }
-      if(audit.lastMessageAt===t.lastMessageAt&&audit.decision) {
+      if(sameRevision(audit.lastMessageAt,t.lastMessageAt)&&audit.decision) {
         wrap.append(makeText('p','action-draft-status',
           'Last recorded decision: '+audit.decision.replace(/_/g,' ')+
           '. The text of any prior draft is intentionally not stored.'));
       }
       if(status.has(t.threadId))
         wrap.append(makeText('p','action-draft-status',status.get(t.threadId)));
-      if(!active&&audit.lastMessageAt===t.lastMessageAt&&audit.decision==='denied') {
+      if(!active&&sameRevision(audit.lastMessageAt,t.lastMessageAt)&&audit.decision==='denied') {
         wrap.append(makeText('p','hint',
           'No reply needed — the owner already denied this exact email revision. A new client message can be reviewed separately.'));
         container.append(wrap);return;
@@ -424,5 +430,5 @@
     }
     return {render,loadAudit,reset,getActive:()=>active};
   }
-  return {createController};
+  return {createController,sameRevision};
 });

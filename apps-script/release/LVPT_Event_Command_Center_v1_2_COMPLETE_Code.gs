@@ -737,7 +737,10 @@ function lvptReadOnlyGmailDraftContext_(eventKey, threadId, expectedLastMessageA
 // older email history contains thousands of quoted characters.
 function lvptGmailDraftVisibleBody_(raw) {
   var input=String(raw||'').replace(/\r\n/g,'\n').replace(/\u0000/g,'').trim();
-  var boundary=/\n\s*(?:On\s+[^\n]{5,180}\s+wrote:|-----Original Message-----|From:\s+[^\n]{3,150}\n\s*Sent:)/i;
+  // Quoted Gmail headers can wrap "On Wed ... <sender> wrote:" across
+  // two or three lines. Ignore old quoted requests when reading the current
+  // author's message, without removing a real new question.
+  var boundary=/\n\s*(?:On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n]{5,200}(?:\n[^\n]{0,180}){0,2}\s*wrote:|-----Original Message-----|From:\s+[^\n]{3,150}\n\s*Sent:)/i;
   var authored=input.split(boundary)[0].trim();
   var max=1600;
   return {body:authored.slice(0,max),truncated:authored.length>max,
@@ -788,6 +791,13 @@ function lvptInboxAutomated_(message) {
   var subject=lvptInboxHeader_(message,'Subject');
   var auto=lvptInboxHeader_(message,'Auto-Submitted').toLowerCase();
   var precedence=lvptInboxHeader_(message,'Precedence').toLowerCase();
+  // Form-system notifications have List-Unsubscribe even when they contain
+  // REAL prospective customer inquiries. Admit only this exact known sender
+  // and form-submission subject for OWNER REVIEW, not for direct replying.
+  // Vercel separately categorizes these as form_notification.
+  var trustedFormSubmission=from==='team@b.bizlyapp.com'&&
+    /^New Contact Form Submission from\s+.{2,80}$/i.test(subject);
+  if(trustedFormSubmission)return false;
   if(auto && auto!=='no')return true;
   if(/^(?:bulk|list|junk)$/.test(precedence))return true;
   if(lvptInboxHeader_(message,'List-Unsubscribe'))return true;
@@ -1081,6 +1091,7 @@ function lvptStep48VerifyReplyRecipient_(threadId,expectedLastMessageAt) {
   var replyTo=lvptInboxEmail_(lvptInboxHeader_(last,'Reply-To'));
   var to=lvptInboxEmail_(lvptInboxHeader_(last,'To'));
   if(to!==mailbox||!from||from===mailbox ||
+    /@(?:[a-z0-9-]+\.)*bizlyapp\.com$/i.test(from) ||
     (replyTo&&replyTo!==from)||lvptInboxAutomated_(last) ||
     (last.labelIds||[]).indexOf('SENT')>=0 ||
     lvptInboxRelationship_(from,to,false,false)!=='unclassified')

@@ -619,6 +619,7 @@
     const rows=businessInboxReview.threads||[];
     const inbound=rows.filter(x=>x.needsHumanReview===true);
     const vendor=inbound.filter(x=>x.relationshipHint==='vendor').length;
+    const talent=inbound.filter(x=>x.relationshipHint==='talent').length;
     const internal=rows.filter(x=>x.relationshipHint==='internal').length;
     const formLeads=inbound.filter(x=>x.sourceType==='form_lead'||
       x.relationshipHint==='form_notification').length;
@@ -633,7 +634,8 @@
     status.textContent='Read-only business Gmail: '+businessInboxReview.examinedThreads+
       ' message threads checked across '+businessInboxReview.pagesLoaded+' bounded page(s); '+
       possible+' potential inquiries ('+formLeads+' form notifications), '+
-      vendor+' vendor/venue reviews, '+operational+
+      vendor+' vendor/venue reviews, '+talent+
+      ' professional talent reviews, '+operational+
       ' contract/document notices, '+internal+' internal thread(s), '+
       businessInboxReview.excludedAutomatedCount+' automated notifications excluded.'+
       (businessInboxReview.upgradePending?
@@ -647,7 +649,7 @@
     const priority=t=>replyController.deniedRevision(t)?6:
       (t.sourceType==='form_lead'||t.relationshipHint==='form_notification')?0:
       t.needsHumanReview&&t.relationshipHint==='unclassified'?1:
-      t.relationshipHint==='vendor'?2:
+      (t.relationshipHint==='vendor'||t.relationshipHint==='talent')?2:
       t.relationshipHint==='operational_notice'?3:
       t.relationshipHint==='internal'?5:4;
     const sorted=rows.slice().sort((a,b)=>priority(a)-priority(b) ||
@@ -669,6 +671,7 @@
           'Customer form inquiry — verify client in CRM, not the form platform':
         t.sourceType==='form_lead'?'Website form — verify original client and prior replies':
         t.relationshipHint==='internal'?'Internal correspondence — no sales outreach':
+        t.relationshipHint==='talent'?'Professional talent / instructor operations':
         t.relationshipHint==='vendor'?'Vendor / venue operations':
         t.relationshipHint==='operational_notice'?
           'Document signature notice — operations review, not a sales inquiry':
@@ -688,6 +691,8 @@
           'Internal owner correspondence. Not a customer lead.':
         t.relationshipHint==='form_notification'?
           'Potential customer inquiry delivered by a third-party form system. Verify the true requester and previous outreach in Gmail and CRM; never reply to the platform address.':
+        t.relationshipHint==='talent'?
+          'Verified professional poker talent coordination. Review staffing and event commitments separately; do not treat as a customer sales inquiry.':
         t.relationshipHint==='vendor'?
           'Vendor logistics require operational review, not sales outreach.':
         t.relationshipHint==='operational_notice'?
@@ -758,8 +763,9 @@
           detail.append(showMessage(latest,'Latest message'));
         }
         detail.append(qualificationCard);
-        if(['operational_notice','form_notification','monitor','hold',
-            'client_declined','manual_review'].includes(qualification.outcome)) {
+        if(['operational_notice','form_notification','talent_operations',
+            'monitor','hold','client_declined','manual_review'].includes(
+              qualification.outcome)) {
           const continueQueue=makeText('button','neutral',
             'Continue to next customer inquiry');
           continueQueue.type='button';

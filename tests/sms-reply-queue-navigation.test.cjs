@@ -3,12 +3,16 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
+const {sameRevision}=require('../public/sms-review/reply-review-controls.js');
 const app=fs.readFileSync('public/sms-review/app.js','utf8');
 const html=fs.readFileSync('public/sms-review/index.html','utf8');
 const start=app.indexOf('  function orderedInboxCandidates(');
 const end=app.indexOf('\n  async function loadBusinessInboxThread(t) {',start);
 assert(start>=0&&end>start,'Inbox navigation implementation not found');
 assert.match(html,/id="businessInboxQueueStatus"/);
+const route=fs.readFileSync('app/api/sms/staging/reply-decisions/route.ts','utf8');
+assert.match(route,/new Date\(row.last_message_at\)\.toISOString\(\)/,
+  'Server must normalize audit timestamps to canonical UTC');
 assert.match(html,/id="continueBusinessInboxQueue"/);
 assert.match(app,/\$\('continueBusinessInboxQueue'\)\.addEventListener\('click'/,
   'Owner can explicitly resume the queue after a browser refresh');
@@ -27,6 +31,7 @@ function harness(rows,options={}) {
   const data={connected:true,threads:rows,nextPage:options.nextPage??null};
   const sandbox={
     sessionToken:'owner-session',businessInboxReview:data,
+    window:{LVPTReplyReviewControls:{sameRevision}},
     businessInboxThreadContext:contexts,businessInboxError:'',
     inboxQueueBusy:false,
     renderBusinessInboxReview:()=>{seen.render++;},
@@ -38,7 +43,9 @@ function harness(rows,options={}) {
       const original=data.threads.find(x=>x.threadId===id);
       return {
         ok:true,source:'append_only_owner_reply_audit',
-        lastMessageAt:original?.lastMessageAt,
+        lastMessageAt:options.databaseTimestampFormat==='postgres' && original?
+          new Date(original.lastMessageAt).toISOString().replace('.000Z','+00:00'):
+          original?.lastMessageAt,
         decision:options.denied?.includes(id)?'denied':null
       };
     },
@@ -76,6 +83,15 @@ function harness(rows,options={}) {
   assert.deepEqual(h.seen.opened,[b.threadId]);
   assert.equal(h.contexts.get(a.threadId).visible,false,
     'Resuming should collapse an old denied preview');
+  // Real PostgreSQL timestamptz uses +00:00; Gmail uses .000Z.
+  assert.equal(sameRevision('2026-11-10T17:10:47+00:00',
+    '2026-11-10T17:10:47.000Z'),true);
+  assert.equal(sameRevision('2026-11-10T17:10:48+00:00',
+    '2026-11-10T17:10:47.000Z'),false);
+  h=harness([a,b],{current:b.threadId,denied:[a.threadId],databaseTimestampFormat:'postgres'});
+  await h.queue.advanceToNextInboxThread(null);
+  assert.deepEqual(h.seen.opened,[b.threadId],
+    'A previously denied email must remain excluded despite timestamp formatting');
   // When current thread was the only one, do not leave it expanded or imply all Gmail is clear.
   h=harness([a],{current:a.threadId});
   await h.queue.advanceToNextInboxThread(a.threadId);

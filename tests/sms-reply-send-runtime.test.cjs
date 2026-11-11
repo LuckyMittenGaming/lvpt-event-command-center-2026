@@ -155,7 +155,7 @@ function harness(options={}){
   assert.equal(x.status,409,'Complete original thread attestation mandatory');
   assert.equal(h.seen.apps.length,0);
   h=harness();
-  x=await h.post({...baseline,body:body+' An extra paragraph.'});
+  x=await h.post({...baseline,body:body.replace('Please confirm','Kindly confirm')});
   assert.equal(x.status,409,'An altered draft must be reapproved');
   assert.equal(h.seen.apps.length,0);
   h=harness({verified:{recipient:'different@example.com'}});

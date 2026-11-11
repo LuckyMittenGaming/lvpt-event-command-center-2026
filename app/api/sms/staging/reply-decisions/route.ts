@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
-import { isDocumentWorkflowNotice } from '../_inbox-routing';
+import { isDocumentWorkflowNotice, isBizlyMailServiceDomain } from '../_inbox-routing';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -125,6 +125,7 @@ export async function POST(request:Request) {
        timestamp(last.at)!==lastMessageAt||
        last.direction!=='inbound'||last.relationshipHint!=='unclassified'||
        isDocumentWorkflowNotice(last.senderDomain,'')||
+       isBizlyMailServiceDomain(last.senderDomain)||
        typeof last.excerpt!=='string'||!last.excerpt.trim()||
        (source.partial===true&&!ownerReviewedOriginal)||
        !Number.isInteger(source.totalMessages)||

@@ -176,7 +176,7 @@ async function sequence() {
   assert(!Object.prototype.hasOwnProperty.call(posted[1],'subject'));
   assert(!Object.prototype.hasOwnProperty.call(posted[1],'recipientEmail'));
   root=new Node('div');c.render(root,thread,context,q);
-  assert(button(root,'Copy approved subject and text'));
+  assert(button(root,'Copy approved text and continue'));
   assert(button(root,'Reopen for editing'));
   assert(button(root,'Send email — disabled in staging').disabled);
   button(root,'Verify recipient and send status (read-only)').trigger('click');

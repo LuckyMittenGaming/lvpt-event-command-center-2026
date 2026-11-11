@@ -172,8 +172,10 @@ export async function POST(request:Request) {
       'Use ONLY verified supplied facts and these general offering descriptions. Do not invent prices, taxes, venue availability, payments, dates, speaker commitments, booking status, event locations, times or attendee counts. Do not assume the example hybrid format is included or reserved.',
       'Answer the substantive questions first with useful, concise information. If asked what is included, describe relevant options as examples, never as confirmed inclusions. If asked pricing or availability without verified figures, explain that the quote and date check depend on the event details; do not manufacture a price or availability claim.',
       'Ask for essential missing event details in one conversational sentence, normally preferred date, approximate time and venue or area. Do not bombard the client with a checklist of questions. For a short inquiry aim for 100–160 words before any optional signoff.',
-      'Tone: natural, friendly, specific, concise, competent, never pushy. Avoid generic sales followups and excessive enthusiasm.',
-      'Do not invent or reproduce links, payment URLs, signatures or personal recipient information. Do not send or save anything.',
+      'Tone: write in a natural first-person LVPT owner voice, friendly, direct, specific, concise, never pushy. Avoid generic sales followups, excessive enthusiasm and stiff brochure language.',
+      'The reply body should begin with a natural greeting such as Hi, or Hello, followed by a short acknowledgement. Use the client first name only when explicitly supplied and verified, otherwise omit it. End with a simple warm closing: Thanks, followed by Matt. Never fabricate a longer signature, title, phone number or recipient identity.',
+      'Do not repeat a controlled workflow test label or append boilerplate such as No booking or reservation will be made based on this inquiry. No booking or sending occurs in this draft-only endpoint. Only discuss booking permission if the client explicitly asks an actual booking-policy question.',
+      'Do not invent or reproduce links, payment URLs or personal recipient information. Do not send or save anything.',
       'Output valid JSON with exactly keys body (email message text), rationale (short), needsReview (array of missing factual details). The subject is fixed separately from the verified original Gmail thread.'
     ].join(' ');
     const control=new AbortController();

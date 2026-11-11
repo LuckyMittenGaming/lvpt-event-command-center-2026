@@ -35,6 +35,9 @@ assert.equal(isAutomatedLeadNotification('b.bizlyapp.com',
   'Your invoice is available'),false);
 assert.equal(isAutomatedLeadNotification('gmail.com',
   'New Contact Form Submission from Thom Johnston'),false);
+const {isVerifiedTalentEmail}=sandbox.module.exports;
+assert.equal(isVerifiedTalentEmail('KennaJamesPoker@gmail.com'),true);
+assert.equal(isVerifiedTalentEmail('random@gmail.com'),false);
 const inbox=read('app/api/sms/staging/inbox-review/route.ts');
 assert.match(inbox,/isDocumentWorkflowNotice\(domain,row.subject\)/);
 assert.match(inbox,/relationshipHint:routedHint/);
@@ -93,6 +96,13 @@ const leadQualification=qualifyThread(leadMeta,leadContext);
 assert.equal(leadQualification.outcome,'form_notification',
   'Form-service sender cannot be treated as customer email');
 assert.equal(workflow.canPrepare(leadMeta,leadContext,leadQualification),false);
+const talentMeta={...leadMeta,relationshipHint:'talent',senderDomain:'gmail.com'};
+const talentContext={...leadContext,messages:[{...leadContext.messages[0],
+  relationshipHint:'talent',senderDomain:'gmail.com',excerpt:'Could you confirm staffing?'}]};
+const talentQ=qualifyThread(talentMeta,talentContext);
+assert.equal(talentQ.outcome,'talent_operations');
+assert.equal(workflow.canPrepare(talentMeta,talentContext,talentQ),false);
+assert.match(app,/Professional talent \/ instructor operations/);
 assert.match(app,/Customer form inquiry — verify client in CRM/);
 assert.match(app,/t.relationshipHint==='form_notification'/);
 for(const path of [

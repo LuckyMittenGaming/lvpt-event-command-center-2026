@@ -31,6 +31,13 @@
   let businessInboxThreadContext = new Map();
   let businessInboxThreadLoading = '';
   let businessInboxThreadError = new Map();
+  let inboxQueueBusy = false;
+  function showInboxQueueStatus(message) {
+    const element=$('businessInboxQueueStatus');
+    if(!element)return;
+    element.textContent=String(message||'');
+    element.hidden=!message;
+  }
   let showActionMonitoring = false;
   let actionDecisions = new Map();
   let actionAuditReady = false;
@@ -882,6 +889,7 @@
       businessInboxReview=null;
       businessInboxThreadContext=new Map();
       businessInboxThreadError=new Map();
+      showInboxQueueStatus('');
       replyController.reset();
     }
     renderBusinessInboxReview();
@@ -915,35 +923,79 @@
     }
   }
 
-  async function advanceToNextInboxThread(previousThreadId) {
-    if(!sessionToken || !businessInboxReview?.connected)return;
-    const candidates=(businessInboxReview.threads||[])
+  // The active thread may be the last (or only) item in date order.
+  // Continue through the rest and wrap once; never revisit the just-denied email.
+  function orderedInboxCandidates(rows,previousThreadId) {
+    const candidates=(Array.isArray(rows)?rows:[])
       .filter(t=>t.needsHumanReview===true &&
         t.lastDirection==='inbound' &&
         t.sourceType==='email_thread' &&
         t.relationshipHint==='unclassified')
       .sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
     const previous=candidates.findIndex(t=>t.threadId===previousThreadId);
-    // Do not recycle emails the owner already denied for this revision.
-    // Check the server-side audit so a page refresh cannot undo the decision.
-    for(const next of candidates.slice(previous+1)) {
-      if(next.threadId===previousThreadId)continue;
-      try {
-        const audit=await getProtected('/api/sms/staging/reply-decisions?threadId='+
-          encodeURIComponent(next.threadId));
-        if(!audit.ok||audit.source!=='append_only_owner_reply_audit')
-          throw Error('Owner decision could not be checked');
-        const sameRevision=audit.lastMessageAt===next.lastMessageAt;
-        if(sameRevision&&audit.decision==='denied')continue;
-      }catch {
-        businessInboxThreadError.set(next.threadId,
-          'Owner decision verification unavailable. Review paused to avoid repeating a dismissed inquiry.');
-        renderBusinessInboxReview();return;
+    if(previous<0)return candidates;
+    return [...candidates.slice(previous+1),...candidates.slice(0,previous)];
+  }
+
+  async function advanceToNextInboxThread(previousThreadId) {
+    if(inboxQueueBusy||!sessionToken || !businessInboxReview?.connected)return;
+    inboxQueueBusy=true;
+    // Clear the dismissed email from the visible review, even when the
+    // current scan contains no other eligible conversations.
+    const previous=businessInboxThreadContext.get(previousThreadId);
+    if(previous)businessInboxThreadContext.set(previousThreadId,
+      {...previous,visible:false});
+    renderBusinessInboxReview();
+    showInboxQueueStatus('Denial saved. Checking the next eligible LVPT conversation (read-only)…');
+    const examined=new Set();
+    try {
+      // Load a bounded number of additional metadata pages on demand.
+      // This never reads message bodies until a selected thread is opened.
+      for(let page=0;page<4;page++) {
+        const candidates=orderedInboxCandidates(
+          businessInboxReview?.threads||[],previousThreadId);
+        for(const next of candidates) {
+          const key=next.threadId+'|'+next.lastMessageAt;
+          if(examined.has(key))continue;
+          examined.add(key);
+          try {
+            const audit=await getProtected(
+              '/api/sms/staging/reply-decisions?threadId='+
+              encodeURIComponent(next.threadId));
+            if(!audit.ok||audit.source!=='append_only_owner_reply_audit')
+              throw Error('Decision audit unavailable');
+            if(audit.lastMessageAt===next.lastMessageAt&&
+               audit.decision==='denied')continue;
+          }catch {
+            showInboxQueueStatus('Review paused: the next conversation could not be checked against owner decisions. No email was opened or sent.');
+            return;
+          }
+          await loadBusinessInboxThread(next);
+          if(!businessInboxThreadContext.get(next.threadId)?.visible) {
+            showInboxQueueStatus('Next email could not be opened for review. Refresh the inbox and retry. No email sent.');
+            return;
+          }
+          showInboxQueueStatus('Next eligible incoming email opened for owner review. Nothing was approved or sent automatically.');
+          const heading=$('inboxReviewTitle');
+          if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});
+          return;
+        }
+        if(businessInboxReview?.nextPage===null)break;
+        const beforePage=businessInboxReview?.nextPage;
+        showInboxQueueStatus('No other eligible email on this page. Checking additional recent-mail headers…');
+        await loadBusinessInboxReview(true);
+        if(businessInboxError||!businessInboxReview?.connected) {
+          showInboxQueueStatus('Could not complete the next-page scan. No email was sent. Refresh the business inbox to retry.');
+          return;
+        }
+        if(businessInboxReview.nextPage===beforePage)break;
       }
-      void loadBusinessInboxThread(next);
-      const heading=$('inboxReviewTitle');
-      if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});
-      return;
+      const more=businessInboxReview?.nextPage!==null;
+      showInboxQueueStatus(more?
+        'No further eligible inquiry found in the pages checked. More pages may be available; use Load more business Gmail to continue.':
+        'Review queue complete for the scanned recent-mail window. No other eligible incoming email found. This does not mean the entire mailbox is clear.');
+    }finally {
+      inboxQueueBusy=false;
     }
   }
 

@@ -42,7 +42,7 @@ whether its latest email needs a reply.
 5. The GAS inbox metadata cache key is bumped to v4 to invalidate the old
    scan once the new web-app version is deployed.
 
-## One necessary owner action, when ready
+## Historical Apps Script deployment procedure (already completed by owner)
 1. Open the existing **LVPT Event Command Center Backend** Google Apps Script
    project and the complete Code.gs file at the release path above.
 2. Replace the entire Code.gs with the complete current source, then save.

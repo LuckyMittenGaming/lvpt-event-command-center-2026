@@ -659,12 +659,15 @@
         'No eligible entries in these bounded pages. This does not prove the entire business inbox is clear.'));
     sorted.forEach(t=>{
       const dismissed=replyController.deniedRevision(t);
+      const sessionHandled=replyController.handledThisSession(t);
       const cachedContext=businessInboxThreadContext.get(t.threadId);
       const cachedQualification=cachedContext?
         replyQualifier.qualifyThread(t,cachedContext):null;
       const card=makeText('div','gmail-evidence-card','');
       card.append(makeText('strong','',t.subject||'(no subject)'));
       const role=dismissed?'Dismissed by owner — no reply needed':
+        sessionHandled==='copied_not_sent'?'Approved text copied — no send confirmed':
+        sessionHandled==='sent'?'Gmail send confirmed — handled':
         cachedQualification?.outcome==='monitor'?
           'Acknowledgement or LVPT replied — no new reply suggested':
         t.relationshipHint==='form_notification'?
@@ -685,6 +688,10 @@
       const needs=t.needsHumanReview;
       card.append(makeText('p','gmail-evidence-explain',
         dismissed?'Owner denied this email revision. It is excluded from the approval queue until a new client message arrives.':
+        sessionHandled==='copied_not_sent'?
+          'Copied for manual sending. No delivery is confirmed. Finish the original Gmail reply, or revisit after refreshing the inbox.':
+        sessionHandled==='sent'?
+          'The Gmail send was confirmed during this session. No duplicate reply is allowed.':
         cachedQualification?.outcome==='monitor'?
           'The latest message does not require a new customer reply. Keep the event opportunity and its follow-up status separate.':
         t.relationshipHint==='internal'?
@@ -973,7 +980,8 @@
         t.lastDirection==='inbound' &&
         t.sourceType==='email_thread' &&
         (t.relationshipHint==='unclassified'||
-         t.relationshipHint==='form_notification'))
+         t.relationshipHint==='form_notification')&&
+        !replyController.handledThisSession(t))
       .sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
     const previous=candidates.findIndex(t=>t.threadId===previousThreadId);
     if(previous<0)return candidates;

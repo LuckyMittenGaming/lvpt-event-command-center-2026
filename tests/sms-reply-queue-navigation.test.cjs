@@ -122,7 +122,7 @@ function harness(rows,options={}) {
     {current:a.threadId});
   await h.queue.advanceToNextInboxThread(a.threadId);
   assert.deepEqual(h.seen.opened,[]);
-  assert.match(app,/showInboxQueueStatus\('Denial saved/);
+  assert.match(app,/Denial saved\. Checking the next eligible LVPT conversation/);
   assert.doesNotMatch(code,/GmailApp.sendEmail|sendOwnerApprovedGmailReply|messages\/send/);
   console.log('Step 56 queue navigation: wrap-around, collapse, complete, skip-denied, next-page, fail-closed and eligibility checks passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

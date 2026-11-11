@@ -11,3 +11,13 @@ export function isDocumentWorkflowNotice(senderDomain:unknown,subject:unknown):b
   return /(?:^|\.)docusign\.com$/.test(domain)&&
     /(?:docusign|electronic signature|please sign|signature request|document to (?:view|sign)|complete with docusign)/i.test(title);
 }
+
+/** Third-party lead-form mailboxes are NOT the prospective client's mailbox. */
+export function isBizlyMailServiceDomain(senderDomain:unknown):boolean {
+  const domain=String(senderDomain||'').toLowerCase().trim();
+  return /(?:^|\.)bizlyapp\.com$/.test(domain);
+}
+export function isAutomatedLeadNotification(senderDomain:unknown,subject:unknown):boolean {
+  return isBizlyMailServiceDomain(senderDomain)&&
+    /^(?:new\s+(?:contact\s+form|website\s+(?:contact|lead)|corporate\s+(?:poker\s+)?builder)\s+(?:submission|lead)|new\s+.{0,60}\s+lead\s+received)/i.test(String(subject||'').trim());
+}

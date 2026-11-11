@@ -24,6 +24,17 @@ assert.equal(isDocumentWorkflowNotice('gmail.com',subject),false);
 assert.equal(isDocumentWorkflowNotice('prospect.com','Can you send prices and available dates?'),false);
 assert.equal(isDocumentWorkflowNotice('fake-docusign.net',subject),false);
 assert.equal(isDocumentWorkflowNotice('docusign.net.evil.org',subject),false);
+const {isBizlyMailServiceDomain,isAutomatedLeadNotification}=sandbox.module.exports;
+assert.equal(isBizlyMailServiceDomain('b.bizlyapp.com'),true);
+assert.equal(isBizlyMailServiceDomain('bizlyapp.com'),true);
+assert.equal(isBizlyMailServiceDomain('notbizlyapp.com'),false);
+assert.equal(isBizlyMailServiceDomain('bizlyapp.com.evil.org'),false);
+assert.equal(isAutomatedLeadNotification('b.bizlyapp.com',
+  'New Contact Form Submission from Thom Johnston'),true);
+assert.equal(isAutomatedLeadNotification('b.bizlyapp.com',
+  'Your invoice is available'),false);
+assert.equal(isAutomatedLeadNotification('gmail.com',
+  'New Contact Form Submission from Thom Johnston'),false);
 const inbox=read('app/api/sms/staging/inbox-review/route.ts');
 assert.match(inbox,/isDocumentWorkflowNotice\(domain,row.subject\)/);
 assert.match(inbox,/relationshipHint:routedHint/);
@@ -37,6 +48,21 @@ assert.match(app,/t.relationshipHint==='unclassified'/,
 assert.match(app,/Continue to next customer inquiry/);
 const reply=read('public/sms-review/reply-qualification.js');
 const {qualifyThread}=require('../public/sms-review/reply-qualification.js');
+const leadMeta={
+  threadId:'1a1c67469016c306',lastMessageAt:new Date().toISOString(),
+  lastDirection:'inbound',sourceType:'email_thread',needsHumanReview:true,
+  relationshipHint:'form_notification',senderDomain:'b.bizlyapp.com',
+  subject:'New Contact Form Submission from Thom Johnston'
+};
+const leadContext={
+  threadId:leadMeta.threadId,lastMessageAt:leadMeta.lastMessageAt,
+  partial:false,totalMessages:1,messages:[{
+    at:leadMeta.lastMessageAt,direction:'inbound',
+    relationshipHint:'unclassified',senderDomain:'b.bizlyapp.com',
+    excerpt:'Customer inquiry: Could you share details? Contact: [email]',
+    truncated:false,hasAttachments:false
+  }]
+};
 const workflow=require('../public/sms-review/reply-workflow.js');
 const at=new Date(Date.now()-3600000).toISOString();
 const meta={
@@ -63,6 +89,19 @@ const normalCtx={...context,messages:[{...context.messages[0],
 const normal=qualifyThread(normalMeta,normalCtx);
 assert.equal(normal.outcome,'reply_candidate');
 assert.equal(workflow.canPrepare(normalMeta,normalCtx,normal),true);
+const leadQualification=qualifyThread(leadMeta,leadContext);
+assert.equal(leadQualification.outcome,'form_notification',
+  'Form-service sender cannot be treated as customer email');
+assert.equal(workflow.canPrepare(leadMeta,leadContext,leadQualification),false);
+assert.match(app,/Customer form inquiry — verify client in CRM/);
+assert.match(app,/t.relationshipHint==='form_notification'/);
+for(const path of [
+  'app/api/sms/staging/reply-decisions/route.ts',
+  'app/api/sms/staging/reply-personalized-draft/route.ts',
+  'app/api/sms/staging/reply-recipient/route.ts',
+  'app/api/sms/staging/reply-send/route.ts'
+])assert.match(read(path),/isBizlyMailServiceDomain\(/,
+  path+' must reject form-platform sender before drafting or sending');
 const decisions=read('app/api/sms/staging/reply-decisions/route.ts');
 const ai=read('app/api/sms/staging/reply-personalized-draft/route.ts');
 const recipient=read('app/api/sms/staging/reply-recipient/route.ts');
@@ -74,4 +113,4 @@ for(const [name,file] of Object.entries({decisions,ai,recipient,send})){
 assert(send.indexOf('isDocumentWorkflowNotice(input.recipient') <
   send.indexOf('claimed=await claimIntent'),
   'Operational sender must be rejected before reserving a Gmail send');
-console.log('Step 58 operational DocuSign routing, preserved contract review, sales exclusion and no-send guard tests passed.');
+console.log('Step 58 operational DocuSign and Bizly form routing, contract review, lead intake and no-send guard tests passed.');

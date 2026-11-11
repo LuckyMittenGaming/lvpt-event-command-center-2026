@@ -233,7 +233,9 @@ async function sequence() {
   // Explicitly copied owner-approved text should release the single-email
   // lock and advance. A mere approval must NEVER do so; no Gmail send occurs.
   const copiedAdvance=[],copies=[];
-  global.navigator={clipboard:{writeText:async value=>copies.push(value)}};
+  Object.defineProperty(global,'navigator',{configurable:true,value:{clipboard:{
+    writeText:async value=>copies.push(value)
+  }}});
   const copiedController=controls.createController({
     getProtected:fetchMock,makeText,qualification:{},workflow,
     onUpdate:()=>{},onNext:id=>copiedAdvance.push(id)
@@ -264,7 +266,9 @@ async function sequence() {
   assert.equal(countAfterCopy,6,'Clipboard never creates a new audit/send intent');
   // Clipboard failure must preserve locked draft and remain on this thread.
   const failedAdvance=[];
-  global.navigator={clipboard:{writeText:async()=>{throw Error('Denied');}}};
+  Object.defineProperty(global,'navigator',{configurable:true,value:{clipboard:{
+    writeText:async()=>{throw Error('Denied');}
+  }}});
   const failed=controls.createController({
     getProtected:fetchMock,makeText,qualification:{},workflow,
     onUpdate:()=>{},onNext:id=>failedAdvance.push(id)

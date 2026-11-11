@@ -230,6 +230,60 @@ async function sequence() {
   root=new Node('div');restored.render(root,newThread,newContext,newQ);
   assert(button(root,'Prepare editable reply'),
     'A newer incoming client message must be eligible for separate human review');
+  // Explicitly copied owner-approved text should release the single-email
+  // lock and advance. A mere approval must NEVER do so; no Gmail send occurs.
+  const copiedAdvance=[],copies=[];
+  global.navigator={clipboard:{writeText:async value=>copies.push(value)}};
+  const copiedController=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},workflow,
+    onUpdate:()=>{},onNext:id=>copiedAdvance.push(id)
+  });
+  await copiedController.loadAudit(thread);
+  root=new Node('div');copiedController.render(root,thread,context,q);
+  const copiedCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  copiedCheck.checked=true;copiedCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');
+  await waitForCount(5);
+  root=new Node('div');copiedController.render(root,thread,context,q);
+  const copiedBody=read(root,x=>x.tag==='textarea');
+  copiedBody.value=written;copiedBody.trigger('input');
+  button(root,'Approve for manual copy').trigger('click');
+  await waitForCount(6);
+  assert.deepEqual(copiedAdvance,[],
+    'Recording owner approval alone must not discard unsent text');
+  root=new Node('div');copiedController.render(root,thread,context,q);
+  const copyButton=button(root,'Copy approved text and continue');
+  assert(copyButton,'Approved email has explicit copy-and-continue control');
+  copyButton.trigger('click');
+  for(let n=0;n<30 && copiedAdvance.length===0;n++)await settle();
+  assert.deepEqual(copiedAdvance,[thread.threadId]);
+  assert.equal(copies.length,1);
+  assert(copies[0].includes('Matt Carpenter'));
+  assert.equal(copiedController.getActive(),null);
+  const countAfterCopy=posted.length;
+  assert.equal(countAfterCopy,6,'Clipboard never creates a new audit/send intent');
+  // Clipboard failure must preserve locked draft and remain on this thread.
+  const failedAdvance=[];
+  global.navigator={clipboard:{writeText:async()=>{throw Error('Denied');}}};
+  const failed=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},workflow,
+    onUpdate:()=>{},onNext:id=>failedAdvance.push(id)
+  });
+  await failed.loadAudit(thread);
+  root=new Node('div');failed.render(root,thread,context,q);
+  const failedCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  failedCheck.checked=true;failedCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');await waitForCount(7);
+  root=new Node('div');failed.render(root,thread,context,q);
+  const failedBody=read(root,x=>x.tag==='textarea');
+  failedBody.value=written;failedBody.trigger('input');
+  button(root,'Approve for manual copy').trigger('click');await waitForCount(8);
+  root=new Node('div');failed.render(root,thread,context,q);
+  button(root,'Copy approved text and continue').trigger('click');
+  await settle();await settle();
+  assert.deepEqual(failedAdvance,[],
+    'Clipboard error may never advance or discard the approved draft');
+  assert.equal(failed.getActive()?.phase,'approved_for_manual_copy');
 }
 sequence().then(()=>{
   const api=fs.readFileSync(path.join(__dirname,

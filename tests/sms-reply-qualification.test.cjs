@@ -68,6 +68,54 @@ expectOutcome('same acknowledgement but with a genuine request','reply_candidate
 expectOutcome('incomplete thank-you message','manual_review',{
   message:{excerpt:namedIntroReply,truncated:true}
 });
+const kennaExcerpt=[
+  'Awesome! Thanks for this and Llook forward to connecting this weekend.',
+  '',
+  'KJ',
+  '',
+  'Kenna James',
+  'KennaJames.com <[link]>',
+  'X @Kenna_James <[link]>',
+  'Instagram <[link]>',
+  'Facebook <[link]>',
+  '',
+  'On Wed, Oct 21, 2026 at 12:40 PM Las Vegas Poker Training <',
+  '[email]> wrote:',
+  '',
+  '> Hey Kenna -',
+  '> This one is 90% booked, just waiting on their contract and payment.',
+  '> Could you send a brief proposal?'
+].join('\n');
+const kPreview=preview.focus(kennaExcerpt);
+assert.equal(kPreview.body,
+  'Awesome! Thanks for this and Llook forward to connecting this weekend.');
+assert.equal(kPreview.quotedHistorySeen,true);
+assert.equal(kPreview.shortened,true);
+assert.equal(kPreview.original,kennaExcerpt);
+expectOutcome('talent courtesy with clipped quoted old request','monitor',{
+  message:{excerpt:kennaExcerpt,truncated:true}
+});
+expectOutcome('talent courtesy with no quoted boundary and truncated body','manual_review',{
+  message:{excerpt:kennaExcerpt.split('On Wed,')[0],truncated:true}
+});
+expectOutcome('talent courtesy with real attached document','manual_review',{
+  message:{excerpt:kennaExcerpt,truncated:true,hasAttachments:true}
+});
+expectOutcome('substantive latest request before quoted history and clipped body',
+  'manual_review',{
+  message:{excerpt:kennaExcerpt.replace(
+    'Awesome! Thanks for this and Llook forward to connecting this weekend.',
+    'Awesome! Thanks for this. Can you send the final contract today?'),
+    truncated:true}
+});
+expectOutcome('substantive latest request before quoted history not truncated',
+  'reply_candidate',{
+  message:{excerpt:kennaExcerpt.replace(
+    'Awesome! Thanks for this and Llook forward to connecting this weekend.',
+    'Awesome! Thanks for this. Can you send the final contract today?'),
+    truncated:false}
+});
+
 expectOutcome('attachment on thank-you message','manual_review',{
   message:{excerpt:namedIntroReply,hasAttachments:true}
 });

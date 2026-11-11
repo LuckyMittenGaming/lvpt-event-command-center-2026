@@ -15,7 +15,7 @@ const threadId='aabbccddeeff0011';
 const intentId='014162c7-5ebc-49ba-a314-e43932e0c185';
 const recipient='client@example.com';
 const subject='Re: Your Las Vegas poker event';
-const body='Hi, thanks for your inquiry. Please confirm your date and group size so I can send a tailored plan. Thanks again, Matt.';
+const body='Hi, thanks for your inquiry. Please confirm your date and group size so I can send a tailored plan.\n\nThanks,\n\nMatt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148';
 const digest=createHash('sha256').update(JSON.stringify([subject,body])).digest('hex');
 const baseline={
   intentId,threadId,lastMessageAt:at,recipient,subject,body,
@@ -141,6 +141,11 @@ function harness(options={}){
   x=await h.post({...baseline,confirmation:'maybe'});
   assert.equal(x.status,400,'Explicit owner confirmation is mandatory');
   assert.equal(h.seen.apps.length,0);
+  h=harness();
+  x=await h.post({...baseline,body:'Hi, thanks for your inquiry. Please confirm your date and group size so I can send a tailored plan.'});
+  assert.equal(x.status,400,'Missing full LVPT business signature must block any send');
+  assert.equal(h.seen.apps.length,0);
+  assert.equal(h.seen.reservations.length,0);
   h=harness({noApproval:true});
   x=await h.post();
   assert.equal(x.status,409,'Missing approval blocks Gmail');
@@ -201,5 +206,5 @@ function harness(options={}){
   assert.equal(x.json.doNotRetry,true);
   assert.equal(h.seen.patches.length,1);
   assert.equal(h.seen.patches[0].status,'uncertain');
-  console.log('Step 52: 14 synthetic auth, opt-in, digest, recipient, duplicate, send-ack and audit-reconciliation scenarios passed. No external requests.');
+  console.log('Step 54: 15 synthetic auth, opt-in, digest, recipient, duplicate, send-ack and audit-reconciliation scenarios passed. No external requests.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

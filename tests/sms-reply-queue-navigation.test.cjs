@@ -1,0 +1,98 @@
+'use strict';
+// Isolated dashboard navigation simulation. Zero real Gmail/Supabase network calls.
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const app=fs.readFileSync('public/sms-review/app.js','utf8');
+const html=fs.readFileSync('public/sms-review/index.html','utf8');
+const start=app.indexOf('  function orderedInboxCandidates(');
+const end=app.indexOf('\n  async function loadBusinessInboxThread(t) {',start);
+assert(start>=0&&end>start,'Inbox navigation implementation not found');
+assert.match(html,/id="businessInboxQueueStatus"/);
+const code=app.slice(start,end)+'\nthis.queue={orderedInboxCandidates,advanceToNextInboxThread};';
+const now=new Date().toISOString();
+const mk=(id,minutesAgo)=>({
+  threadId:id,lastMessageAt:new Date(Date.now()-minutesAgo*60000).toISOString(),
+  needsHumanReview:true,lastDirection:'inbound',
+  sourceType:'email_thread',relationshipHint:'unclassified'
+});
+function harness(rows,options={}) {
+  const seen={opened:[],status:[],audits:[],pages:0,render:0,scroll:0};
+  const contexts=new Map(rows.map(x=>[x.threadId,{visible:x.threadId===options.current}]));
+  const data={connected:true,threads:rows,nextPage:options.nextPage??null};
+  const sandbox={
+    sessionToken:'owner-session',businessInboxReview:data,
+    businessInboxThreadContext:contexts,businessInboxError:'',
+    inboxQueueBusy:false,
+    renderBusinessInboxReview:()=>{seen.render++;},
+    showInboxQueueStatus:s=>seen.status.push(s),
+    getProtected:async url=>{
+      const id=decodeURIComponent(url.split('threadId=')[1]||'');
+      seen.audits.push(id);
+      if(options.failAudit===id)throw Error('Mock audit unavailable');
+      const original=data.threads.find(x=>x.threadId===id);
+      return {
+        ok:true,source:'append_only_owner_reply_audit',
+        lastMessageAt:original?.lastMessageAt,
+        decision:options.denied?.includes(id)?'denied':null
+      };
+    },
+    loadBusinessInboxThread:async t=>{
+      seen.opened.push(t.threadId);
+      contexts.set(t.threadId,{visible:true});
+    },
+    loadBusinessInboxReview:async append=>{
+      assert.equal(append,true);
+      seen.pages++;
+      const added=options.additionalRows||[];
+      data.threads.push(...added);
+      data.nextPage=null;
+    },
+    $:()=>({scrollIntoView:()=>{seen.scroll++;}}),
+  };
+  const ctx=vm.createContext(sandbox);
+  new vm.Script(code,{filename:'lvpt-inbox-queue.js'}).runInContext(ctx,{timeout:1000});
+  return {queue:ctx.queue,seen,contexts,data};
+}
+(async()=>{
+  // Older candidate is next after the selected thread in date order.
+  const a=mk('aaaaaaaaaaaaaaaa',5),b=mk('bbbbbbbbbbbbbbbb',10),c=mk('cccccccccccccccc',15);
+  let h=harness([a,b,c],{current:b.threadId});
+  await h.queue.advanceToNextInboxThread(b.threadId);
+  assert.deepEqual(h.seen.opened,[c.threadId]);
+  assert.equal(h.contexts.get(b.threadId).visible,false,'Dismissed conversation must collapse');
+  // When the selected thread was last, wrap to the newest eligible thread.
+  h=harness([a,b,c],{current:c.threadId});
+  await h.queue.advanceToNextInboxThread(c.threadId);
+  assert.deepEqual(h.seen.opened,[a.threadId]);
+  // When current thread was the only one, do not leave it expanded or imply all Gmail is clear.
+  h=harness([a],{current:a.threadId});
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.deepEqual(h.seen.opened,[]);
+  assert.equal(h.contexts.get(a.threadId).visible,false);
+  assert.match(h.seen.status.at(-1),/No other eligible incoming email found/);
+  assert.match(h.seen.status.at(-1),/entire mailbox/);
+  // Skip an earlier denied revision but continue to another unreviewed candidate.
+  h=harness([a,b,c],{current:a.threadId,denied:[b.threadId]});
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.deepEqual(h.seen.opened,[c.threadId]);
+  assert.deepEqual(h.seen.audits,[b.threadId,c.threadId]);
+  // An additional metadata page is loaded automatically if first page has no options.
+  h=harness([a],{current:a.threadId,nextPage:1,additionalRows:[b]});
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.equal(h.seen.pages,1);
+  assert.deepEqual(h.seen.opened,[b.threadId]);
+  // Audit failure is fail-closed: do not open or send anything.
+  h=harness([a,b],{current:a.threadId,failAudit:b.threadId});
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.deepEqual(h.seen.opened,[]);
+  assert.match(h.seen.status.at(-1),/Review paused/);
+  // Never select vendor, internal, form, outgoing or no-review metadata.
+  h=harness([a,{...b,relationshipHint:'vendor'},{...c,lastDirection:'outbound'}],
+    {current:a.threadId});
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.deepEqual(h.seen.opened,[]);
+  assert.match(app,/showInboxQueueStatus\('Denial saved/);
+  assert.doesNotMatch(code,/GmailApp.sendEmail|sendOwnerApprovedGmailReply|messages\/send/);
+  console.log('Step 56 queue navigation: wrap-around, collapse, complete, skip-denied, next-page, fail-closed and eligibility checks passed.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

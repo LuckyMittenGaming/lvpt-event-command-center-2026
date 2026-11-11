@@ -95,6 +95,10 @@ function harness(options={}){
     },
     '../../../sync/_lib':{
       appsScriptRequest,syncConfigured:()=>true
+    },
+    '../_inbox-routing':{
+      isDocumentWorkflowNotice:(domain,subject)=>
+        /(?:^|\\.)docusign\\.net$/i.test(String(domain||''))
     }
   };
   const sandbox={
@@ -161,6 +165,13 @@ function harness(options={}){
   h=harness({verified:{recipient:'different@example.com'}});
   x=await h.post();
   assert.equal(x.status,409,'Recipient mismatch cannot be sent');
+  assert(!h.seen.apps.some(v=>v.action==='sendOwnerApprovedGmailReply'));
+  h=harness({verified:{recipient:'notice@docusign.net',
+    subject:'Complete with Docusign: Please sign your document'}});
+  x=await h.post({...baseline,recipient:'notice@docusign.net'});
+  assert.equal(x.status,409,'DocuSign notification must never reach Gmail send');
+  assert.equal(x.json.reason,'operational_notice_not_a_client_reply');
+  assert.equal(h.seen.reservations.length,0);
   assert(!h.seen.apps.some(v=>v.action==='sendOwnerApprovedGmailReply'));
   h=harness({verified:{sendingEnabled:false}});
   x=await h.post();

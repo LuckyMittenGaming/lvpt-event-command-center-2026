@@ -621,7 +621,9 @@
     const vendor=inbound.filter(x=>x.relationshipHint==='vendor').length;
     const internal=rows.filter(x=>x.relationshipHint==='internal').length;
     const formLeads=inbound.filter(x=>x.sourceType==='form_lead').length;
-    const possible=inbound.length-vendor;
+    const operational=inbound.filter(x=>x.relationshipHint==='operational_notice').length;
+    const possible=inbound.filter(x=>x.relationshipHint==='unclassified'||
+      x.sourceType==='form_lead').length;
     const reviewed=rows.map(t=>{
       const context=businessInboxThreadContext.get(t.threadId);
       return context?replyQualifier.qualifyThread(t,context):null;
@@ -630,7 +632,8 @@
     status.textContent='Read-only business Gmail: '+businessInboxReview.examinedThreads+
       ' message threads checked across '+businessInboxReview.pagesLoaded+' bounded page(s); '+
       possible+' potential inquiries ('+formLeads+' form notifications), '+
-      vendor+' vendor/venue reviews, '+internal+' internal thread(s), '+
+      vendor+' vendor/venue reviews, '+operational+
+      ' contract/document notices, '+internal+' internal thread(s), '+
       businessInboxReview.excludedAutomatedCount+' automated notifications excluded.'+
       (businessInboxReview.upgradePending?
         ' Step 45 backend upgrade pending: only the previous first-page scan is available.':
@@ -640,10 +643,12 @@
       ' '+reviewed.length+' selected thread(s) qualified locally; '+candidates+
       ' potential reply candidate(s) among them. These are NOT authorized drafts.'+
       ' Coverage remains limited; bodies are only fetched for a selected thread. No messages sent or records changed.';
-    const priority=t=>replyController.deniedRevision(t)?5:
+    const priority=t=>replyController.deniedRevision(t)?6:
       t.sourceType==='form_lead'?0:
-      t.needsHumanReview&&t.relationshipHint==='vendor'?2:
-      t.needsHumanReview?1:t.relationshipHint==='internal'?4:3;
+      t.needsHumanReview&&t.relationshipHint==='unclassified'?1:
+      t.relationshipHint==='vendor'?2:
+      t.relationshipHint==='operational_notice'?3:
+      t.relationshipHint==='internal'?5:4;
     const sorted=rows.slice().sort((a,b)=>priority(a)-priority(b) ||
       String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
     if(!sorted.length)
@@ -657,6 +662,8 @@
         t.sourceType==='form_lead'?'Website form — verify original client and prior replies':
         t.relationshipHint==='internal'?'Internal correspondence — no sales outreach':
         t.relationshipHint==='vendor'?'Vendor / venue operations':
+        t.relationshipHint==='operational_notice'?
+          'Document signature notice — operations review, not a sales inquiry':
         t.needsHumanReview?'Potential inquiry — inspect full thread':
           'LVPT last responded — monitor';
       card.append(makeText('p','gmail-evidence-label',role));
@@ -671,6 +678,8 @@
           'Internal owner correspondence. Not a customer lead.':
         t.relationshipHint==='vendor'?
           'Vendor logistics require operational review, not sales outreach.':
+        t.relationshipHint==='operational_notice'?
+          'Electronic signing / contract notification. Review the document or signing status in Gmail and event records; no sales reply needed.':
         needs?
           'A recent incoming message requires context, not an automatic reply. Read the conversation before drafting.':
           'LVPT sent the last message. Do not generate a duplicate follow-up from metadata.'));
@@ -737,6 +746,14 @@
           detail.append(showMessage(latest,'Latest message'));
         }
         detail.append(qualificationCard);
+        if(qualification.outcome==='operational_notice') {
+          const continueQueue=makeText('button','neutral',
+            'Continue to next customer inquiry');
+          continueQueue.type='button';
+          continueQueue.addEventListener('click',()=>
+            void advanceToNextInboxThread(t.threadId));
+          detail.append(continueQueue);
+        }
         replyController.render(detail,t,context,qualification);
         if(earlier.length) {
           const history=document.createElement('details');

@@ -62,7 +62,7 @@ function cleanThread(row:InboxRawThread) {
   if(row.reviewType!==expectedType)return null;
   const domain=String(row.senderDomain||'').toLowerCase();
   if(domain && !/^[a-z0-9.-]{3,120}$/.test(domain))return null;
-  const hints=['internal','vendor','form_lead','outbound','unclassified'];
+  const hints=['internal','vendor','talent','form_lead','outbound','unclassified'];
   const provided=String(row.relationshipHint||'');
   const hint=hints.includes(provided)?provided:
     sourceType==='form_lead'?'form_lead':

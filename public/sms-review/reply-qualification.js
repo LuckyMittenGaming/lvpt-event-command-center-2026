@@ -17,6 +17,7 @@
     hold:'Client reviewing / unavailable — hold',
     vendor_operations:'Vendor / venue operations — review',
     operational_notice:'Contract / document notification — operations review',
+    form_notification:'Website contact-form lead — verify real customer', 
     internal:'Internal correspondence — no sales outreach'
   });
 
@@ -77,6 +78,11 @@
         'Electronic signature or contract service notice, not an incoming sales inquiry.',
         ['Operational document workflow'],
         'Review the document or signing status in Gmail and the client event record. Do not draft a customer sales reply.');
+    if(relationship==='form_notification')
+      return result('form_notification',
+        'This inquiry was delivered by a form platform, not directly by the customer.',
+        ['Third-party form submission'],
+        'Verify the actual requester, any prior replies, and CRM status before drafting. Never reply to the form service sender.');
     const formLead=direction==='form_lead'||metadata.sourceType==='form_lead';
     const vendor=relationship==='vendor'||verifiedRole==='vendor';
     // Use the current author's visible message, never quoted older questions

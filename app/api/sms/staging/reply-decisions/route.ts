@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { isDocumentWorkflowNotice } from '../_inbox-routing';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -27,7 +28,7 @@ type Context={
   lastMessageAt?:unknown;partial?:boolean;totalMessages?:unknown;
   messages?:Array<{
     at?:unknown;direction?:unknown;relationshipHint?:unknown;
-    excerpt?:unknown;truncated?:boolean;hasAttachments?:boolean
+    excerpt?:unknown;senderDomain?:unknown;truncated?:boolean;hasAttachments?:boolean
   }>
 };
 
@@ -123,6 +124,7 @@ export async function POST(request:Request) {
        timestamp(source.lastMessageAt)!==lastMessageAt||!last||
        timestamp(last.at)!==lastMessageAt||
        last.direction!=='inbound'||last.relationshipHint!=='unclassified'||
+       isDocumentWorkflowNotice(last.senderDomain,'')||
        typeof last.excerpt!=='string'||!last.excerpt.trim()||
        (source.partial===true&&!ownerReviewedOriginal)||
        !Number.isInteger(source.totalMessages)||

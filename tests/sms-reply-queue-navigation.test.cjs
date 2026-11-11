@@ -34,7 +34,8 @@ function harness(rows,options={}) {
   const sandbox={
     sessionToken:'owner-session',businessInboxReview:data,
     window:{LVPTReplyReviewControls:{sameRevision}},
-    replyController:{rememberAudit:(t,d)=>{seen.remembered.push({id:t.threadId,decision:d.decision});}},
+    replyController:{rememberAudit:(t,d)=>{seen.remembered.push({id:t.threadId,decision:d.decision});},
+      handledThisSession:t=>options.handled?.includes(t.threadId)?'copied_not_sent':null},
     replyQualifier:{qualifyThread:t=>({
       outcome:options.qualifications?.[t.threadId]||'reply_candidate'
     })},
@@ -139,6 +140,10 @@ function harness(rows,options={}) {
   assert.deepEqual(h.seen.opened,[b.threadId],
     'Third-party form inquiries must remain in manual lead intake');
   assert.equal(h.contexts.get(b.threadId).visible,true);
+  h=harness([a,b,c],{current:a.threadId,handled:[b.threadId]});
+  await h.queue.advanceToNextInboxThread(a.threadId);
+  assert.deepEqual(h.seen.opened,[c.threadId],
+    'A just-copied (not sent) email must not reappear in this session');
   // Audit failure is fail-closed: do not open or send anything.
   h=harness([a,b],{current:a.threadId,failAudit:b.threadId});
   await h.queue.advanceToNextInboxThread(a.threadId);

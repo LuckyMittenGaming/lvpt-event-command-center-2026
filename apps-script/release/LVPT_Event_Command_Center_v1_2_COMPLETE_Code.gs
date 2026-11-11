@@ -835,7 +835,7 @@ function lvptReadOnlyBusinessInboxReview_(page) {
   if(String(profile.emailAddress||'').toLowerCase()!==mailbox)
     return {ok:false,message:'Business Gmail identity verification failed'};
   var cache=CacheService.getScriptCache();
-  var cacheKey='lvpt_business_inbox_review_2026_v3_p'+page;
+  var cacheKey='lvpt_business_inbox_review_2026_v4_form_leads_p'+page;
   var cached=cache.get(cacheKey);
   if(cached) {
     try {return JSON.parse(cached);}catch(ignore) {}

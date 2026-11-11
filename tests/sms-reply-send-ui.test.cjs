@@ -128,9 +128,9 @@ const wait=async(test,label)=>{
   assert.equal(typeof sends[0].intentId,'string');
   root=render();
   assert(!button(root,'Send this approved reply'),'Confirmed send cannot be repeated');
-  assert(!button(root,'Copy approved subject and text'),'Sent response is locked');
-  button(root,'Close review; choose next email').trigger('click');
-  assert.deepEqual(next,[meta.threadId],'User click advances read-only inbox');
+  assert(!button(root,'Copy approved text and continue'),'Sent response is locked');
+  assert.deepEqual(next,[meta.threadId],
+    'Only a confirmed Gmail acknowledgement advances the queue automatically');
   assert.equal(c.getActive(),null);
   console.log('Step 48 explicit checkbox, phrase, verified recipient and single-send UI tests passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

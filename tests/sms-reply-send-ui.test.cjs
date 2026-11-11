@@ -132,5 +132,6 @@ const wait=async(test,label)=>{
   assert.deepEqual(next,[meta.threadId],
     'Only a confirmed Gmail acknowledgement advances the queue automatically');
   assert.equal(c.getActive(),null);
+  assert.equal(c.handledThisSession(meta),'sent');
   console.log('Step 48 explicit checkbox, phrase, verified recipient and single-send UI tests passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -13,6 +13,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
 const SHA=/^[a-f0-9]{64}$/;
 const EMAIL=/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const TABLE='lvpt_reply_send_intents';
+const LVPT_SIGNATURE='Matt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148';
 type Approved={decision?:string;last_message_at?:string;draft_digest?:string;recorded_at?:string;owner_reviewed_full_thread?:boolean};
 type Verified={ok?:boolean;source?:string;mailboxIdentityVerified?:boolean;
   threadId?:string;lastMessageAt?:string;recipient?:string;subject?:string;
@@ -50,6 +51,7 @@ function inputValidation(v:Record<string,unknown>) {
     recipient==='book@pokertraininglasvegas.com'||
     subject.trim().length<5||subject.length>180||/[\r\n]/.test(subject)||
     body.trim().length<45||body.length>5000||
+    !body.replace(/\r\n?/g,'\n').trimEnd().endsWith(LVPT_SIGNATURE)||
     /\[(?:write|insert|verify|confirm|add|recipient|date|price|time|venue)[^\]]*\]/i.test(body)||
     /\b(?:TODO|TBD|PLACEHOLDER)\b/i.test(body)||
     v.confirmation!=='SEND THIS EMAIL'||v.ownerReviewed!==true)

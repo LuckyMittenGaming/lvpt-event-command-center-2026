@@ -79,7 +79,7 @@ const read=(node,predicate)=>{
   return null;
 };
 const button=(node,label)=>read(node,x=>x.tag==='button'&&x.textContent===label);
-const posted=[],aiRequests=[];
+const posted=[],aiRequests=[],advanced=[];
 const fetchMock=async (url,options={})=>{
   if(url==='/api/sms/staging/reply-personalized-draft'&&options.body){
     aiRequests.push(options.body);
@@ -119,7 +119,8 @@ const fetchMock=async (url,options={})=>{
 let updates=0;
 const c=controls.createController({
   getProtected:fetchMock,makeText,qualification:{},workflow,
-  onUpdate:()=>{updates++;}
+  onUpdate:()=>{updates++;},
+  onNext:id=>advanced.push(id)
 });
 async function settle(){await new Promise(resolve=>setImmediate(resolve));}
 async function waitForCount(n) {
@@ -197,6 +198,11 @@ async function sequence() {
   await settle();
   assert.equal(posted[3].decision,'denied');
   assert.equal(c.getActive(),null);
+  assert.deepEqual(advanced,[thread.threadId],
+    'An audited denial must advance the one-email queue exactly once');
+  root=new Node('div');c.render(root,thread,context,q);
+  assert(!button(root,'Prepare editable reply'),
+    'A denied email revision must not reopen until a new incoming message');
   assert(updates>0);
   c.reset();
 }
@@ -232,6 +238,8 @@ sequence().then(()=>{
   assert.match(app,/View '\+earlier.length\+' previous email'/);
   assert.match(app,/pending.threadId!==t.threadId/,
     'Cannot switch to another thread during an active reply review');
+  assert.match(app,/audit.decision==='denied'/,
+    'Advancing the queue must skip earlier denied revisions');
   assert.match(app,/visible:false/,
     'Opening a different conversation collapses the previous preview');
 

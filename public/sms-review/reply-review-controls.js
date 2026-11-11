@@ -44,6 +44,16 @@
         audits.set(t.threadId,{error:'Owner reply audit is unavailable. Approval actions remain disabled.'});
       }finally {onUpdate();}
     }
+    function rememberAudit(t,d) {
+      if(!t?.threadId||!d?.ok||d.source!=='append_only_owner_reply_audit')return false;
+      audits.set(t.threadId,{ready:true,...d});
+      onUpdate();return true;
+    }
+    function deniedRevision(t) {
+      const a=audits.get(t?.threadId);
+      return Boolean(a?.ready&&a.decision==='denied'&&
+        sameRevision(a.lastMessageAt,t.lastMessageAt));
+    }
     async function save(t,context,q,decision,draftDigest='') {
       if(working||!eligible(t,context,q)||!audits.get(t.threadId)?.ready)return false;
       if(active&&active.threadId!==t.threadId)return false;
@@ -428,7 +438,7 @@
         'Step 48: Sending requires a verified Gmail recipient, a matching owner-approved text digest, explicit confirmation, two owner-controlled switches and a unique send reservation. All are OFF by default. Never retry an uncertain send.'));
       container.append(wrap);
     }
-    return {render,loadAudit,reset,getActive:()=>active};
+    return {render,loadAudit,rememberAudit,deniedRevision,reset,getActive:()=>active};
   }
   return {createController,sameRevision};
 });

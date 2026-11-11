@@ -35,6 +35,9 @@
   const holding=/(?:\b(?:out of town|out of (?:the )?office|on vacation|on holiday|on leave)\b|\b(?:when (?:i|we)['’]?(?:m|re)? back|once (?:i|we)['’]?(?:m|re)? back|back in (?:a few|several|two|three)\s+weeks?)\b|\b(?:still reviewing|internal review|internal approval|review with (?:my|our|the)|share (?:it|this) with (?:the )?(?:team|leadership)|get back to you|be in touch|follow up (?:when|after))\b)/i;
   const courtesy=/^(?:(?:hi|hello|hey|dear)\b[^,.!?\n]{0,30}[,.!]\s*)?(?:(?:thanks?(?:\s+so much)?|thank you(?:\s+(?:very much|again))?|perfect|great|awesome|sounds good|got it|received|all set|understood|appreciated|much appreciated|will do|that works|absolutely|no problem|you['’]?re welcome|glad to hear it)(?:[\s.!,-]*(?:you|again|matt|team|for (?:the|your|all)|very much|so much|everyone|guys))?[\s.!,-]*){1,5}$/i;
   const completedAcknowledgement=/^(?:(?:thanks?(?:\s+again)?|thank you(?:\s+again)?)[.!,-]?\s*)?(?:this|it|the invoice|the document|the payment|the agreement)\s+(?:has\s+been|was|is)\s+(?:submitted|sent|received|processed|paid)(?:\s+(?:to|by)\s+(?:accounting|our team))?[.!]*$/i;
+  // Friendly acknowledgement with a non-actionable plan to connect later.
+  // Anchored: any additional question, ask or request fails this pattern.
+  const cordialAcknowledgement=/^(?:(?:awesome|great|perfect|excellent)[!.]\s*)?(?:thanks?(?:\s+you)?(?:\s+for\s+(?:this|that|the\s+(?:update|info(?:rmation)?|details|email|message|introduction|intro|referral)))?)(?:[!.]\s*|\s+and\s+)?(?:(?:i\s+)?l?look(?:ing)?\s+forward\s+to\s+(?:connecting|speaking|talking|catching up|seeing you)(?:\s+with\s+you)?(?:\s+(?:(?:this|next)\s+)?(?:weekend|week|month)|\s+soon)?[!.]*)?$/i;
   // Two named thank-yous in an introduction thread are an acknowledgement,
   // not a fresh sales request, provided the COMPLETE authored message
   // contains nothing beyond these thanks.
@@ -81,7 +84,8 @@
     const preview=typeof window!=='undefined'&&window.LVPTMessagePreview?
       window.LVPTMessagePreview:typeof require==='function'?
       require('./message-preview.js'):null;
-    const focused=String(preview?preview.focus(latest?.excerpt).body:latest?.excerpt||'');
+    const focusedPreview=preview?preview.focus(latest?.excerpt):null;
+    const focused=String(focusedPreview?.body||latest?.excerpt||'');
     // Clients often begin with a standalone "Matt" before a short closing.
     // Ignore only a narrow, recognized greeting for classification.
     const withoutGreeting=focused.replace(
@@ -93,7 +97,8 @@
     const directAsk=/\?|\b(?:can|could|would|do|does|is|are|have|has)\s+(?:you|we|your team|the team)\b|\bplease\s+(?:send|confirm|provide|share|advise|clarify|update|quote|schedule|call)\b/i.test(body);
     const isDecline=decline.test(body);
     const isHolding=holding.test(body);
-    const isCourtesy=courtesy.test(body)||namedThankYou.test(body);
+    const isCourtesy=courtesy.test(body)||namedThankYou.test(body)||
+      cordialAcknowledgement.test(body);
     const incomplete=context.partial===true||
       latest?.truncated===true||latest?.hasAttachments===true||
       messages.length<Number(context.totalMessages||0);
@@ -117,8 +122,11 @@
     // Short, COMPLETE acknowledgements can close a long conversation even
     // when earlier history was intentionally omitted. Truncation/attachments
     // still demand full human review, and an actual request always wins.
+    const quoteOnlyTruncation=latest.truncated===true&&
+      focusedPreview?.quotedHistorySeen===true;
     if((isCourtesy||completedAcknowledgement.test(body))&&!hasQuestion&&
-       latest.truncated!==true&&latest.hasAttachments!==true)
+       (latest.truncated!==true||quoteOnlyTruncation)&&
+       latest.hasAttachments!==true)
       return result('monitor',
         'The latest complete message appears to acknowledge prior correspondence, without requesting a new response.',
         ['Client acknowledgement or submission confirmation'],

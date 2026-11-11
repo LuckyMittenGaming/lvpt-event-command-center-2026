@@ -968,8 +968,14 @@
               encodeURIComponent(next.threadId));
             if(!audit.ok||audit.source!=='append_only_owner_reply_audit')
               throw Error('Decision audit unavailable');
-            if(audit.lastMessageAt===next.lastMessageAt&&
-               audit.decision==='denied')continue;
+            if(audit.decision==='denied') {
+              // UTC timestamps can serialize differently in Gmail versus
+              // PostgreSQL. Never return a denied revision to the queue.
+              if(!audit.lastMessageAt)
+                throw Error('Denied audit missing message revision');
+              if(window.LVPTReplyReviewControls.sameRevision(
+                audit.lastMessageAt,next.lastMessageAt))continue;
+            }
           }catch {
             showInboxQueueStatus('Review paused: the next conversation could not be checked against owner decisions. No email was opened or sent.');
             return;

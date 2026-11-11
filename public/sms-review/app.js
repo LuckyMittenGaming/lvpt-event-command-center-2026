@@ -640,7 +640,8 @@
       ' '+reviewed.length+' selected thread(s) qualified locally; '+candidates+
       ' potential reply candidate(s) among them. These are NOT authorized drafts.'+
       ' Coverage remains limited; bodies are only fetched for a selected thread. No messages sent or records changed.';
-    const priority=t=>t.sourceType==='form_lead'?0:
+    const priority=t=>replyController.deniedRevision(t)?5:
+      t.sourceType==='form_lead'?0:
       t.needsHumanReview&&t.relationshipHint==='vendor'?2:
       t.needsHumanReview?1:t.relationshipHint==='internal'?4:3;
     const sorted=rows.slice().sort((a,b)=>priority(a)-priority(b) ||
@@ -649,9 +650,11 @@
       items.append(makeText('p','hint',
         'No eligible entries in these bounded pages. This does not prove the entire business inbox is clear.'));
     sorted.forEach(t=>{
+      const dismissed=replyController.deniedRevision(t);
       const card=makeText('div','gmail-evidence-card','');
       card.append(makeText('strong','',t.subject||'(no subject)'));
-      const role=t.sourceType==='form_lead'?'Website form — verify original client and prior replies':
+      const role=dismissed?'Dismissed by owner — no reply needed':
+        t.sourceType==='form_lead'?'Website form — verify original client and prior replies':
         t.relationshipHint==='internal'?'Internal correspondence — no sales outreach':
         t.relationshipHint==='vendor'?'Vendor / venue operations':
         t.needsHumanReview?'Potential inquiry — inspect full thread':
@@ -663,6 +666,7 @@
         t.observedMessages+' observed messages'));
       const needs=t.needsHumanReview;
       card.append(makeText('p','gmail-evidence-explain',
+        dismissed?'Owner denied this email revision. It is excluded from the approval queue until a new client message arrives.':
         t.relationshipHint==='internal'?
           'Internal owner correspondence. Not a customer lead.':
         t.relationshipHint==='vendor'?
@@ -950,7 +954,9 @@
     if(!previousThreadId)businessInboxThreadContext.forEach((value,key)=>
       businessInboxThreadContext.set(key,{...value,visible:false}));
     renderBusinessInboxReview();
-    showInboxQueueStatus('Denial saved. Checking the next eligible LVPT conversation (read-only)…');
+    showInboxQueueStatus(previousThreadId?
+      'Denial saved. Checking the next eligible LVPT conversation (read-only)…':
+      'Checking the next eligible LVPT conversation (read-only)…');
     const examined=new Set();
     try {
       // Load a bounded number of additional metadata pages on demand.
@@ -968,6 +974,7 @@
               encodeURIComponent(next.threadId));
             if(!audit.ok||audit.source!=='append_only_owner_reply_audit')
               throw Error('Decision audit unavailable');
+            replyController.rememberAudit(next,audit);
             if(audit.decision==='denied') {
               // UTC timestamps can serialize differently in Gmail versus
               // PostgreSQL. Never return a denied revision to the queue.

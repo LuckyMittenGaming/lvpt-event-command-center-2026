@@ -37,6 +37,14 @@ assert.match(api,/Answer the substantive questions first/,
   'Replies must answer the inquiry before requesting more details');
 assert.match(api,/Do not bombard the client with a checklist/,
   'Drafts should minimize qualification friction');
+assert.match(api,/natural first-person LVPT owner voice/,
+  'Drafts must sound like a real LVPT event professional');
+assert.match(api,/reply body should begin with a natural greeting/,
+  'Replies must include a human opening');
+assert.match(api,/End with a simple warm closing/,
+  'Replies should finish with a concise, genuine sign-off');
+assert.match(api,/Do not repeat a controlled workflow test label/,
+  'Test-only instructions should not pollute customer-facing text');
 assert.match(api,/sender.*recipient addresses|recipient addresses or other identifiers/);
 assert.match(api,/sendTriggered:false,gmailDraftCreated:false,crmModified:false/);
 assert.doesNotMatch(api,/sendOwnerApprovedGmailReply|messages\/send|GmailApp\.sendEmail|MailApp\.sendEmail/,

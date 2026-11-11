@@ -1,6 +1,7 @@
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { isDocumentWorkflowNotice } from '../_inbox-routing';
 import { getAiGatewayCredential } from '../../../../../lib/lvpt-ai-gateway-auth';
 import { authoredText, qualifyDiagnosticPreview } from '../../../../../lib/lvpt-diagnostic-message.mjs';
 
@@ -16,7 +17,7 @@ type LatestAudit={
 };
 type Mail={
   at?:unknown;direction?:unknown;relationshipHint?:unknown;
-  excerpt?:unknown;truncated?:unknown;hasAttachments?:unknown
+  excerpt?:unknown;senderDomain?:unknown;truncated?:unknown;hasAttachments?:unknown
 };
 type Context={
   ok?:unknown;connected?:unknown;source?:unknown;
@@ -136,7 +137,8 @@ export async function POST(request:Request) {
        !Array.isArray(m)||!latest||!m.length||m.length>10||
        !Number.isInteger(context.totalMessages)||Number(context.totalMessages)>150||
        latest.at!==lastMessageAt||latest.direction!=='inbound'||
-       latest.relationshipHint!=='unclassified'||latest.truncated===true||
+       latest.relationshipHint!=='unclassified'||
+       isDocumentWorkflowNotice(latest.senderDomain,'')||latest.truncated===true||
        latest.hasAttachments===true||typeof latest.excerpt!=='string'||
        !latest.excerpt.trim())
       return jsonNoStore({ok:false,reason:'source_stale_ambiguous_or_unverified'},409);

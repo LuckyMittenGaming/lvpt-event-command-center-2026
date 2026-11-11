@@ -219,6 +219,12 @@
         status.set(t.threadId,
           'Send result uncertain or blocked. STOP: inspect Gmail Sent and the send audit before any further action. Never retry automatically.');
       }finally {working='';onUpdate();}
+      // Advance only after a positive Gmail acknowledgement, never on
+      // uncertain or failed delivery; preserve the send audit.
+      if(active?.phase==='sent'&&active.threadId===t.threadId) {
+        active=null;verified.delete(t.threadId);onUpdate();
+        if(typeof onNext==='function')onNext(t.threadId);
+      }
     }
 
     const button=(label,click,disabled=false,variant='neutral')=>{
@@ -345,7 +351,7 @@
       }else if(active.phase==='approved_for_manual_copy') {
         wrap.append(makeText('p','action-draft-status',
           'Approved text is locked. No email has been sent by this review step.'));
-        controls.append(button('Copy approved subject and text',()=>void copyApproved()));
+        controls.append(button('Copy approved text and continue',()=>void copyApproved()));
         controls.append(button('Reopen for editing',
           ()=>void save(t,context,q,'draft_prepared')));
         const read=recipients.get(t.threadId);
@@ -398,28 +404,42 @@
           'Sent — Gmail message confirmed. Close this review to move on to the next conversation.'));
       }
       async function copyApproved() {
-        if(!active||active.phase!=='approved_for_manual_copy')return;
-        const digest=await fingerprint(JSON.stringify([active.subject,active.body]));
-        if(digest!==active.draftDigest){
-          status.set(t.threadId,'Draft changed since approval. Reopen editing and approve again.');
-          onUpdate();return;
-        }
+        if(working||!active||active.phase!=='approved_for_manual_copy'||
+           active.threadId!==t.threadId)return;
+        working=t.threadId;onUpdate();
+        let copied=false;
         try {
-          // Confirm the thread has not changed SINCE approval, right before
-          // placing the approved text in the clipboard.
-          const query=new URLSearchParams({threadId:t.threadId,lastMessageAt:t.lastMessageAt});
+          const digest=await fingerprint(JSON.stringify([active.subject,active.body]));
+          if(digest!==active.draftDigest)
+            throw new Error('Approved text digest changed');
+          // The latest Gmail revision must still match before the owner can
+          // export the approved text. No outbound message is created here.
+          const query=new URLSearchParams({
+            threadId:t.threadId,lastMessageAt:t.lastMessageAt
+          });
           const current=await getProtected('/api/sms/staging/inbox-thread?'+query);
           if(!current.ok||current.threadId!==t.threadId||
-             current.lastMessageAt!==t.lastMessageAt)
-            throw new Error('Conversation changed; refresh and re-review.');
-          await navigator.clipboard.writeText('Subject: '+active.subject+'\n\n'+active.body);
+             !sameRevision(current.lastMessageAt,t.lastMessageAt))
+            throw new Error('Gmail conversation revision changed');
+          await navigator.clipboard.writeText('Subject: '+
+            active.subject+'\n\n'+active.body);
           status.set(t.threadId,
-            'Approved text copied. No email sent. Open the original Gmail thread, verify To/CC and send manually only after your final review.');
+            'Approved text copied. No email sent. Verify the To/CC in original Gmail and send manually, if appropriate.');
+          copied=true;
         }catch {
           status.set(t.threadId,
-            'Copy blocked: clipboard permission or current Gmail verification failed. No email sent.');
+            'Copy blocked: clipboard or source verification failed. No email sent. Review again before retrying.');
+        }finally {
+          working='';onUpdate();
         }
-        onUpdate();
+        // An explicit user-initiated successful clipboard copy releases the
+        // single-email lock. Never advance on failure or mere approval.
+        if(copied) {
+          active=null;
+          verified.delete(t.threadId);
+          onUpdate();
+          if(typeof onNext==='function')onNext(t.threadId);
+        }
       }
       controls.append(button('Close review; choose next email',()=>{
         active=null;verified.delete(t.threadId);onUpdate();

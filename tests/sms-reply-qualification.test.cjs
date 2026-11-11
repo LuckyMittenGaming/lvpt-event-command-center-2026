@@ -39,6 +39,38 @@ expectOutcome('request to confirm','reply_candidate',{
 expectOutcome('courtesy acknowledgement','monitor',{
   message:{excerpt:'Thanks again.'}
 });
+const namedIntroReply=[
+  'Thank you Alex for the intro and Thank you Sam for the email.',
+  '',
+  'Taylor Smith',
+  'Travel, Meetings and Events Manager',
+  '-------------------------------------------------------',
+  'THE EXAMPLE COMPANY LLP',
+  'T [phone]   M [phone]',
+  '[email]<mailto:[email]>'
+].join('\n');
+const preview=require('../public/sms-review/message-preview.js');
+const focusedAck=preview.focus(namedIntroReply);
+assert.equal(focusedAck.body,
+  'Thank you Alex for the intro and Thank you Sam for the email.');
+assert.equal(focusedAck.shortened,true);
+assert.equal(focusedAck.reason,'signature');
+assert.equal(focusedAck.original,namedIntroReply,
+  'Full original message must remain available for human inspection');
+expectOutcome('two-person introduction thanks with company signature','monitor',{
+  message:{excerpt:namedIntroReply}
+});
+expectOutcome('same acknowledgement but with a genuine request','reply_candidate',{
+  message:{excerpt:namedIntroReply.replace(
+    'Thank you Alex for the intro and Thank you Sam for the email.',
+    'Thank you Alex for the intro and Thank you Sam for the email. Could you send the proposed dates?')}
+});
+expectOutcome('incomplete thank-you message','manual_review',{
+  message:{excerpt:namedIntroReply,truncated:true}
+});
+expectOutcome('attachment on thank-you message','manual_review',{
+  message:{excerpt:namedIntroReply,hasAttachments:true}
+});
 expectOutcome('polite acknowledgement','monitor',{
   message:{excerpt:'Sounds good!'}
 });

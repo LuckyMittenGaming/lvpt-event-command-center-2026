@@ -915,7 +915,7 @@
     }
   }
 
-  function advanceToNextInboxThread(previousThreadId) {
+  async function advanceToNextInboxThread(previousThreadId) {
     if(!sessionToken || !businessInboxReview?.connected)return;
     const candidates=(businessInboxReview.threads||[])
       .filter(t=>t.needsHumanReview===true &&
@@ -924,11 +924,27 @@
         t.relationshipHint==='unclassified')
       .sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
     const previous=candidates.findIndex(t=>t.threadId===previousThreadId);
-    const next=candidates.slice(previous+1).find(t=>t.threadId!==previousThreadId);
-    if(!next)return;
-    void loadBusinessInboxThread(next);
-    const heading=$('inboxReviewTitle');
-    if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});
+    // Do not recycle emails the owner already denied for this revision.
+    // Check the server-side audit so a page refresh cannot undo the decision.
+    for(const next of candidates.slice(previous+1)) {
+      if(next.threadId===previousThreadId)continue;
+      try {
+        const audit=await getProtected('/api/sms/staging/reply-decisions?threadId='+
+          encodeURIComponent(next.threadId));
+        if(!audit.ok||audit.source!=='append_only_owner_reply_audit')
+          throw Error('Owner decision could not be checked');
+        const sameRevision=audit.lastMessageAt===next.lastMessageAt;
+        if(sameRevision&&audit.decision==='denied')continue;
+      }catch {
+        businessInboxThreadError.set(next.threadId,
+          'Owner decision verification unavailable. Review paused to avoid repeating a dismissed inquiry.');
+        renderBusinessInboxReview();return;
+      }
+      void loadBusinessInboxThread(next);
+      const heading=$('inboxReviewTitle');
+      if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});
+      return;
+    }
   }
 
   async function loadBusinessInboxThread(t) {

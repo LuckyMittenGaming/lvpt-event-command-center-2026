@@ -262,6 +262,7 @@ async function sequence() {
   assert.equal(copies.length,1);
   assert(copies[0].includes('Matt Carpenter'));
   assert.equal(copiedController.getActive(),null);
+  assert.equal(copiedController.handledThisSession(thread),'copied_not_sent');
   const countAfterCopy=posted.length;
   assert.equal(countAfterCopy,6,'Clipboard never creates a new audit/send intent');
   // Clipboard failure must preserve locked draft and remain on this thread.
@@ -288,6 +289,7 @@ async function sequence() {
   assert.deepEqual(failedAdvance,[],
     'Clipboard error may never advance or discard the approved draft');
   assert.equal(failed.getActive()?.phase,'approved_for_manual_copy');
+  assert.equal(failed.handledThisSession(thread),null);
 }
 sequence().then(()=>{
   const api=fs.readFileSync(path.join(__dirname,

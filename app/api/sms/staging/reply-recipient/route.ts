@@ -1,7 +1,7 @@
 import { jsonNoStore, ready } from '../_lib';
 import { hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
-import { isDocumentWorkflowNotice, isBizlyMailServiceDomain } from '../_inbox-routing';
+import { isDocumentWorkflowNotice, isBizlyMailServiceDomain, isVerifiedTalentEmail } from '../_inbox-routing';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -34,6 +34,8 @@ export async function GET(request:Request) {
       threadId,expectedLastMessageAt:lastMessageAt
     });
     const email=String(data.recipient||'').toLowerCase();
+    if(isVerifiedTalentEmail(email))
+      return jsonNoStore({ok:false,reason:'verified_talent_not_customer'},409);
     if(isBizlyMailServiceDomain(email.split('@')[1]))
       return jsonNoStore({ok:false,reason:'form_service_sender_not_client'},409);
     if(isDocumentWorkflowNotice(email.split('@')[1],data.subject))

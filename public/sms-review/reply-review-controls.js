@@ -45,6 +45,7 @@
       if(decision==='approved_for_manual_copy'&&
          (!active||active.phase!=='prepared'||active.threadId!==t.threadId))return false;
       working=t.threadId;onUpdate();
+      let moveNext=false;
       try {
         const data=await getProtected('/api/sms/staging/reply-decisions',{
           body:{
@@ -73,6 +74,8 @@
           active={...active,phase:'approved_for_manual_copy',draftDigest};
         }else if(decision==='denied') {
           recipients.delete(t.threadId);active=null;
+          verified.delete(t.threadId);
+          moveNext=true;
         }
         return true;
       }catch(error) {
@@ -80,7 +83,12 @@
           (error instanceof Error?error.message:'Protected audit error')+
           '. No email was sent.');
         return false;
-      }finally {working='';onUpdate();}
+      }finally {
+        working='';onUpdate();
+        // This transition follows the owner's explicit Deny click only.
+        // Never advance before the append-only audit confirms the decision.
+        if(moveNext&&typeof onNext==='function')onNext(t.threadId);
+      }
     }
     async function generateAiReply(t) {
       if(working||!active||active.phase!=='prepared'||
@@ -220,6 +228,11 @@
       }
       if(status.has(t.threadId))
         wrap.append(makeText('p','action-draft-status',status.get(t.threadId)));
+      if(!active&&audit.lastMessageAt===t.lastMessageAt&&audit.decision==='denied') {
+        wrap.append(makeText('p','hint',
+          'No reply needed — the owner already denied this exact email revision. A new client message can be reviewed separately.'));
+        container.append(wrap);return;
+      }
       if(active&&active.threadId!==t.threadId) {
         wrap.append(makeText('p','hint',
           'Another email is under review. Finish or close that draft before opening a new one.'));

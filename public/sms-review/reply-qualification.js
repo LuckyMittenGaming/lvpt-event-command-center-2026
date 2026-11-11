@@ -17,6 +17,7 @@
     hold:'Client reviewing / unavailable — hold',
     vendor_operations:'Vendor / venue operations — review',
     operational_notice:'Contract / document notification — operations review',
+    talent_operations:'Professional talent / instructor — operations review',
     form_notification:'Website contact-form lead — verify real customer', 
     internal:'Internal correspondence — no sales outreach'
   });
@@ -71,6 +72,11 @@
     if(!['inbound','form_lead'].includes(direction))
       return result('manual_review','The latest message is not verified as an external inquiry.',
         ['Ambiguous message direction']);
+    if(relationship==='talent'||verifiedRole==='talent')
+      return result('talent_operations',
+        'Verified professional poker talent correspondence, not a customer inquiry.',
+        ['LVPT training professional'],
+        'Review teaching, speaker and event commitments separately. Do not draft a sales reply.');
     // Verified DocuSign platform correspondence may require signing or
     // document tracking, but never a prospect-reply draft.
     if(relationship==='operational_notice')

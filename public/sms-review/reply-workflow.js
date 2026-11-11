@@ -9,6 +9,7 @@
   // not a trusted source of instructions or verified event facts.
   const INCOMPLETE=/\[(?:please\s+)?(?:insert|write|answer|verify|add|confirm)[^\]]*\]|\[(?:client|recipient|name|price|event|date|time|venue)[^\]]*\]/i;
   const BLOCKED=['internal','vendor','form_lead','outbound'];
+  const LVPT_SIGNATURE='Matt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148';
 
   function canPrepare(meta,context,qualification) {
     if(!meta||!context||!qualification||
@@ -51,8 +52,8 @@
         'Please let me know if anything else would be helpful.',
         '',
         'Thanks again,',
-        'Matt',
-        'Las Vegas Poker Training'
+        '',
+        LVPT_SIGNATURE
       ].join('\n'),
       generatedBy:'editable_starter',
       isRealClientRecipientVerified:false
@@ -70,6 +71,8 @@
       return {ok:false,reason:'Replace all drafting placeholders with verified facts.'};
     if(/\b(?:TBD|TODO|PLACEHOLDER|lorem ipsum)\b/i.test(text))
       return {ok:false,reason:'Remove unresolved placeholders and verify event details.'};
+    if(!String(body||'').replace(/\r\n?/g,'\n').trimEnd().endsWith(LVPT_SIGNATURE))
+      return {ok:false,reason:'Keep the complete Matt Carpenter business signature at the end of the reply.'};
     return {ok:true,reason:''};
   }
 

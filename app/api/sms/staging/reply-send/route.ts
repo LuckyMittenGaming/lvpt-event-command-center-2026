@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { allowedReviewMutation, hasReviewSession } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { isDocumentWorkflowNotice } from '../_inbox-routing';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -192,6 +193,8 @@ export async function POST(request:Request) {
       verified.threadId!==input.threadId||verified.lastMessageAt!==input.lastMessageAt||
       String(verified.recipient||'').toLowerCase()!==input.recipient)
       return jsonNoStore({ok:false,reason:'recipient_unverified_or_gas_send_disabled'},409);
+    if(isDocumentWorkflowNotice(input.recipient.split('@')[1],verified.subject))
+      return jsonNoStore({ok:false,reason:'operational_notice_not_a_client_reply'},409);
     if(typeof verified.subject!=='string'||
        canonicalSubject(verified.subject)!==canonicalSubject(input.subject))
       return jsonNoStore({ok:false,reason:'subject_must_match_verified_gmail_thread'},409);

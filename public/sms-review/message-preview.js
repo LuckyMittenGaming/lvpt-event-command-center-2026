@@ -30,7 +30,15 @@
       const prior=lines.slice(Math.max(0,i-6),i).map(x=>x.trim());
       const hasSignoff=prior.some(x=>signoff.test(x));
       const next=lines.slice(i+1,Math.min(lines.length,i+7)).join('\n');
-      if(hasSignoff&&roleOrContact.test(next)){
+      // Signature blocks often follow a thank-you sentence without a
+      // standalone "Thanks," sign-off (e.g., an assistant's name, role,
+      // separator and contact block). Require all structural cues so
+      // substantive authored content is not mistakenly removed.
+      const bareSignature=i>=2&&lines[i-1].trim()===''&&
+        roleOrContact.test(String(lines[i+1]||''))&&
+        /^[-]{5,}\s*$/m.test(
+          lines.slice(i+2,Math.min(lines.length,i+8)).join('\n'));
+      if((hasSignoff&&roleOrContact.test(next))||bareSignature){
         cut=i;reason='signature';break;
       }
     }

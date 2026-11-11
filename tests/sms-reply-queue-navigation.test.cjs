@@ -35,6 +35,9 @@ function harness(rows,options={}) {
     sessionToken:'owner-session',businessInboxReview:data,
     window:{LVPTReplyReviewControls:{sameRevision}},
     replyController:{rememberAudit:(t,d)=>{seen.remembered.push({id:t.threadId,decision:d.decision});}},
+    replyQualifier:{qualifyThread:t=>({
+      outcome:options.qualifications?.[t.threadId]||'reply_candidate'
+    })},
     businessInboxThreadContext:contexts,businessInboxError:'',
     inboxQueueBusy:false,
     renderBusinessInboxReview:()=>{seen.render++;},
@@ -100,7 +103,7 @@ function harness(rows,options={}) {
   await h.queue.advanceToNextInboxThread(a.threadId);
   assert.deepEqual(h.seen.opened,[]);
   assert.equal(h.contexts.get(a.threadId).visible,false);
-  assert.match(h.seen.status.at(-1),/No other eligible incoming email found/);
+  assert.match(h.seen.status.at(-1),/No further potential reply found/);
   assert.match(h.seen.status.at(-1),/entire mailbox/);
   // Skip an earlier denied revision but continue to another unreviewed candidate.
   h=harness([a,b,c],{current:a.threadId,denied:[b.threadId]});
@@ -112,6 +115,21 @@ function harness(rows,options={}) {
   await h.queue.advanceToNextInboxThread(a.threadId);
   assert.equal(h.seen.pages,1);
   assert.deepEqual(h.seen.opened,[b.threadId]);
+  // A courtesy-only email is not another sales reply action: skip it
+  // automatically, but preserve the underlying event opportunity.
+  h=harness([a,b,c],{current:c.threadId,
+    qualifications:{[a.threadId]:'monitor',[b.threadId]:'reply_candidate'}});
+  await h.queue.advanceToNextInboxThread(c.threadId);
+  assert.deepEqual(h.seen.opened,[a.threadId,b.threadId]);
+  assert.equal(h.contexts.get(a.threadId).visible,false,
+    'Courtesy-only email preview must collapse as the queue continues');
+  assert.match(h.seen.status.at(-1),/Next potential inquiry opened/);
+  h=harness([a],{current:a.threadId,
+    qualifications:{[a.threadId]:'monitor'}});
+  await h.queue.advanceToNextInboxThread(null);
+  assert.deepEqual(h.seen.opened,[a.threadId]);
+  assert.equal(h.contexts.get(a.threadId).visible,false);
+  assert.match(h.seen.status.at(-1),/non-reply messages skipped/);
   // Audit failure is fail-closed: do not open or send anything.
   h=harness([a,b],{current:a.threadId,failAudit:b.threadId});
   await h.queue.advanceToNextInboxThread(a.threadId);
@@ -122,7 +140,7 @@ function harness(rows,options={}) {
     {current:a.threadId});
   await h.queue.advanceToNextInboxThread(a.threadId);
   assert.deepEqual(h.seen.opened,[]);
-  assert.match(app,/Denial saved\. Checking the next eligible LVPT conversation/);
+  assert.match(app,/Checking the next eligible LVPT conversation/);
   assert.doesNotMatch(code,/GmailApp.sendEmail|sendOwnerApprovedGmailReply|messages\/send/);
   console.log('Step 56 queue navigation: wrap-around, collapse, complete, skip-denied, next-page, fail-closed and eligibility checks passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

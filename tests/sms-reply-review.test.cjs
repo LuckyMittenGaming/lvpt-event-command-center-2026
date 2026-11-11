@@ -42,6 +42,9 @@ assert.equal(workflow.validation(starter.subject,starter.body).ok,false);
 const written=starter.body.replace(/\[[^\]]+\]/g,
   'Absolutely. We can offer a customized training session for your group. I can confirm options once I know your preferred date and approximate guest count.');
 assert.equal(workflow.validation(starter.subject,written).ok,true);
+assert(written.endsWith('Matt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148'));
+assert.equal(workflow.validation(starter.subject,written.replace('Event & Talent Manager\n','')).ok,false,
+  'Incomplete LVPT signature must never pass owner approval');
 assert.equal(workflow.validation(starter.subject,'Thanks.').ok,false);
 assert.equal(workflow.validation(starter.subject,
   written+'\n[VERIFY EVENT PRICE]').ok,false);
@@ -84,7 +87,7 @@ const fetchMock=async (url,options={})=>{
       ok:true,source:'owner_requested_ai_reply_preview',
       threadId:thread.threadId,lastMessageAt:at,
       subject:'Re: Poker event availability',
-      body:'Thanks for reaching out about poker training! Could you confirm your preferred event date and approximate guest count? I can then put together the right options for your group.',
+      body:'Hi,\n\nThanks for reaching out about poker training! Could you confirm your preferred event date and approximate guest count? I can then put together the right options for your group.\n\nThanks,\n\nMatt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148',
       rationale:'Ask for the two missing facts before quoting.',
       needsReview:['Exact event date','Guest count'],
       sendTriggered:false,gmailDraftCreated:false

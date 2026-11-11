@@ -1,6 +1,7 @@
 import { jsonNoStore, ready } from '../_lib';
 import { authorizedReviewer } from '../_review-auth';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { isDocumentWorkflowNotice } from '../_inbox-routing';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -68,6 +69,9 @@ function cleanThread(row:InboxRawThread) {
     direction==='outbound'?'outbound':
     ['elevatedbarservices.com','venetianlasvegas.com','pokergo.com'].includes(domain)?
       'vendor':'unclassified';
+  const routedHint=direction==='inbound'&&sourceType==='email_thread'&&
+    hint==='unclassified'&&isDocumentWorkflowNotice(domain,row.subject)?
+      'operational_notice':hint;
   // An inbound self-addressed form is not an ordinary sender reply.
   if((sourceType==='form_lead') !== (hint==='form_lead'))return null;
   return {
@@ -75,8 +79,10 @@ function cleanThread(row:InboxRawThread) {
     senderDomain:direction==='inbound'?domain:'',
     lastMessageAt:at,lastDirection:direction,
     reviewType:row.reviewType,sourceType,
-    relationshipHint:hint,
-    needsHumanReview:direction==='inbound' && hint!=='internal' &&
+    relationshipHint:routedHint,
+    // Keep operational notices accessible for contract follow-through,
+    // but never classify them as prospects in the one-email sales queue.
+    needsHumanReview:direction==='inbound' && routedHint!=='internal' &&
       row.needsHumanReview===true,
     observedMessages:count(row.observedMessages,150),
     fullThreadEnumerated:row.fullThreadEnumerated===true

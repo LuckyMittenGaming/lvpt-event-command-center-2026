@@ -24,6 +24,24 @@ assert.equal(authoredText(kelly.excerpt),'Thank you. This has been submitted.');
 assert.equal(outcome(longClosed),'no_reply_suggested');
 assert.equal(reason(longClosed),'acknowledgement');
 assert.equal(outcome(base(msg('That works. Thanks!'))),'no_reply_suggested');
+const namedThanks=[
+  'Thank you Alex for the intro and Thank you Sam for the email.',
+  '',
+  'Taylor Smith',
+  'Travel, Meetings and Events Manager',
+  '-------------------------------------------------------',
+  'EXAMPLE COMPANY LLP',
+  'T [phone] M [phone]'
+].join('\n');
+assert.equal(authoredText(namedThanks),
+  'Thank you Alex for the intro and Thank you Sam for the email.');
+assert.equal(outcome(base(msg(namedThanks))),'no_reply_suggested',
+  'A complete named thank-you and business signature are not a new prospect request');
+assert.equal(reason(base(msg(namedThanks))),'acknowledgement');
+assert.equal(outcome(base(msg(namedThanks.replace('for the email.',
+  'for the email. Could you share possible dates?')))),'possible_request');
+assert.equal(outcome(base(msg(namedThanks,{hasAttachments:true}))),'needs_review');
+
 assert.equal(outcome(base(msg('We will get back to you after internal review.'))),'no_reply_suggested');
 assert.equal(reason(base(msg('We need to share this with leadership and will get back to you.'))),
   'client_reviewing','Internal team timing is not a client request');

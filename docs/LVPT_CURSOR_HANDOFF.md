@@ -9,6 +9,15 @@ Updated: 2026-11-11. Branch: `feature/lvpt-sms-intelligence-review`.
 
 Read the repo and tests first. DO NOT trust historical assistant statements that everything has been fixed. Reproduce and verify.
 
+## Verified production repository mapping (November 11, 2026)
+- Live URL: `https://lvpt-event-command-center-2026.vercel.app/v2/index.html`.
+- Existing Vercel project ID: `prj_XWIQD5ptbx3J7NnVr1n6EfrdMEFs`; do **not** create a new Vercel project.
+- Production Vercel deployment metadata explicitly reports GitHub **`LuckyMittenGaming/lvpt-event-command-center-2026`**, branch **`main`**, commit `63d5921ac1da1d6e4cab01a220cc00232b40246c` (verified from deployment `dpl_DiogUEfhyJpstCXVw4ae6TwuLfCr`). This identifies the owner/repo behind the production alias, but do not infer that old deployment is the newest without checking current live alias again.
+- The repository also contains `public/v2/index.html` on BOTH `main` and feature branch `feature/lvpt-sms-intelligence-review`. Use the **same repository** for Cursor. Clone once, then check out the feature branch. Preserve production main.
+- Another repository exists at `Las-Vegas-Poker-Training/lvpt-event-command-center-2026`. It is **not** the verified production deployment's source; do not clone or merge it by guesswork.
+- The Google Apps Script projects are separate existing projects, not new Vercel/GitHub repositories. When authorized, import each into a distinct subdirectory via Google `clasp` with real verified Script IDs. Existing live TaskSync is NOT already in the repo.
+- In Cursor: File → Clone Repository → `https://github.com/LuckyMittenGaming/lvpt-event-command-center-2026.git`; select feature branch; open this repository as the **single** workspace. Use a new Agent conversation inside that folder. No new Cursor app, blank template, GitHub repository or Vercel project.
+
 ## Known repository and services
 - GitHub: `LuckyMittenGaming/lvpt-event-command-center-2026`; use `feature/lvpt-sms-intelligence-review`, not `main` for unreviewed changes.
 - Existing Next.js/Vercel staging; `package.json` runs `npm run test:staging-safety` automatically before `npm run build`.

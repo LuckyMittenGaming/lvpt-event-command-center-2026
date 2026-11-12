@@ -1,0 +1,18 @@
+---
+description: LVPT Command Center source-of-truth, automation ownership, payment, and safe deployment rules
+alwaysApply: true
+---
+# LVPT Command Center — engineering constraints
+
+Read `docs/LVPT_CURSOR_HANDOFF.md` before changing code or live-connected behavior. Preserve SEO, conversion, data collection, and event history.
+
+- Work on `feature/lvpt-sms-intelligence-review` (or child branch), not `main`; validate every change with tests/build before staging.
+- Google Sheet Tasks `task_id` is the current authoritative task record. Never infer completion from an old calendar date, draft, or read email. Use full evidence source IDs and owner confirmations.
+- Apps Script `runLVPTTaskSync` is the SOLE internal task Calendar writer. Other jobs reconcile/update Tasks; never create duplicate Calendar task reminders. Four business LVPT calendars only. Actual appointments are separate.
+- Internal tasks: one per active task, 15 minutes maximum, Free, no Meet, no external guests, no recurrence. Never delete an actual client meeting or a financially unresolved task merely because an event passed.
+- Matt or Mark confirmation that funds were RECEIVED is final payment proof. Client 'sent' alone stays pending and needs a single daily owner receipt-check reminder until confirmed.
+- Gmail archival = remove INBOX label only; never trash or auto-send. Require explicit owner approval for every outbound client email/SMS.
+- GoHighLevel SMS is not currently verified as readable. Never treat ciphertext/metadata as message content. Clearly label missing connector coverage.
+- Treat live Apps Script source and runtime as separate from repository release snippets. Never `clasp push`, edit production Calendar tasks, enable real email send, or rotate secrets without explicit approval. Never commit credentials.
+- Prefer deterministic idempotent test fixtures for duplicate messages, partial failures, stale invoice copy, replayed SMS, 15-minute/Free/no-Meet formatting, and cross-calendar dedup.
+- Distinguish **tested locally**, **deployed to staging**, **read-only live verified**, and **actually mutated in production**. Never say a component is fixed based solely on a plan or passing mock tests.

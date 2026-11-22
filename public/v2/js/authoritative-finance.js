@@ -29,10 +29,17 @@
       } else {
         const report = picture.report.money || {};
         const collected = report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents;
+        const named = ['evt-nium-2026', 'evt-neo-reunion-2026', 'evt-lineaje-2026'].map((id) => {
+          const row = (picture.report.byEvent || []).find((item) => item.eventId === id);
+          const label = id === 'evt-nium-2026' ? 'NIUM' : id === 'evt-neo-reunion-2026' ? 'NEO' : 'Lineaje';
+          if (!row) return card(label, 'No sheet invoice', 'No Payments row for this event.');
+          return card(label, money(row.collectedCents), `Outstanding ${money(row.outstandingCents)}. Invoice ${money(row.invoiceTotalCents)}.`);
+        });
         grid.innerHTML = [
-          card('Client invoices', money(report.clientInvoiceTotalCents), 'Every Payments row on the sheet.'),
+          card('Client invoices', money(report.clientInvoiceTotalCents), 'Every client Payments row on the sheet.'),
           card('Ledger collected', money(collected), 'Paid in full on the sheet. Not bank-verified.'),
           card('Outstanding', money(report.openClientExposureCents), 'Open balances only. A received final is not outstanding.'),
+          ...named,
           card('Owner paid', money(report.ownerPaidCents), 'Distributions marked Paid.'),
           card('Owner planned', money(report.ownerPlannedCents), 'Planned draws are not expenses already paid.'),
           card('Profit', money(report.forecastMarginCents), report.profitReason === 'vendor_ledger_incomplete' ? 'Unavailable until vendor bills are a complete ledger.' : 'From the same sheet ledger.')

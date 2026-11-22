@@ -34,7 +34,7 @@
   function inferRole(row) {
     const declared = explicitRole(row.ledgerRole);
     if (declared) return { role: declared, roleSource: 'ledger_role' };
-    const label = [row.lineLabel, row.counterparty, row.paymentType].filter(Boolean).join(' ');
+    const label = [row.lineLabel, row.counterparty, row.paymentType, row.paymentId, row.invoiceNumber].filter(Boolean).join(' ');
     if (/\b(elevated|venetian|heo)\b/i.test(label)) return { role: 'vendor_expense', roleSource: 'named_vendor_marker' };
     if (/\b(owner\s+draw|owner\s+distribution)\b/i.test(label)) return { role: 'owner_distribution', roleSource: 'named_distribution_marker' };
     const explicitBlank = String(row.ledgerRole || '').trim().toLowerCase();

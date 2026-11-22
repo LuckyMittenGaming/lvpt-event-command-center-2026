@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { gmailConfigured } from '../../gmail/_lib';
+import { supabaseEndpoint, supabaseHeaders } from '../../sms/staging/_lib';
 import { appsScriptRequest, syncConfigured } from '../_lib';
 
 export const runtime = 'nodejs';
@@ -38,28 +39,36 @@ function closed(status: string): boolean {
   return /complete|completed|resolved|done|closed/i.test(status);
 }
 
+function smsStoreConfigured(): boolean {
+  return /^https:\/\/[a-z0-9.-]+\.supabase\.co\/?$/i.test((process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').trim()) &&
+    (process.env.LVPT_SMS_STAGING_SUPABASE_SERVICE_KEY || '').trim().length >= 50;
+}
+
+function safeError(error: unknown): string {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : 'request failed';
+  return message.replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted]').slice(0, 180);
+}
+
 async function smsMeta(): Promise<Record<string, unknown>> {
-  const url = (process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').replace(/\/$/, '');
-  const key = process.env.LVPT_SMS_STAGING_SUPABASE_SERVICE_KEY || '';
-  if (!/^https:\/\/[a-z0-9.-]+\.supabase\.co$/i.test(url) || key.length < 20) {
+  if (!smsStoreConfigured()) {
     return {
       connected: false,
       detail: 'SMS staging is not configured on this deployment. An audit response is not a message sync.'
     };
   }
   try {
-    const headers = { apikey: key, Authorization: `Bearer ${key}`, Prefer: 'count=exact' };
-    const ingest = await fetch(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&order=received_at.desc&limit=1`, {
+    const headers = supabaseHeaders('count=exact');
+    const ingest = await fetch(`${supabaseEndpoint('lvpt_sms_staging')}?select=received_at&tenant_id=eq.lvpt-owner-pilot&order=received_at.desc&limit=1`, {
       headers, cache: 'no-store', signal: AbortSignal.timeout(12000)
     });
     if (!ingest.ok) {
-      return { connected: false, detail: 'The SMS store did not return import metadata. Message text was not read.' };
+      return { connected: false, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` };
     }
     const ingested = await ingest.json() as Array<{ received_at?: string }>;
     const newestIngestAt = ingested[0]?.received_at || '';
     const countMatch = (ingest.headers.get('content-range') || '').match(/\/(\d+)$/);
-    const message = await fetch(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    const message = await fetch(`${supabaseEndpoint('lvpt_sms_staging')}?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, {
+      headers: supabaseHeaders(),
       cache: 'no-store',
       signal: AbortSignal.timeout(12000)
     });
@@ -75,8 +84,8 @@ async function smsMeta(): Promise<Record<string, unknown>> {
         ? `Newest import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. ${historical ? 'That message is old, so this is not a live feed.' : 'Encrypted staging rows only. GoHighLevel is not the source.'} Rows ${countMatch ? countMatch[1] : 'unknown'}.`
         : 'The SMS store answered and has no imported rows.'
     };
-  } catch {
-    return { connected: false, detail: 'SMS metadata did not respond. Message text was not read.' };
+  } catch (error) {
+    return { connected: false, detail: `SMS metadata did not respond (${safeError(error)}). Message text was not read.` };
   }
 }
 

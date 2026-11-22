@@ -119,4 +119,20 @@ const linked = buildLedger({
 assert.equal(linked.counts.payoutsExcludedAsDuplicateExpense, 1);
 assert.equal(linked.counts.amountOverlapsNotMerged, 1);
 
+const markedById = buildLedger({
+  payments: [
+    { paymentId: 'PAY-evt-nium-2026', eventId: 'evt-nium-2026', invoiceTotal: 50578.38, amountPaid: 50578.38, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'PAY-evt-nium-2026-elevated-final-20261016', eventId: 'evt-nium-2026', invoiceTotal: 4120.20, amountPaid: 4120.20, balanceDue: 0, paymentStatus: 'Payment Initiated' },
+    { paymentId: 'PAY-evt-ows-20261130-venetian-heo-1350064', eventId: 'evt-ows-20261130', invoiceTotal: 11134.34, amountPaid: 0, balanceDue: 11134.34, paymentStatus: 'Awaiting Approval' }
+  ],
+  payouts: []
+});
+const markedNium = markedById.byEvent.find((row) => row.eventId === 'evt-nium-2026');
+assert.equal(markedById.counts.vendorBills, 2);
+assert.equal(markedById.counts.clientInvoices, 1);
+assert.equal(markedNium.invoiceTotalCents, 5057838);
+assert.equal(markedNium.collectedCents, 5057838);
+assert.equal(markedNium.outstandingCents, 0);
+assert.equal(markedById.money.verifiedClientReceiptsCents, 5057838);
+
 console.log('Event finance and source-status tests passed.');

@@ -165,7 +165,7 @@
   function sourceStatus(input) {
     const probe = input || {};
     if (probe.disabled) return 'DISABLED';
-    if (!probe.connected) return 'NOT CONNECTED';
+    if (!probe.connected) return probe.partial ? 'PARTIAL' : 'NOT CONNECTED';
     if (!probe.lastSuccess) return probe.partial ? 'PARTIAL' : 'NOT VERIFIED';
     const age = new Date(probe.now || Date.now()).getTime() - new Date(probe.lastSuccess).getTime();
     if (!Number.isFinite(age) || age < 0) return 'NOT VERIFIED';

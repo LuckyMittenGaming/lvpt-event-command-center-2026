@@ -1,4 +1,4 @@
-#attentionBar[hidden],#metricScopeBar[hidden],#metricsGrid[hidden],.layout-grid[hidden],#reportCenter[hidden],#selectedEventTasksPanel[hidden],#eventEditorPanel[hidden],#fullEventEditorTabs[hidden]{display:none !important}
+#attentionBar[hidden],#metricScopeBar[hidden],#hubOverviewStrip[hidden],#metricsGrid[hidden],.layout-grid[hidden],#reportCenter[hidden],#selectedEventTasksPanel[hidden],#eventEditorPanel[hidden],#fullEventEditorTabs[hidden]{display:none !important}
 .hub-overview-strip{display:flex;justify-content:space-between;gap:14px;align-items:center;margin:16px 0 0;padding:14px 16px;border:1px solid rgba(250,204,21,.22);border-radius:18px;background:rgba(0,0,0,.38)}
 .hub-overview-strip span{display:block;color:#71717a;font-size:10px;font-weight:950;letter-spacing:.14em;text-transform:uppercase}
 .hub-overview-strip strong{display:block;margin-top:4px;font-size:14px}

@@ -75,7 +75,7 @@
   }
 
   function toggleStandardWorkspace(show) {
-    ['#attentionBar','#metricScopeBar','#metricsGrid','.layout-grid','#reportCenter','#selectedEventTasksPanel','#eventEditorPanel','#fullEventEditorTabs'].forEach(selector => {
+    ['#attentionBar','#metricScopeBar','#hubOverviewStrip','#metricsGrid','.layout-grid','#reportCenter','#selectedEventTasksPanel','#eventEditorPanel','#fullEventEditorTabs'].forEach(selector => {
       const element = document.querySelector(selector);
       if (element) element.hidden = !show;
     });

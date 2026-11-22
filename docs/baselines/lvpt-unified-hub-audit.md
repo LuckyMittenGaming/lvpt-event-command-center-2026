@@ -11,8 +11,9 @@ Read-only baseline for issue #7. Captured 2026-11-22. No Apps Script deployment,
 | `runLVPTSafeTaskSync` | NOT VERIFIED | Nov 22 owner baseline says it is the sole hourly Calendar writer. This session did not read triggers and did not change the script. |
 | Vercel Gmail routes on production | NOT CONNECTED | `GET /api/gmail/status` returned `configured: false`. |
 | SMS routes on production `main` | NOT CONNECTED | `GET /api/sms/staging/audit-health` returned 404. SMS code is only on the feature branch. |
-| Feature preview https://lvpt-event-command-center-2026-dzwr3l3cz.vercel.app | STAGING | GitHub deployment `7727477518` succeeded on 2026-11-12 for sha `1344896`. Vercel Authentication returned 302. The older host in `SMS-STAGING-SETUP.md` does not resolve. |
-| SMS intake, Supabase `ogfrcwmsjbtiydlvqoyj` | NOT VERIFIED | Issue baseline says the project reported inactive. This session could not pass the preview login, so today's messages are not confirmed. |
+| Integrated staging preview | STAGING | Commit `b6d2e66` on `feature/lvpt-sms-intelligence-review`, deployment `dpl_H4HLuub7KudEvrDKVNePE1a3wuKL`. Stable URL: https://lvpt-event-command-center-git-9d0b2b-matt-carpenters-projects-7f34c5ab.vercel.app/v2/index.html . Deployment URL: https://lvpt-event-command-center-2026-9mrjsund1.vercel.app/v2/index.html . Vercel Authentication stays on. `public/v2/app.js` on that deployment loads `unified-hub.js`. |
+| SMS review route on that preview | PARTIAL | `GET /api/sms/staging/audit-health` returned `{"ok":false,"reason":"unauthorized"}` at 2026-11-22T19:37Z. The route is deployed and refuses anonymous access. It is not proof that today's messages were ingested. |
+| Preview Apps Script `status` | LIVE | Same spreadsheet and mailbox as production. Server time `2026-11-22T19:37:54.966Z`. App sync key is configured. This ping does not return payment rows. |
 | Every-invoice `paymentRecords` on the live Apps Script | NOT VERIFIED | The read-only action is in git. It is not treated as deployed. Calling it needs the app sync key, which is not in this workspace. |
 | ChatGPT morning review, evening review, 8:01 AM brief | NOT VERIFIED | Schedules are outside this repository. No last-success timestamp was readable here. |
 | Four-times-daily email approvals | DISABLED | Left disabled. No send path was turned on. |

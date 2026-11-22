@@ -62,9 +62,9 @@ async function smsMeta(): Promise<Record<string, unknown>> {
     };
   }
   const attempt = new Date().toISOString();
+  const url = (process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').trim().replace(/\/$/, '');
+  const key = (process.env.LVPT_SMS_STAGING_SUPABASE_SERVICE_KEY || '').trim();
   try {
-    const url = (process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').trim().replace(/\/$/, '');
-    const key = (process.env.LVPT_SMS_STAGING_SUPABASE_SERVICE_KEY || '').trim();
     const headers = { ...supabaseHeaders('count=exact'), apikey: key, Authorization: `Bearer ${key}` };
     const ingest = await fetch(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&order=received_at.desc&limit=1`, {
       headers, cache: 'no-store', signal: AbortSignal.timeout(12000)

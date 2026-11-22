@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { gmailConfigured } from '../../gmail/_lib';
-import { supabaseHeaders } from '../../sms/staging/_lib';
 import { appsScriptRequest, syncConfigured } from '../_lib';
 
 export const runtime = 'nodejs';
@@ -53,96 +53,139 @@ function smsStoreConfigured(): boolean {
     (process.env.LVPT_SMS_STAGING_SUPABASE_SERVICE_KEY || '').trim().length >= 50;
 }
 
+function httpsGet(urlString: string, headers: Record<string, string>): Promise<{ status: number; body: string; contentRange: string }> {
+  return new Promise((resolve, reject) => {
+    const request = https.get(urlString, { headers, timeout: 12000 }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => resolve({
+        status: response.statusCode || 0,
+        body: Buffer.concat(chunks).toString('utf8'),
+        contentRange: String(response.headers['content-range'] || '')
+      }));
+    });
+    request.on('timeout', () => {
+      request.destroy();
+      reject(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT', syscall: 'timeout' }));
+    });
+    request.on('error', reject);
+  });
+}
+
+function socketError(error: unknown): string {
+  const err = error as { code?: string; syscall?: string; cause?: { code?: string; syscall?: string } };
+  const code = err.code || err.cause?.code || '';
+  const syscall = err.syscall || err.cause?.syscall || '';
+  return [code, syscall].filter(Boolean).join(' ') || safeError(error);
+}
+
 async function smsMeta(): Promise<Record<string, unknown>> {
+  const attempt = new Date().toISOString();
   if (!smsStoreConfigured()) {
     return {
       connected: false,
-      lastAttempt: new Date().toISOString(),
+      lastAttempt: attempt,
+      recordsExamined: 0,
+      recordsCreated: 0,
       detail: 'SMS staging is not configured on this deployment. An audit response is not a message sync.'
     };
   }
-  const attempt = new Date().toISOString();
   const url = (process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').trim().replace(/\/$/, '');
   const key = (process.env.LVPT_SMS_STAGING_SUPABASE_SERVICE_KEY || '').trim();
+  const headers = { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/json' };
   try {
-    const headers = { ...supabaseHeaders('count=exact'), apikey: key, Authorization: `Bearer ${key}` };
-    const ingest = await fetch(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&order=received_at.desc&limit=1`, {
-      headers, cache: 'no-store', signal: AbortSignal.timeout(12000)
+    const ingest = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&order=received_at.desc&limit=1`, {
+      ...headers,
+      Prefer: 'count=exact'
     });
-    if (!ingest.ok) {
-      return { connected: false, lastAttempt: attempt, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` };
+    if (ingest.status < 200 || ingest.status >= 300) {
+      return { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` };
     }
-    const ingested = await ingest.json() as Array<{ received_at?: string }>;
+    const ingested = JSON.parse(ingest.body) as Array<{ received_at?: string }>;
     const newestIngestAt = ingested[0]?.received_at || '';
-    const countMatch = (ingest.headers.get('content-range') || '').match(/\/(\d+)$/);
-    const message = await fetch(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(12000)
-    });
-    const messages = message.ok ? await message.json() as Array<{ timestamp_ms?: number }> : [];
+    const countMatch = ingest.contentRange.match(/\/(\d+)$/);
+    const message = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, headers);
+    const messages = message.status >= 200 && message.status < 300 ? JSON.parse(message.body) as Array<{ timestamp_ms?: number }> : [];
     const newestMessageAt = messages[0]?.timestamp_ms ? new Date(Number(messages[0].timestamp_ms)).toISOString() : '';
     const historical = Boolean(newestMessageAt) && Date.now() - Date.parse(newestMessageAt) > 14 * 86400000;
     return {
-      connected: Boolean(newestIngestAt),
+      connected: Boolean(newestIngestAt) && !historical,
       partial: historical,
       lastAttempt: attempt,
       lastSuccess: newestIngestAt,
+      recordsExamined: countMatch ? Number(countMatch[1]) : ingested.length,
+      recordsCreated: 0,
       staleAfterHours: 48,
       detail: newestIngestAt
-        ? `Newest import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. ${historical ? 'That message is old, so this is not a live feed.' : 'Encrypted staging rows only. GoHighLevel is not the source.'} Rows ${countMatch ? countMatch[1] : 'unknown'}.`
-        : 'The SMS store answered and has no imported rows.'
+        ? `Newest import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. ${historical ? 'That message is older than 14 days, so this is a historical import.' : 'The newest stored message is recent. GoHighLevel is not the source.'} Rows ${countMatch ? countMatch[1] : 'unknown'}. Message text was not read.`
+        : 'The SMS store answered and has no imported rows. Message text was not read.'
     };
   } catch (error) {
-    const busy = /EBUSY|ECONNRESET|UND_ERR_SOCKET/.test(safeError(error));
-    if (busy) {
-      try {
-        const retry = await fetch(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&order=received_at.desc&limit=1`, {
-          headers: { apikey: key, Authorization: `Bearer ${key}`, Prefer: 'count=exact' },
-          cache: 'no-store',
-          signal: AbortSignal.timeout(12000)
-        });
-        if (retry.ok) {
-          const rows = await retry.json() as Array<{ received_at?: string }>;
-          const newestIngestAt = rows[0]?.received_at || '';
-          return {
-            connected: Boolean(newestIngestAt),
-            lastAttempt: attempt,
-            lastSuccess: newestIngestAt,
-            staleAfterHours: 48,
-            detail: newestIngestAt
-              ? `Newest import ${newestIngestAt}. The first connection was busy and the retry returned metadata only. Message text was not read.`
-              : 'The SMS store answered on retry and has no imported rows.'
-          };
-        }
-        return { connected: false, lastAttempt: attempt, detail: `SMS metadata returned HTTP ${retry.status} after a busy connection. Message text was not read.` };
-      } catch (retryError) {
-        return { connected: false, lastAttempt: attempt, detail: `SMS metadata did not respond (${safeError(retryError)}). Message text was not read.` };
-      }
-    }
-    return { connected: false, lastAttempt: attempt, detail: `SMS metadata did not respond (${safeError(error)}). Message text was not read.` };
+    return {
+      connected: false,
+      lastAttempt: attempt,
+      recordsExamined: 0,
+      recordsCreated: 0,
+      detail: `SMS metadata did not respond (${socketError(error)}). The request stopped before an HTTP status. Message text was not read.`
+    };
   }
 }
 
-async function gmailProbe(): Promise<Record<string, unknown>> {
+async function gmailProbe(knownThreadIds: Set<string>): Promise<Record<string, unknown>> {
   const attempt = new Date().toISOString();
-  try {
-    const evidence = await appsScriptRequest<Raw>('listGmailThreadEvidence', { eventKey: 'ows-aws' });
-    const threads = Array.isArray(evidence.threads) ? evidence.threads as Raw[] : [];
-    const newest = threads.map((thread) => text(thread.lastMessageAt, 40)).sort().at(-1) || '';
-    return {
-      connected: false,
-      lastAttempt: attempt,
-      detail: `Apps Script read ${threads.length} OWS header threads at ${text(evidence.checkedAt, 40) || attempt}. Newest stored header ${newest || 'none'}. This read does not write Gmail Activity and is not incremental ingestion for the mailbox.`
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Gmail read failed.';
-    return {
-      connected: false,
-      lastAttempt: attempt,
-      detail: `No new Gmail row was written. ${message.slice(0, 160)}`
-    };
+  const keys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
+  const queue: Array<Record<string, string>> = [];
+  let examined = 0;
+  let duplicates = 0;
+  let reads = 0;
+  let newest = '';
+  const errors: string[] = [];
+  const started = Date.now();
+  for (const eventKey of keys) {
+    if (Date.now() - started > 20000) {
+      errors.push(`${eventKey} was not checked in this request`);
+      continue;
+    }
+    try {
+      const evidence = await appsScriptRequest<Raw>('listGmailThreadEvidence', { eventKey });
+      reads += 1;
+      const threads = Array.isArray(evidence.threads) ? evidence.threads as Raw[] : [];
+      threads.forEach((thread) => {
+        examined += 1;
+        const threadId = text(thread.threadId, 80);
+        const when = text(thread.lastMessageAt, 40);
+        if (when > newest) newest = when;
+        if (threadId && knownThreadIds.has(threadId)) {
+          duplicates += 1;
+          return;
+        }
+        if (queue.length < 8) {
+          queue.push({
+            domainKey: eventKey,
+            subject: text(thread.subject, 140),
+            lastMessageAt: when,
+            lastDirection: text(thread.lastDirection, 20),
+            match: 'needs_review'
+          });
+        }
+      });
+    } catch (error) {
+      errors.push(text(error instanceof Error ? error.message : 'read failed', 100));
+    }
   }
+  return {
+    connected: false,
+    status: reads ? 'UNVERIFIED' : undefined,
+    lastAttempt: attempt,
+    recordsExamined: examined,
+    recordsCreated: 0,
+    duplicates,
+    queue,
+    newest,
+    detail: reads
+      ? `Authorized Apps Script read ${reads} domain searches and ${examined} header threads. ${duplicates} were already on the sheet. ${queue.length} are queued for review and were not assigned to an event. Newest header ${newest || 'none'}. No Gmail Activity row was written.`
+      : `No mailbox read completed. ${errors[0] || 'The Apps Script reader did not answer.'}`
+  };
 }
 
 export async function GET(request: Request) {
@@ -173,11 +216,13 @@ export async function GET(request: Request) {
       eventRead = 'failed';
     }
     let scanAt = '';
+    let scanRead = 'failed';
     try {
       const automation = await appsScriptRequest<Raw>('automationStatus');
       scanAt = typeof automation.lastScanAt === 'string' ? automation.lastScanAt : '';
+      scanRead = scanAt ? 'present' : 'empty';
     } catch {
-      scanAt = '';
+      scanRead = 'failed';
     }
 
     const payments = Array.isArray(ledger.paymentRecords) ? ledger.paymentRecords : null;
@@ -238,18 +283,22 @@ export async function GET(request: Request) {
 
     let gmailRows = 0;
     let newestGmail = '';
+    const knownThreadIds = new Set<string>();
     eventRows.forEach((event) => {
       const mail = Array.isArray(event.emailActivity) ? event.emailActivity as Raw[] : [];
       mail.forEach((item) => {
         gmailRows += 1;
         const when = text(item.date, 40);
+        const threadId = text(item.threadId, 80);
+        if (threadId) knownThreadIds.add(threadId);
         if (when > newestGmail) newestGmail = when;
       });
     });
 
     const serverTime = typeof ledger.serverTime === 'string' ? ledger.serverTime : new Date().toISOString();
     const gmailReady = gmailConfigured();
-    const [sms, gmailLive] = await Promise.all([smsMeta(), gmailProbe()]);
+    const sms = await smsMeta();
+    const gmailLive = await gmailProbe(knownThreadIds);
     const sendEnabled = process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND === 'true';
 
     return Response.json({
@@ -269,17 +318,18 @@ export async function GET(request: Request) {
       exceptions,
       events,
       tasks,
+      gmailQueue: gmailLive.queue,
       jobs: [
-        { name: 'Safe TaskSync', schedule: 'Hourly', owner: 'LVPT Calendar Command Center', connected: false, detail: 'This preview does not read Calendar triggers and does not change runLVPTSafeTaskSync.' },
-        { name: 'Client lifecycle scan', schedule: 'Apps Script property only', owner: 'LVPT_LAST_CLIENT_SCAN_AT', connected: Boolean(scanAt), lastSuccess: scanAt, staleAfterHours: 36, detail: scanAt ? `Last success ${scanAt}. A separate last-attempt time is not stored. It is not the morning review, evening review, or executive brief.` : 'No client-scan timestamp was returned. Last attempt is not stored.' },
-        { name: 'Morning client review', schedule: '8:00 AM ET', owner: 'Separate schedule', connected: false, detail: 'No last-success timestamp of its own. The client-scan time is not used here.' },
-        { name: 'Evening client review', schedule: '7:00 PM ET', owner: 'Separate schedule', connected: false, detail: 'No last-success timestamp of its own.' },
-        { name: 'Morning executive inbox brief', schedule: '8:01 AM ET', owner: 'External schedule', connected: false, detail: 'No last-success timestamp is stored for this job.' },
-        { name: 'Gmail credentials', schedule: 'Server environment', owner: 'Vercel Gmail routes', connected: gmailReady, partial: gmailReady, detail: gmailReady ? 'Credentials exist. That is not a mailbox read.' : 'GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and GMAIL_SYNC_KEY are absent on this deployment. Add them in Vercel project settings for Preview. Do not paste them into chat. Apps Script remains the authorized mailbox reader.' },
-        { name: 'Gmail ingestion', schedule: 'Not scheduled here', owner: 'Gmail Activity sheet', connected: false, lastAttempt: gmailLive.lastAttempt, detail: `${gmailLive.detail} The sheet already holds ${gmailRows} Gmail Activity rows, newest stored date ${newestGmail || 'none'}. Those rows are prior sheet records, not a new ingest from this request.` },
-        { name: 'SMS ingestion', schedule: 'Android staging import', owner: 'Encrypted Supabase rows', ...sms },
-        { name: 'Email approval workflow', schedule: 'Off', owner: 'Owner approval gate', disabled: true, detail: sendEnabled ? 'The send switch is on. This preview still blocks the old reminder route.' : 'Sending is disabled. A browser confirmation is not owner approval.' },
-        { name: 'Financial source sync', schedule: 'This page read', owner: 'Command Center Payments and Event Payouts', connected: true, lastAttempt: serverTime, lastSuccess: serverTime, staleAfterHours: 6, detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. Ledger status is not bank verification.` }
+        { id: 'tasksync', name: 'Safe TaskSync', schedule: 'Hourly', nextExpected: 'Hourly in Apps Script. This deployment cannot read the trigger.', owner: 'LVPT Calendar Command Center', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable from this preview. runLVPTSafeTaskSync was not called and was not changed.' },
+        { id: 'client-lifecycle', name: 'Client lifecycle scan', schedule: 'Apps Script property only', nextExpected: 'Not scheduled by this preview.', owner: 'LVPT_LAST_CLIENT_SCAN_AT', connected: scanRead === 'present', lastSuccess: scanAt, staleAfterHours: 36, recordsExamined: 0, recordsCreated: 0, detail: scanRead === 'failed' ? 'The scan property could not be read.' : scanRead === 'present' ? `Last success ${scanAt}. A separate last-attempt time is not stored.` : 'The property was read and is empty. That is not a success.' },
+        { id: 'morning-review', name: 'Morning client review', schedule: '8:00 AM ET', nextExpected: '8:00 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
+        { id: 'evening-review', name: 'Evening client review', schedule: '7:00 PM ET', nextExpected: '7:00 PM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
+        { id: 'executive-brief', name: 'Morning executive inbox brief', schedule: '8:01 AM ET', nextExpected: '8:01 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. No run history is stored for this job.' },
+        { id: 'gmail-credentials', name: 'Gmail credentials', schedule: 'Server environment', owner: 'Vercel Gmail routes', connected: false, recordsExamined: 0, recordsCreated: 0, detail: gmailReady ? 'Vercel Gmail credentials exist. They are not the ingestion path.' : 'Vercel has no Gmail OAuth variables. The authorized reader is the existing Apps Script project, so a second OAuth client was not added.' },
+        { id: 'gmail-ingestion', name: 'Gmail ingestion', schedule: 'Read-only Apps Script evidence', nextExpected: 'No incremental writer is scheduled here.', owner: 'Gmail Activity sheet', ...gmailLive, detail: `${gmailLive.detail} The sheet already holds ${gmailRows} Gmail Activity rows, newest stored date ${newestGmail || 'none'}.` },
+        { id: 'sms-ingestion', name: 'SMS ingestion', schedule: 'Android staging import', nextExpected: 'No new schedule was created.', owner: 'Encrypted Supabase rows', ...sms },
+        { id: 'email-approval', name: 'Email approval workflow', schedule: 'Off', nextExpected: 'Off until a supervised send test.', owner: 'Owner approval gate', disabled: true, recordsExamined: 0, recordsCreated: 0, detail: sendEnabled ? 'The send switch is on. The reminder route still returns 403.' : 'Sending is disabled. A browser confirmation is not owner approval.' },
+        { id: 'financial-sync', name: 'Financial source sync', schedule: 'This page read', nextExpected: 'Each time this page reads the sheet.', owner: 'Command Center Payments and Event Payouts', connected: true, lastAttempt: serverTime, lastSuccess: serverTime, recordsExamined: payments.length + payouts.length, recordsCreated: 0, staleAfterHours: 6, detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. No financial row was written.` }
       ]
     });
   } catch (error) {

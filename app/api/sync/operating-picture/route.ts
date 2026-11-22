@@ -94,6 +94,32 @@ async function smsMeta(): Promise<Record<string, unknown>> {
         : 'The SMS store answered and has no imported rows.'
     };
   } catch (error) {
+    const busy = /EBUSY|ECONNRESET|UND_ERR_SOCKET/.test(safeError(error));
+    if (busy) {
+      try {
+        const retry = await fetch(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&order=received_at.desc&limit=1`, {
+          headers: { apikey: key, Authorization: `Bearer ${key}`, Prefer: 'count=exact' },
+          cache: 'no-store',
+          signal: AbortSignal.timeout(12000)
+        });
+        if (retry.ok) {
+          const rows = await retry.json() as Array<{ received_at?: string }>;
+          const newestIngestAt = rows[0]?.received_at || '';
+          return {
+            connected: Boolean(newestIngestAt),
+            lastAttempt: attempt,
+            lastSuccess: newestIngestAt,
+            staleAfterHours: 48,
+            detail: newestIngestAt
+              ? `Newest import ${newestIngestAt}. The first connection was busy and the retry returned metadata only. Message text was not read.`
+              : 'The SMS store answered on retry and has no imported rows.'
+          };
+        }
+        return { connected: false, lastAttempt: attempt, detail: `SMS metadata returned HTTP ${retry.status} after a busy connection. Message text was not read.` };
+      } catch (retryError) {
+        return { connected: false, lastAttempt: attempt, detail: `SMS metadata did not respond (${safeError(retryError)}). Message text was not read.` };
+      }
+    }
     return { connected: false, lastAttempt: attempt, detail: `SMS metadata did not respond (${safeError(error)}). Message text was not read.` };
   }
 }

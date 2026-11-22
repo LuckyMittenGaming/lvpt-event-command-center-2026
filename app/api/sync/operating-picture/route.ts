@@ -126,7 +126,7 @@ async function smsMeta(): Promise<Record<string, unknown>> {
       lastAttempt: attempt,
       recordsExamined: 0,
       recordsCreated: 0,
-      detail: `SMS metadata did not respond (${socketError(error)}). The request stopped before an HTTP status. Message text was not read.`
+      detail: `SMS metadata did not respond (${socketError(error)}). This was the first network call in the request and it stopped before an HTTP status. Message text was not read.`
     };
   }
 }
@@ -205,6 +205,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    const sms = await smsMeta();
     const ledger = await appsScriptRequest<Raw>('listReconciliationEvidence');
     let eventRows: Raw[] = [];
     let eventRead = 'unread';
@@ -297,7 +298,6 @@ export async function GET(request: Request) {
 
     const serverTime = typeof ledger.serverTime === 'string' ? ledger.serverTime : new Date().toISOString();
     const gmailReady = gmailConfigured();
-    const sms = await smsMeta();
     const gmailLive = await gmailProbe(knownThreadIds);
     const sendEnabled = process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND === 'true';
 

@@ -149,3 +149,5 @@ vite.config.ts.timestamp-*
 **/client_secret*.json
 **/oauth-credentials*.json
 **/token.json
+.vercel
+.env*

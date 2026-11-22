@@ -22,11 +22,11 @@
     return localStorage.getItem(KEY) || '';
   }
 
-  async function readJson(url, withKey) {
+  async function readJson(url, withKey, timeoutMs = 12000) {
     const headers = {};
     if (withKey && syncKey()) headers['x-lvpt-sync-key'] = syncKey();
     try {
-      const response = await fetch(url, { headers, cache: 'no-store', signal: AbortSignal.timeout(12000) });
+      const response = await fetch(url, { headers, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
       const data = await response.json().catch(() => ({}));
       return { ok: response.ok, status: response.status, data };
     } catch (error) {
@@ -47,7 +47,7 @@
   }
 
   async function loadLedger() {
-    const result = await readJson('/api/sync/operating-picture', false);
+    const result = await readJson('/api/sync/operating-picture', false, 50000);
     if (result.ok && result.data && result.data.ok === true) ledgerCache = result.data;
     return result;
   }

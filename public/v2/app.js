@@ -21,7 +21,7 @@
     'js/central-sync.js',
     'js/lifecycle-command-center.js?v=2026-11-22-acceptance-2',
     'js/event-finance.js?v=2026-11-22-recovery',
-    'js/unified-hub.js?v=2026-11-22-recovery2',
+    'js/unified-hub.js?v=2026-11-22-recovery3',
     'js/responsive-polish-loader.js',
     'js/event-workspace-upgrade.js?v=2026-08-17-task-completion-v4',
     'js/authoritative-finance.js?v=2026-11-22-operations',

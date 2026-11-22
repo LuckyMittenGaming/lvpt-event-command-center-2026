@@ -20,11 +20,11 @@
     'js/report-scroll-ready.js',
     'js/central-sync.js',
     'js/lifecycle-command-center.js?v=2026-11-22-acceptance-2',
-    'js/event-finance.js?v=2026-11-22-sheet-ledger',
-    'js/unified-hub.js?v=2026-11-22-sheet-ledger',
+    'js/event-finance.js?v=2026-11-22-operations',
+    'js/unified-hub.js?v=2026-11-22-operations',
     'js/responsive-polish-loader.js',
     'js/event-workspace-upgrade.js?v=2026-08-17-task-completion-v4',
-    'js/authoritative-finance.js?v=2026-11-22-sheet-ledger',
+    'js/authoritative-finance.js?v=2026-11-22-operations',
   ];
 
   modules.forEach((modulePath) => {

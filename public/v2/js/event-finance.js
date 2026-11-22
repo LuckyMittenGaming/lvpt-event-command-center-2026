@@ -62,6 +62,7 @@
       invoiceTotalCents: cents(row.invoiceTotal),
       amountPaidCents: cents(row.amountPaid),
       balanceDueCents: cents(row.balanceDue),
+      dueDate: String(row.dueDate || '').slice(0, 20),
       bankVerified: false
     };
   }
@@ -223,5 +224,25 @@
     return probe.partial ? 'PARTIAL' : 'LIVE';
   }
 
-  return { buildLedger, sourceStatus, settlementKind, inferRole, cents };
+  function documentedExceptions() {
+    return [
+      {
+        id: 'nium-decks-documentation',
+        eventId: 'evt-nium-2026',
+        paymentId: 'PAY-evt-nium-2026-additional-decks-20260927',
+        amountCents: 41851,
+        includedInTotals: false,
+        detail: 'NIUM decks documentation differs by $418.51. The sheet invoice stays at its recorded amount. No adjustment was created.'
+      },
+      {
+        id: 'neo-21fun-reconciliation',
+        eventId: 'evt-neo-reunion-2026',
+        amountCents: 36562,
+        includedInTotals: false,
+        detail: 'NEO/21 Fun differs by $365.62. That difference is not a Payments or payout row, so it is excluded from totals.'
+      }
+    ];
+  }
+
+  return { buildLedger, sourceStatus, settlementKind, inferRole, cents, documentedExceptions };
 });

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { buildLedger, sourceStatus } = require('../public/v2/js/event-finance.js');
+const { buildLedger, sourceStatus, documentedExceptions } = require('../public/v2/js/event-finance.js');
 
 const niumOws = buildLedger({
   payments: [
@@ -134,5 +134,19 @@ assert.equal(markedNium.invoiceTotalCents, 5057838);
 assert.equal(markedNium.collectedCents, 5057838);
 assert.equal(markedNium.outstandingCents, 0);
 assert.equal(markedById.money.verifiedClientReceiptsCents, 5057838);
+
+const exceptions = documentedExceptions();
+assert.equal(exceptions.every((row) => row.includedInTotals === false), true);
+assert.equal(exceptions.find((row) => row.id === 'nium-decks-documentation').amountCents, 41851);
+assert.equal(exceptions.find((row) => row.id === 'neo-21fun-reconciliation').amountCents, 36562);
+const withDecks = buildLedger({
+  payments: [
+    { paymentId: 'PAY-evt-nium-2026', eventId: 'evt-nium-2026', invoiceTotal: 50578.38, amountPaid: 50578.38, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'PAY-evt-nium-2026-additional-decks-20260927', eventId: 'evt-nium-2026', invoiceTotal: 1353.39, amountPaid: 1353.39, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(withDecks.money.verifiedClientReceiptsCents, 5057838 + 135339);
+assert.notEqual(withDecks.money.verifiedClientReceiptsCents, 5057838 + 135339 - 41851);
 
 console.log('Event finance and source-status tests passed.');

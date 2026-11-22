@@ -83,11 +83,8 @@ async function smsMeta(): Promise<Record<string, unknown>> {
   const attempt = new Date().toISOString();
   if (!smsStoreConfigured()) {
     return {
-      connected: false,
-      lastAttempt: attempt,
-      recordsExamined: 0,
-      recordsCreated: 0,
-      detail: 'SMS staging is not configured on this deployment. An audit response is not a message sync.'
+      database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: 'SMS staging is not configured on this deployment.' },
+      upload: { status: 'UNVERIFIED', lastSuccess: '', recordsExamined: 0, recordsCreated: 0, detail: 'Upload freshness was not checked.' }
     };
   }
   const url = (process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').trim().replace(/\/$/, '');
@@ -99,7 +96,10 @@ async function smsMeta(): Promise<Record<string, unknown>> {
       Prefer: 'count=exact'
     });
     if (ingest.status < 200 || ingest.status >= 300) {
-      return { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` };
+      return {
+        database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` },
+        upload: { status: 'UNVERIFIED', lastSuccess: '', recordsExamined: 0, recordsCreated: 0, detail: 'Upload freshness was not checked.' }
+      };
     }
     const ingested = JSON.parse(ingest.body) as Array<{ received_at?: string }>;
     const newestIngestAt = ingested[0]?.received_at || '';
@@ -115,29 +115,35 @@ async function smsMeta(): Promise<Record<string, unknown>> {
     const recentMatch = recent.status >= 200 && recent.status < 300 ? recent.contentRange.match(/\/(\d+)$/) : null;
     const recentCount = recentMatch ? Number(recentMatch[1]) : null;
     const arriving = recentCount !== null && recentCount > 0;
+    const examined = countMatch ? Number(countMatch[1]) : ingested.length;
     const rows = countMatch ? countMatch[1] : 'unknown';
     return {
-      connected: arriving,
-      status: arriving ? undefined : 'UNVERIFIED',
-      lastAttempt: attempt,
-      lastSuccess: arriving ? newestIngestAt : '',
-      recordsExamined: countMatch ? Number(countMatch[1]) : ingested.length,
-      recordsCreated: 0,
-      duplicates: 0,
-      unmatched: 0,
-      lastError: '',
-      staleAfterHours: 48,
-      detail: newestIngestAt
-        ? `Newest stored import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. Imports in the last 14 days: ${recentCount === null ? 'not counted' : recentCount}. ${arriving ? 'A stored message arrived within 14 days. This request did not create a row.' : 'The stored import is historical and is not a current ingestion.'} Rows ${rows}. Message text was not read.`
-        : 'The SMS store answered and has no imported rows. Message text was not read.'
+      database: {
+        status: 'HEALTHY',
+        lastAttempt: attempt,
+        lastSuccess: '',
+        recordsExamined: examined,
+        recordsCreated: 0,
+        detail: `The metadata query succeeded. Stored rows ${rows}. A healthy database is not a fresh phone upload. Message text was not read.`
+      },
+      upload: {
+        status: arriving ? undefined : 'UNVERIFIED',
+        connected: arriving,
+        lastAttempt: '',
+        lastSuccess: arriving ? newestIngestAt : '',
+        recordsExamined: examined,
+        recordsCreated: 0,
+        staleAfterHours: 48,
+        detail: newestIngestAt
+          ? `Newest stored import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. Imports in the last 14 days: ${recentCount === null ? 'not counted' : recentCount}. ${arriving ? 'A stored row arrived within 14 days.' : 'No upload has arrived since the November 5 historical import.'} No server heartbeat is stored. Message text was not read.`
+          : 'The SMS store answered and has no imported rows. Message text was not read.'
+      }
     };
   } catch (error) {
+    const detail = `SMS metadata did not respond (${socketError(error)}). This stopped before an HTTP status. Message text was not read.`;
     return {
-      connected: false,
-      lastAttempt: attempt,
-      recordsExamined: 0,
-      recordsCreated: 0,
-      detail: `SMS metadata did not respond (${socketError(error)}). This was the first network call in the request and it stopped before an HTTP status. Message text was not read.`
+      database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail },
+      upload: { status: 'UNVERIFIED', lastAttempt: '', lastSuccess: '', recordsExamined: 0, recordsCreated: 0, detail: 'Upload freshness was not checked because the database query did not finish.' }
     };
   }
 }
@@ -337,8 +343,10 @@ export async function GET(request: Request) {
         { id: 'evening-review', name: 'Evening client review', schedule: '7:00 PM ET', nextExpected: '7:00 PM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
         { id: 'executive-brief', name: 'Morning executive inbox brief', schedule: '8:01 AM ET', nextExpected: '8:01 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. No run history is stored for this job.' },
         { id: 'gmail-credentials', name: 'Gmail credentials', schedule: 'Server environment', owner: 'Vercel Gmail routes', connected: false, recordsExamined: 0, recordsCreated: 0, detail: gmailReady ? 'Vercel Gmail credentials exist. They are not the ingestion path.' : 'Vercel has no Gmail OAuth variables. The authorized reader is the existing Apps Script project, so a second OAuth client was not added.' },
-        { id: 'gmail-ingestion', name: 'Gmail ingestion', schedule: 'Prepared hourly staging trigger, not installed', nextExpected: 'The hourly trigger is prepared and was not installed. No production trigger was created.', owner: 'Isolated Gmail Activity sheet', ...gmailLive, unmatched: Array.isArray(gmailLive.queue) ? gmailLive.queue.length : 0, lastSuccess: '', lastError: '', detail: `${gmailLive.detail} The production sheet still holds ${gmailRows} Gmail Activity rows, newest stored date ${newestGmail || 'none'}. Appended this request: 0.` },
-        { id: 'sms-ingestion', name: 'SMS ingestion', schedule: 'Android staging import', nextExpected: 'No new schedule was created.', owner: 'Encrypted Supabase rows', ...sms },
+        { id: 'gmail-staging', name: 'Gmail staging ingestion', schedule: 'Hourly Apps Script trigger, not installed', nextExpected: 'No staging trigger exists yet.', owner: 'LVPT Gmail Ingestion — Staging', observable: false, recordsExamined: 0, recordsCreated: 0, duplicates: 0, unmatched: 0, detail: 'This preview cannot read a staging Apps Script run. The business mailbox sign-in is required before that project can be created. A header read below is not an ingested row.' },
+        { id: 'gmail-production', name: 'Gmail production ingestion', schedule: 'Not enabled', nextExpected: 'No production writer is scheduled.', owner: 'Command Center Gmail Activity', ...gmailLive, unmatched: Array.isArray(gmailLive.queue) ? gmailLive.queue.length : 0, lastSuccess: '', recordsCreated: 0, detail: `${gmailLive.detail} Production Gmail Activity still has ${gmailRows} rows, newest stored date ${newestGmail || 'none'}. Appended to that sheet: 0.` },
+        { id: 'sms-database', name: 'SMS database health', schedule: 'This metadata query', nextExpected: 'Each time this page reads metadata.', owner: 'LVPT SMS Staging', ...(sms.database as Record<string, unknown>) },
+        { id: 'sms-upload', name: 'Android SMS upload freshness', schedule: 'LVPT SMS Test, about every 15 minutes when auto-sync is on', nextExpected: 'The phone decides. This server has no heartbeat.', owner: 'com.lvpt.smsbridge', ...(sms.upload as Record<string, unknown>) },
         { id: 'email-approval', name: 'Email approval workflow', schedule: 'Off', nextExpected: 'Off until a supervised send test.', owner: 'Owner approval gate', disabled: true, recordsExamined: 0, recordsCreated: 0, detail: sendEnabled ? 'The send switch is on. The reminder route still returns 403.' : 'Sending is disabled. A browser confirmation is not owner approval.' },
         { id: 'financial-sync', name: 'Financial source sync', schedule: 'This page read', nextExpected: 'Each time this page reads the sheet.', owner: 'Command Center Payments and Event Payouts', connected: true, lastAttempt: serverTime, lastSuccess: serverTime, recordsExamined: payments.length + payouts.length, recordsCreated: 0, staleAfterHours: 6, detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. No financial row was written.` }
       ]

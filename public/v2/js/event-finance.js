@@ -217,7 +217,7 @@
     const probe = input || {};
     if (probe.disabled) return 'DISABLED';
     if (probe.observable === false) return 'NOT OBSERVABLE';
-    if (probe.status === 'UNVERIFIED' || probe.status === 'NOT OBSERVABLE') return probe.status;
+    if (probe.status === 'UNVERIFIED' || probe.status === 'NOT OBSERVABLE' || probe.status === 'HEALTHY') return probe.status;
     if (!probe.connected) return probe.partial ? 'PARTIAL' : 'NOT CONNECTED';
     if (!probe.lastSuccess) return probe.partial ? 'PARTIAL' : 'NOT VERIFIED';
     const age = new Date(probe.now || Date.now()).getTime() - new Date(probe.lastSuccess).getTime();

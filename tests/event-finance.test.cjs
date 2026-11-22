@@ -80,6 +80,7 @@ assert.equal(sourceStatus({ disabled: true, connected: true }), 'DISABLED');
 assert.equal(sourceStatus({ connected: false }), 'NOT CONNECTED');
 assert.equal(sourceStatus({ observable: false, connected: true, lastSuccess: '2026-11-22T12:00:00Z' }), 'NOT OBSERVABLE');
 assert.equal(sourceStatus({ status: 'UNVERIFIED', connected: true, lastSuccess: '2026-11-22T12:00:00Z' }), 'UNVERIFIED');
+assert.equal(sourceStatus({ status: 'HEALTHY', connected: true, lastSuccess: '2026-11-05T05:36:06Z' }), 'HEALTHY');
 assert.equal(sourceStatus({ connected: false, partial: true }), 'PARTIAL');
 assert.equal(sourceStatus({ connected: true }), 'NOT VERIFIED');
 assert.equal(sourceStatus({ connected: true, partial: true }), 'PARTIAL');

@@ -120,6 +120,34 @@ function lvptNumber_(value) { var number = Number(value); return isNaN(number) ?
 // Read-only evidence for LVPT SMS reconciliation.
 // Do not infer that a planned payout cleared; the sheet's recorded status is authoritative
 // about what the Command Center says, but bank confirmation is still independent.
+function lvptLedgerText_(item, keys, maxLen) {
+  for (var i = 0; i < keys.length; i++) {
+    var value = item[keys[i]];
+    if (value === undefined || value === null) continue;
+    var text = String(value).replace(/\s+/g, ' ').trim();
+    if (!text || text.indexOf('@') !== -1) continue;
+    return text.slice(0, maxLen);
+  }
+  return '';
+}
+
+function lvptLedgerRole_(item) {
+  var role = lvptLedgerText_(item, ['ledger_role', 'payment_role', 'transaction_role'], 40).toLowerCase().replace(/[\s-]+/g, '_');
+  if (role === 'client' || role === 'receivable' || role === 'client_invoice') return 'client_receivable';
+  if (role === 'vendor' || role === 'expense' || role === 'vendor_bill') return 'vendor_expense';
+  if (role === 'owner' || role === 'distribution' || role === 'owner_draw') return 'owner_distribution';
+  if (role === 'tax' || role === 'fee' || role === 'client_receivable' || role === 'vendor_expense' || role === 'owner_distribution') return role;
+  return '';
+}
+
+function lvptLedgerLabel_(item) {
+  return lvptLedgerText_(item, ['line_label', 'payment_type', 'category', 'description', 'memo'], 80);
+}
+
+function lvptLedgerCounterparty_(item) {
+  return lvptLedgerText_(item, ['counterparty', 'vendor', 'payee', 'billed_to'], 80);
+}
+
 function lvptListReconciliationEvidence_() {
   var raw = lvptSheetObjects_('Event Payouts');
   var rows = raw.map(function(row) {
@@ -156,7 +184,10 @@ function lvptListReconciliationEvidence_() {
       balanceDue: numberOrNull(item.balance_due),
       paymentStatus: String(item.payment_status || 'Unknown').slice(0, 80),
       dueDate: lvptDateString_(item.due_date),
-      paymentDate: lvptDateString_(item.payment_date)
+      paymentDate: lvptDateString_(item.payment_date),
+      lineLabel: lvptLedgerLabel_(item),
+      ledgerRole: lvptLedgerRole_(item),
+      counterparty: lvptLedgerCounterparty_(item)
     };
   }).filter(function(item) {
     return item.eventId && item.paymentId;

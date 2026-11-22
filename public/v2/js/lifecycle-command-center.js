@@ -53,7 +53,7 @@
     nav.className = 'command-nav';
     nav.setAttribute('aria-label','Command Center sections');
     nav.innerHTML = [
-      ['overview','Overview'],['pipeline','Pipeline'],['active','Active Events'],['archive','Past Events'],['proposals','Proposals'],['followup','Client Follow-Up']
+      ['overview','Overview'],['pipeline','Pipeline'],['active','Active Events'],['archive','Past Events'],['proposals','Proposals'],['followup','Client Follow-Up'],['finance','Event Finance'],['communications','Communications'],['health','Source Health']
     ].map(([view,label]) => `<button type="button" data-command-view="${view}">${label}</button>`).join('');
     $('.hero-card').after(nav);
     const view = document.createElement('section');
@@ -88,11 +88,18 @@
     const overview = commandView === 'overview';
     toggleStandardWorkspace(overview);
     view.hidden = overview;
-    if (overview) return;
+    if (overview) {
+      if (typeof window.lvptPaintOverviewHealth === 'function') window.lvptPaintOverviewHealth();
+      return;
+    }
     if (commandView === 'pipeline') renderPipeline(view);
     else if (commandView === 'active') renderPortfolio(view, 'active');
     else if (commandView === 'archive') renderPortfolio(view, 'archive');
     else if (commandView === 'proposals') renderProposals(view);
+    else if (commandView === 'finance' || commandView === 'communications' || commandView === 'health') {
+      if (typeof window.lvptRenderUnifiedView === 'function') window.lvptRenderUnifiedView(view, commandView);
+      else view.innerHTML = '<div class="command-view-shell"><div class="command-view-body">Loading the operations hub…</div></div>';
+    }
     else renderFollowUp(view);
   }
 

@@ -107,17 +107,28 @@ async function smsMeta(): Promise<Record<string, unknown>> {
     const message = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, headers);
     const messages = message.status >= 200 && message.status < 300 ? JSON.parse(message.body) as Array<{ timestamp_ms?: number }> : [];
     const newestMessageAt = messages[0]?.timestamp_ms ? new Date(Number(messages[0].timestamp_ms)).toISOString() : '';
-    const historical = Boolean(newestMessageAt) && Date.now() - Date.parse(newestMessageAt) > 14 * 86400000;
+    const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
+    const recent = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&received_at=gte.${encodeURIComponent(cutoff)}&limit=1`, {
+      ...headers,
+      Prefer: 'count=exact'
+    });
+    const recentMatch = recent.status >= 200 && recent.status < 300 ? recent.contentRange.match(/\/(\d+)$/) : null;
+    const recentCount = recentMatch ? Number(recentMatch[1]) : null;
+    const arriving = recentCount !== null && recentCount > 0;
+    const rows = countMatch ? countMatch[1] : 'unknown';
     return {
-      connected: Boolean(newestIngestAt) && !historical,
-      partial: historical,
+      connected: arriving,
+      status: arriving ? undefined : 'UNVERIFIED',
       lastAttempt: attempt,
-      lastSuccess: newestIngestAt,
+      lastSuccess: arriving ? newestIngestAt : '',
       recordsExamined: countMatch ? Number(countMatch[1]) : ingested.length,
       recordsCreated: 0,
+      duplicates: 0,
+      unmatched: 0,
+      lastError: '',
       staleAfterHours: 48,
       detail: newestIngestAt
-        ? `Newest import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. ${historical ? 'That message is older than 14 days, so this is a historical import.' : 'The newest stored message is recent. GoHighLevel is not the source.'} Rows ${countMatch ? countMatch[1] : 'unknown'}. Message text was not read.`
+        ? `Newest stored import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. Imports in the last 14 days: ${recentCount === null ? 'not counted' : recentCount}. ${arriving ? 'A stored message arrived within 14 days. This request did not create a row.' : 'The stored import is historical and is not a current ingestion.'} Rows ${rows}. Message text was not read.`
         : 'The SMS store answered and has no imported rows. Message text was not read.'
     };
   } catch (error) {
@@ -326,7 +337,7 @@ export async function GET(request: Request) {
         { id: 'evening-review', name: 'Evening client review', schedule: '7:00 PM ET', nextExpected: '7:00 PM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
         { id: 'executive-brief', name: 'Morning executive inbox brief', schedule: '8:01 AM ET', nextExpected: '8:01 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. No run history is stored for this job.' },
         { id: 'gmail-credentials', name: 'Gmail credentials', schedule: 'Server environment', owner: 'Vercel Gmail routes', connected: false, recordsExamined: 0, recordsCreated: 0, detail: gmailReady ? 'Vercel Gmail credentials exist. They are not the ingestion path.' : 'Vercel has no Gmail OAuth variables. The authorized reader is the existing Apps Script project, so a second OAuth client was not added.' },
-        { id: 'gmail-ingestion', name: 'Gmail ingestion', schedule: 'Read-only Apps Script evidence', nextExpected: 'No incremental writer is scheduled here.', owner: 'Gmail Activity sheet', ...gmailLive, detail: `${gmailLive.detail} The sheet already holds ${gmailRows} Gmail Activity rows, newest stored date ${newestGmail || 'none'}.` },
+        { id: 'gmail-ingestion', name: 'Gmail ingestion', schedule: 'Prepared hourly staging trigger, not installed', nextExpected: 'The hourly trigger is prepared and was not installed. No production trigger was created.', owner: 'Isolated Gmail Activity sheet', ...gmailLive, unmatched: Array.isArray(gmailLive.queue) ? gmailLive.queue.length : 0, lastSuccess: '', lastError: '', detail: `${gmailLive.detail} The production sheet still holds ${gmailRows} Gmail Activity rows, newest stored date ${newestGmail || 'none'}. Appended this request: 0.` },
         { id: 'sms-ingestion', name: 'SMS ingestion', schedule: 'Android staging import', nextExpected: 'No new schedule was created.', owner: 'Encrypted Supabase rows', ...sms },
         { id: 'email-approval', name: 'Email approval workflow', schedule: 'Off', nextExpected: 'Off until a supervised send test.', owner: 'Owner approval gate', disabled: true, recordsExamined: 0, recordsCreated: 0, detail: sendEnabled ? 'The send switch is on. The reminder route still returns 403.' : 'Sending is disabled. A browser confirmation is not owner approval.' },
         { id: 'financial-sync', name: 'Financial source sync', schedule: 'This page read', nextExpected: 'Each time this page reads the sheet.', owner: 'Command Center Payments and Event Payouts', connected: true, lastAttempt: serverTime, lastSuccess: serverTime, recordsExamined: payments.length + payouts.length, recordsCreated: 0, staleAfterHours: 6, detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. No financial row was written.` }

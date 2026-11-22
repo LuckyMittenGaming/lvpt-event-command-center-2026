@@ -25,4 +25,4 @@ async function checkGmailStatus(showToast=true){
   renderSystemStatuses(); if(activeTab==='inbox'||activeTab==='system') renderTab();
 }
 function gmailKey(){ return sessionStorage.getItem(GMAIL_KEY_SESSION)||''; }
-function saveGmailKey(){ const value=$('#gmailSyncKey')?.value.trim()||''; if(!value){ sessionStorage.removeItem(GMAIL_KEY_SESSION); toast('Session key cleared'); } else { sessionStorage.setItem(GMAIL_KEY_SESSION,value); toast('Session key stored until this browser tab closes'); } }
+function saveGmailKey(){ sessionStorage.removeItem(GMAIL_KEY_SESSION); const field=$('#gmailSyncKey'); if(field) field.value=''; toast('The sync key is not stored in this browser.'); }

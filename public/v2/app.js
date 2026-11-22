@@ -7,7 +7,7 @@
     'js/dashboard-base.js?v=2026-08-17-task-completion-v4',
     'js/dashboard-tabs.js?v=2026-08-17-task-completion-v4',
     'js/documents.js',
-    'js/gmail.js?v=2026-08-17-task-completion-v4',
+    'js/gmail.js?v=2026-11-22-sheet-ledger',
     'js/reports.js?v=2026-08-17-task-completion-v4',
     'js/roster-lineaje.js',
     'js/roster-neo.js',
@@ -20,10 +20,11 @@
     'js/report-scroll-ready.js',
     'js/central-sync.js',
     'js/lifecycle-command-center.js?v=2026-11-22-acceptance-2',
-    'js/event-finance.js?v=2026-11-22-acceptance-2',
-    'js/unified-hub.js?v=2026-11-22-acceptance-2',
+    'js/event-finance.js?v=2026-11-22-sheet-ledger',
+    'js/unified-hub.js?v=2026-11-22-sheet-ledger',
     'js/responsive-polish-loader.js',
     'js/event-workspace-upgrade.js?v=2026-08-17-task-completion-v4',
+    'js/authoritative-finance.js?v=2026-11-22-sheet-ledger',
   ];
 
   modules.forEach((modulePath) => {

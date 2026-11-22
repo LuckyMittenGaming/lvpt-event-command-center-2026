@@ -35,8 +35,11 @@
   }
 
   function eventName(eventId) {
+    const sheetEvents = ledgerCache && Array.isArray(ledgerCache.events) ? ledgerCache.events : [];
+    const sheet = sheetEvents.find((event) => event.id === eventId);
+    if (sheet && (sheet.eventName || sheet.company)) return sheet.eventName || sheet.company;
     const match = (typeof events !== 'undefined' ? events : []).find((event) => event.id === eventId);
-    return match ? (match.eventName || match.company || eventId) : eventId || 'Event not on this device';
+    return match ? (match.eventName || match.company || eventId) : eventId || 'Event not on the sheet';
   }
 
   function shell(eyebrow, title, copy, body) {
@@ -44,21 +47,20 @@
   }
 
   async function loadLedger() {
-    if (!syncKey()) return { ok: false, status: 401, data: { message: 'Enter the existing LVPT app sync key. It is the same key already used by Google Sheets sync.' } };
-    const result = await readJson('/api/sync/ledger', true);
-    if (result.ok) ledgerCache = result.data;
+    const result = await readJson('/api/sync/operating-picture', false);
+    if (result.ok && result.data && result.data.ok === true) ledgerCache = result.data;
     return result;
   }
 
   function financeBody(result) {
-    if (!result.ok) {
-      return `<div class="hub-callout">${esc(result.data.message || 'The full Payments ledger is not connected.')} <p>Status: ${badge('NOT CONNECTED')}</p><label>LVPT app sync key<input class="input" id="hubSyncKey" type="password" autocomplete="off"></label><button class="btn primary" id="hubSaveKey" type="button">Save key and read ledger</button></div>`;
+    if (!result.ok || !result.data || result.data.ok !== true || !result.data.report) {
+      return `<div class="hub-callout">${esc((result.data && result.data.message) || 'The sheet ledger is unavailable.')} <p>Status: ${badge('NOT CONNECTED')}</p><p>Browser copies stay off this screen.</p></div>`;
     }
     const data = result.data;
     if (data.paymentSourceStatus !== 'command_center_all_payments') {
       return `<div class="hub-callout"><strong>Every-invoice source is not deployed.</strong><p>The live Apps Script response did not include one row per Payments entry. This screen will not invent totals from the first invoice on an event.</p>${badge('NOT CONNECTED')}</div>`;
     }
-    const report = finance.buildLedger({ payments: data.paymentRecords, payouts: data.payouts });
+    const report = data.report;
     const cards = [
       ['Distinct payment rows', report.counts.payments],
       ['Client invoices', report.counts.clientInvoices],
@@ -67,11 +69,16 @@
       ['Verified client receipts', dollars(report.money.verifiedClientReceiptsCents)],
       ['Initiated, not settled', dollars(report.money.initiatedNotSettledCents)],
       ['Vendor committed', dollars(report.money.vendorCommittedCents)],
-      ['Forecast margin', dollars(report.money.forecastMarginCents)]
+      ['Owner paid', dollars(report.money.ownerPaidCents)],
+      ['Owner planned', dollars(report.money.ownerPlannedCents)],
+      ['Profit', dollars(report.money.forecastMarginCents)]
     ].map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
     const rows = report.payments.map((row) => `<tr><td>${esc(eventName(row.eventId))}</td><td>${esc(row.invoiceNumber || row.paymentId)}</td><td>${esc(row.role.replaceAll('_', ' '))}</td><td>${esc(row.paymentStatus)}</td><td>${esc(row.settlement.replaceAll('_', ' '))}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${esc(dollars(row.amountPaidCents))}</td><td>${esc(dollars(row.balanceDueCents))}</td></tr>`).join('');
-    const payoutRows = report.payouts.map((row) => `<tr><td>${esc(eventName(row.eventId))}</td><td>${esc(row.payee)}</td><td>${esc(row.payoutType)}</td><td>${esc(row.status)}</td><td>${esc(dollars(row.amountCents))}</td><td>${row.duplicatesPayment ? 'Excluded — same amount already in a vendor bill' : 'Separate obligation'}</td></tr>`).join('');
-    return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. Unclassified rows stay out of both revenue and expenses.</div><div class="lifecycle-summary hub-metrics">${cards}</div><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Invoice</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th></tr></thead><tbody>${rows || '<tr><td colspan="8">No payment rows returned.</td></tr>'}</tbody></table></div><h3>Event payouts, kept separate</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Payee</th><th>Type</th><th>Status</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${payoutRows || '<tr><td colspan="6">No payout rows returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) matched a vendor bill amount and were not added again. Server time ${esc(data.serverTime || 'not provided')}.</p>`;
+    const payoutRows = report.payouts.map((row) => {
+      const treatment = row.duplicatesPayment ? 'Excluded — linked to the same payment id' : row.amountOverlap ? 'Same amount, kept as its own record' : row.role === 'owner_distribution' ? (/^paid\b/i.test(row.status) ? 'Paid distribution' : 'Planned, not paid') : 'Separate obligation';
+      return `<tr><td>${esc(eventName(row.eventId))}</td><td>${esc(row.payee)}</td><td>${esc(row.payoutType)}</td><td>${esc(row.status)}</td><td>${esc(dollars(row.amountCents))}</td><td>${esc(treatment)}</td></tr>`;
+    }).join('');
+    return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. Unclassified rows stay out of both revenue and expenses.</div><div class="lifecycle-summary hub-metrics">${cards}</div><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Invoice</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th></tr></thead><tbody>${rows || '<tr><td colspan="8">No payment rows returned.</td></tr>'}</tbody></table></div><h3>Event payouts, kept separate</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Payee</th><th>Type</th><th>Status</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${payoutRows || '<tr><td colspan="6">No payout rows returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) share a payment id and were not counted twice. ${report.counts.amountOverlapsNotMerged} same-amount row(s) stayed separate. Server time ${esc(data.serverTime || 'not provided')}.</p>`;
   }
 
   function communicationsBody(session) {
@@ -100,41 +107,30 @@
     view.innerHTML = shell('Event finance', 'Invoice by invoice', 'Each Payments row stays separate. Client receipts, vendor bills, and payouts are not added together.', '<p class="muted">Reading the ledger…</p>');
     const result = await loadLedger();
     view.innerHTML = shell('Event finance', 'Invoice by invoice', 'Each Payments row stays separate. Client receipts, vendor bills, and payouts are not added together.', financeBody(result));
-    const button = document.getElementById('hubSaveKey');
-    if (button) button.addEventListener('click', () => {
-      const value = document.getElementById('hubSyncKey').value.trim();
-      if (!value) return;
-      localStorage.setItem(KEY, value);
-      renderFinance(view);
-    });
   }
 
   async function renderCommunications(view) {
     view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'The existing review workspace remains the place where a thread is opened. This hub only shows whether that session is healthy.', '<p class="muted">Checking the review session…</p>');
-    const session = await readJson('/api/sms/staging/audit-health', false);
-    view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'The existing review workspace remains the place where a thread is opened. This hub only shows whether that session is healthy.', communicationsBody(session));
+    const [session, picture] = await Promise.all([
+      readJson('/api/sms/staging/audit-health', false),
+      loadLedger()
+    ]);
+    const jobs = picture.ok && picture.data && Array.isArray(picture.data.jobs) ? picture.data.jobs : [];
+    const evidence = jobs.filter((job) => /gmail|sms/i.test(job.name)).map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.detail || '')}</td></tr>`).join('');
+    const stored = picture.ok && picture.data ? `${picture.data.gmailActivityCount || 0} Gmail Activity rows are stored on the sheet. That is not a live mailbox read. Ambiguous threads are not assigned to an event from this page.` : 'The sheet did not load, so stored mail counts are hidden.';
+    view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'The existing review workspace remains the place where a thread is opened. This hub only shows whether that session is healthy.', `${communicationsBody(session)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Source</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${evidence || '<tr><td colspan="3">Connection evidence did not load.</td></tr>'}</tbody></table></div><p class="muted">${esc(stored)}</p>`);
   }
 
   async function renderHealth(view) {
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', '<p class="muted">Checking sources…</p>');
-    const [sync, gmail, sms, automation] = await Promise.all([
-      readJson('/api/sync/status', false),
-      readJson('/api/gmail/status', false),
-      readJson('/api/sms/staging/audit-health', false),
-      syncKey() ? readJson('/api/sync/automation', true) : Promise.resolve({ ok: false, data: {} })
-    ]);
-    const ledger = ledgerCache || (syncKey() ? (await loadLedger()).data : null);
-    const lastScan = automation.ok ? automation.data.lastScanAt || '' : '';
-    const probes = {
-      taskSync: { connected: false, detail: 'Hourly safe writer was baselined on Nov 22. This deployment does not read Calendar triggers and will not replace runLVPTSafeTaskSync.' },
-      morning: { connected: Boolean(lastScan), partial: Boolean(automation.ok && !lastScan), lastSuccess: lastScan, staleAfterHours: 36, detail: lastScan ? `Last Apps Script client scan ${lastScan}.` : 'No scan timestamp returned. The 8:00 AM review is not marked successful from this page.' },
-      evening: { connected: Boolean(lastScan), partial: Boolean(automation.ok && !lastScan), lastSuccess: lastScan, staleAfterHours: 20, detail: 'Evening review shares the Apps Script scan timestamp when that property exists. ChatGPT evening review last-run is not visible here.' },
-      brief: { connected: false, detail: 'Morning executive brief is an external schedule. No last-success timestamp is available in this repository.' },
-      gmail: { connected: Boolean(gmail.data && gmail.data.configured), partial: Boolean(gmail.data && gmail.data.configured), detail: gmail.data && gmail.data.configured ? 'Server credentials exist. That is not proof today\'s mailbox was read.' : 'Gmail server credentials are not configured on this deployment.' },
-      ledger: { connected: Boolean(ledger && ledger.paymentSourceStatus === 'command_center_all_payments'), partial: Boolean(ledger && ledger.payoutSourceStatus === 'command_center_ledger' && ledger.paymentSourceStatus !== 'command_center_all_payments'), lastSuccess: ledger && ledger.serverTime, staleAfterHours: 6, detail: ledger ? `Payment source ${ledger.paymentSourceStatus}; payout source ${ledger.payoutSourceStatus}.` : 'Ledger not read in this browser session.' },
-      sms: { connected: sms.status === 200, partial: sms.status === 401, detail: sms.status === 200 ? 'Empty-batch audit check succeeded and wrote nothing.' : sms.status === 401 ? 'Staging route answered, but this browser has no review session. Today\'s messages are unverified.' : 'SMS staging is not configured or not reachable from this deployment.' }
-    };
-    const body = `<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Job</th><th>Schedule</th><th>Owner</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${jobRows(probes)}</tbody></table></div><p class="muted">Sheets backend: ${esc(sync.data.message || (sync.data.configured ? 'configured' : 'not configured'))}. GoHighLevel is not used to fill SMS gaps. No customer message was sent by this check.</p>`;
+    const picture = await loadLedger();
+    const jobs = picture.ok && picture.data && Array.isArray(picture.data.jobs) ? picture.data.jobs : [];
+    const namedJobs = jobs.length ? jobs : [
+      { name: 'Financial source sync', schedule: 'This page read', owner: 'Command Center sheet', connected: false, detail: (picture.data && picture.data.message) || 'The sheet ledger did not load.' },
+      { name: 'Gmail ingestion', schedule: 'Not scheduled here', owner: 'No ingestion cursor', connected: false, detail: 'No mailbox read was recorded.' },
+      { name: 'SMS ingestion', schedule: 'Android staging import', owner: 'Encrypted store', connected: false, detail: 'An audit response is not a message sync.' }
+    ];
+    const body = `<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Job</th><th>Schedule</th><th>Owner</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${namedJobs.map((job) => `<tr><td>${esc(job.name)}</td><td>${esc(job.schedule)}</td><td>${esc(job.owner)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.detail || '')}</td></tr>`).join('')}</tbody></table></div><p class="muted">Each row uses only its own evidence. GoHighLevel is not used to fill SMS gaps. No customer message was sent by this check.</p>`;
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', body);
   }
 

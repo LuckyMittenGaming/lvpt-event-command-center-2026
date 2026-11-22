@@ -37,7 +37,13 @@
     const label = [row.lineLabel, row.counterparty, row.paymentType].filter(Boolean).join(' ');
     if (/\b(elevated|venetian|heo)\b/i.test(label)) return { role: 'vendor_expense', roleSource: 'named_vendor_marker' };
     if (/\b(owner\s+draw|owner\s+distribution)\b/i.test(label)) return { role: 'owner_distribution', roleSource: 'named_distribution_marker' };
-    return { role: 'unclassified', roleSource: 'unconfirmed' };
+    const explicitBlank = String(row.ledgerRole || '').trim().toLowerCase();
+    if (explicitBlank === 'unclassified' || explicitBlank === 'unknown' || explicitBlank === 'exclude') {
+      return { role: 'unclassified', roleSource: 'explicit_exclusion' };
+    }
+    // Payments-tab rows are the client invoice ledger. A blank role is that tab,
+    // not an inference from the dollar amount. Named vendor markers above still win.
+    return { role: 'client_receivable', roleSource: 'payments_sheet' };
   }
 
   function normalizePayment(row) {
@@ -87,16 +93,16 @@
       seen.add(row.paymentId);
     });
 
-    const vendorAmounts = new Map();
-    payments.filter((row) => row.role === 'vendor_expense' && row.invoiceTotalCents !== null).forEach((row) => {
-      const key = row.eventId + ':' + row.invoiceTotalCents;
-      vendorAmounts.set(key, (vendorAmounts.get(key) || 0) + 1);
-    });
-
+    const paymentIds = new Set(payments.map((row) => row.paymentId).filter(Boolean));
     const payouts = (Array.isArray(input && input.payouts) ? input.payouts : []).map((row) => {
       const amount = cents(row.amount);
-      const key = String(row.eventId || '') + ':' + amount;
-      const duplicatesPayment = amount !== null && vendorAmounts.has(key);
+      const linkedPaymentId = String(row.linkedPaymentId || '');
+      const duplicatesPayment = Boolean(linkedPaymentId) && paymentIds.has(linkedPaymentId);
+      const amountOverlap = !duplicatesPayment && amount !== null && payments.some((payment) => (
+        payment.role === 'vendor_expense' &&
+        payment.eventId === String(row.eventId || '') &&
+        payment.invoiceTotalCents === amount
+      ));
       return {
         payoutId: String(row.payoutId || ''),
         eventId: String(row.eventId || ''),
@@ -104,8 +110,10 @@
         payoutType: String(row.payoutType || ''),
         status: String(row.status || 'Unknown'),
         amountCents: amount,
+        linkedPaymentId,
         role: payoutRole(row),
         duplicatesPayment,
+        amountOverlap,
         bankVerified: false
       };
     });
@@ -123,10 +131,41 @@
     const vendorCommitted = sum(vendors.filter((row) => row.settlement !== 'not_invoiced'), (row) => row.invoiceTotalCents);
     const vendorLedgerPaid = sum(vendors.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
     const ownerCommitted = sum(owners, (row) => row.invoiceTotalCents);
-    const payoutObligations = sum(countedPayouts.filter((row) => !/^paid$/i.test(row.status)), (row) => row.amountCents);
-    const marginGaps = clientInvoiced.gaps + vendorCommitted.gaps + ownerCommitted.gaps;
-    const forecastMarginCents = marginGaps ? null : clientInvoiced.cents - vendorCommitted.cents - ownerCommitted.cents;
-    const verifiedContributionCents = (verified.gaps || vendorLedgerPaid.gaps) ? null : verified.cents - vendorLedgerPaid.cents;
+    function payoutPaid(row) { return /^paid\b/i.test(String(row.status || '').trim()); }
+    const ownerPayouts = countedPayouts.filter((row) => row.role === 'owner_distribution');
+    const otherPayouts = countedPayouts.filter((row) => row.role !== 'owner_distribution');
+    const ownerPaid = sum(ownerPayouts.filter(payoutPaid), (row) => row.amountCents);
+    const ownerPlanned = sum(ownerPayouts.filter((row) => !payoutPaid(row)), (row) => row.amountCents);
+    const payoutPaidTotal = sum(otherPayouts.filter(payoutPaid), (row) => row.amountCents);
+    const payoutPlanned = sum(otherPayouts.filter((row) => !payoutPaid(row)), (row) => row.amountCents);
+    const payoutObligations = sum(countedPayouts.filter((row) => !payoutPaid(row)), (row) => row.amountCents);
+    const openExposure = sum(openClients, (row) => row.balanceDueCents);
+    const expensesComplete = input && input.expensesComplete === true;
+    const marginGaps = clientInvoiced.gaps + vendorCommitted.gaps + ownerCommitted.gaps + ownerPaid.gaps + ownerPlanned.gaps;
+    const forecastMarginCents = expensesComplete && !marginGaps
+      ? clientInvoiced.cents - vendorCommitted.cents - ownerCommitted.cents - ownerPaid.cents - ownerPlanned.cents
+      : null;
+    const verifiedContributionCents = expensesComplete && !verified.gaps && !vendorLedgerPaid.gaps && !ownerPaid.gaps && !payoutPaidTotal.gaps
+      ? verified.cents - vendorLedgerPaid.cents - ownerPaid.cents - payoutPaidTotal.cents
+      : null;
+
+    const eventIds = new Set(payments.map((row) => row.eventId).concat(payouts.map((row) => row.eventId)).filter(Boolean));
+    const byEvent = [...eventIds].map((eventId) => {
+      const eventClients = clients.filter((row) => row.eventId === eventId);
+      const invoiced = sum(eventClients.filter((row) => row.settlement !== 'not_invoiced'), (row) => row.invoiceTotalCents);
+      const collected = sum(eventClients.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
+      const outstanding = sum(eventClients.filter((row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown'), (row) => row.balanceDueCents);
+      const eventOwner = ownerPayouts.filter((row) => row.eventId === eventId);
+      return {
+        eventId,
+        invoiceTotalCents: invoiced.gaps ? null : invoiced.cents,
+        collectedCents: collected.gaps ? null : collected.cents,
+        outstandingCents: outstanding.gaps ? null : outstanding.cents,
+        ownerPaidCents: sum(eventOwner.filter(payoutPaid), (row) => row.amountCents).cents,
+        ownerPlannedCents: sum(eventOwner.filter((row) => !payoutPaid(row)), (row) => row.amountCents).cents,
+        bankVerified: false
+      };
+    });
 
     return {
       payments,
@@ -138,25 +177,36 @@
         vendorBills: vendors.length,
         unclassified: unclassified.length,
         payouts: payouts.length,
-        payoutsExcludedAsDuplicateExpense: payouts.filter((row) => row.duplicatesPayment).length
+        payoutsExcludedAsDuplicateExpense: payouts.filter((row) => row.duplicatesPayment).length,
+        amountOverlapsNotMerged: payouts.filter((row) => row.amountOverlap).length
       },
+      byEvent,
       money: {
         verifiedClientReceiptsCents: verified.cents,
         verifiedClientReceiptGaps: verified.gaps,
         clientInvoiceTotalCents: clientInvoiced.cents,
-        openClientExposureCents: sum(openClients, (row) => row.balanceDueCents !== null ? row.balanceDueCents : row.invoiceTotalCents).cents,
+        openClientExposureCents: openExposure.gaps ? null : openExposure.cents,
+        openClientExposureGaps: openExposure.gaps,
         initiatedNotSettledCents: sum(clients.filter((row) => row.settlement === 'initiated_not_settled'), (row) => row.invoiceTotalCents).cents,
         vendorCommittedCents: vendorCommitted.cents,
         vendorLedgerPaidCents: vendorLedgerPaid.cents,
         ownerDistributionCents: ownerCommitted.cents,
+        ownerPaidCents: ownerPaid.cents,
+        ownerPlannedCents: ownerPlanned.cents,
+        payoutPaidCents: payoutPaidTotal.cents,
+        payoutPlannedCents: payoutPlanned.cents,
         payoutObligationCents: payoutObligations.cents,
         forecastMarginCents,
-        verifiedContributionCents
+        verifiedContributionCents,
+        profitReason: expensesComplete ? '' : 'vendor_ledger_incomplete'
       },
       warnings: [
         'Ledger statuses are not bank settlement.',
         'Payment Initiated is excluded from verified receipts.',
-        'Unclassified Payments rows are excluded from revenue and expense totals.',
+        'Rows explicitly marked unclassified stay out of revenue and expenses.',
+        'A matching amount does not merge a payout into a vendor bill.',
+        'Planned owner distributions are not money already paid.',
+        'Profit stays unavailable until vendor bills are a complete ledger.',
         'A 3.5% tax rate is not applied unless a row already carries its own tax amount.'
       ]
     };

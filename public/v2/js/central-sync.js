@@ -1,5 +1,6 @@
 (() => {
   const APP_SYNC_KEY_STORAGE = 'lvptAppSyncKey';
+  try { localStorage.removeItem(APP_SYNC_KEY_STORAGE); } catch (error) { /* storage may be blocked */ }
   const ACTOR_STORAGE = 'lvptCurrentActor';
   const CLOUD_FILE_LIMIT = 8 * 1024 * 1024;
   let saveTimer = null;
@@ -163,30 +164,17 @@
     if (!systemGrid) return;
     const card = document.createElement('div');
     card.className = 'integration-card central-sync-card';
-    card.innerHTML = `<div class="panel-head compact"><div><h3>Google Sheets Central Sync</h3><p>Shared event records for Matt and Mark.</p></div><span class="badge ${centralStatus.connected ? 'green' : centralStatus.configured ? 'warn' : 'red'}">${centralStatus.saving ? 'Saving' : centralStatus.connected ? 'Connected' : centralStatus.configured ? 'Ready' : 'Setup Required'}</span></div><label>Current User<select class="input" id="centralActor"><option ${currentActor() === 'Matt' ? 'selected' : ''}>Matt</option><option ${currentActor() === 'Mark' ? 'selected' : ''}>Mark</option></select></label><label class="top-gap">LVPT App Sync Key<input class="input" type="password" id="centralSyncKey" value="${escapeHtml(appSyncKey())}" placeholder="Enter the Vercel LVPT_APP_SYNC_KEY" /></label><p class="muted compact top-gap">The key stays on this device. Apps Script credentials remain server-side in Vercel.</p><div class="actions top-gap"><button class="btn small" id="saveCentralKeyBtn">Save Key & Connect</button><button class="btn small" id="pullCentralBtn">Pull Google Data</button><button class="btn small" id="pushCentralBtn">Push Browser Data</button></div><p class="muted compact top-gap">Last cloud sync: ${escapeHtml(centralStatus.lastSyncedAt ? new Date(centralStatus.lastSyncedAt).toLocaleString() : 'Never')}</p>`;
+    card.innerHTML = `<div class="panel-head compact"><div><h3>Google Sheets Central Sync</h3><p>The dashboard reads the sheet on the server. This browser does not keep the sync key.</p></div><span class="badge ${centralStatus.connected ? 'green' : centralStatus.configured ? 'warn' : 'red'}">${centralStatus.saving ? 'Saving' : centralStatus.connected ? 'Connected' : centralStatus.configured ? 'Ready' : 'Setup Required'}</span></div><label>Current User<select class="input" id="centralActor"><option ${currentActor() === 'Matt' ? 'selected' : ''}>Matt</option><option ${currentActor() === 'Mark' ? 'selected' : ''}>Mark</option></select></label><p class="muted compact top-gap">Browser overwrite of the sheet is off. Apps Script credentials stay on the server.</p><div class="actions top-gap"><button class="btn small" id="pullCentralBtn">Pull Google Data</button><button class="btn small" id="pushCentralBtn" disabled>Browser overwrite disabled</button></div><p class="muted compact top-gap">Last cloud sync: ${escapeHtml(centralStatus.lastSyncedAt ? new Date(centralStatus.lastSyncedAt).toLocaleString() : 'Never')}</p>`;
     systemGrid.prepend(card);
 
     $('#centralActor').addEventListener('change', (input) => {
       localStorage.setItem(ACTOR_STORAGE, input.target.value);
       toast(`Updates will be recorded as ${input.target.value}`);
     });
-    $('#saveCentralKeyBtn').addEventListener('click', async () => {
-      const key = $('#centralSyncKey').value.trim();
-      if (!key) {
-        localStorage.removeItem(APP_SYNC_KEY_STORAGE);
-        centralStatus.connected = false;
-        toast('Central sync key cleared');
-        renderTab();
-        return;
-      }
-      localStorage.setItem(APP_SYNC_KEY_STORAGE, key);
-      await checkCentralStatus(false);
-      await pullCloudEvents(true);
-    });
+    try { localStorage.removeItem(APP_SYNC_KEY_STORAGE); } catch (error) { /* storage may be blocked */ }
     $('#pullCentralBtn').addEventListener('click', () => pullCloudEvents(true));
     $('#pushCentralBtn').addEventListener('click', () => {
-      if (!confirm('Overwrite the central Google Sheet with the event records currently stored in this browser?')) return;
-      pushCloudEvents('Manual browser-to-cloud overwrite', true);
+      toast('Browser overwrite is disabled. The sheet stays the record.');
     });
   };
 

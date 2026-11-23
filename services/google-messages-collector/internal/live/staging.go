@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -13,6 +14,26 @@ import (
 )
 
 var ErrProductionStaging = errors.New("production staging is refused")
+
+// Status-category errors for ConfirmAllowlist. Text is fixed so a failure
+// cannot echo a token, key, contact hash, phone number, response body, or
+// transport error (those often contain the request URL).
+var (
+	errAllowlistTokenShort   = errors.New("staging allowlist check refused: local token is too short")
+	errAllowlistLocalHash    = errors.New("staging allowlist check refused: local contact hash is invalid")
+	errAllowlistAuth         = errors.New("staging allowlist check refused: HTTP 401 authentication failed")
+	errAllowlistForbidden    = errors.New("staging allowlist check refused: HTTP 403 forbidden")
+	errAllowlistUnconfigured = errors.New("staging allowlist check refused: HTTP 503 server unconfigured")
+	errAllowlistHashMismatch = errors.New("staging allowlist check refused: HTTP 200 allowed is false")
+	errAllowlistNonJSON      = errors.New("staging allowlist check refused: response was not JSON")
+	errAllowlistTransport    = errors.New("staging allowlist check refused: transport failure")
+	errAllowlistMalformedOK  = errors.New("staging allowlist check refused: malformed server ok")
+	errAllowlistUnexpected   = errors.New("staging allowlist check refused: unexpected HTTP status")
+)
+
+// allowlistClient is replaced by offline tests so classification never dials a
+// public staging host. The collector leaves it as the default client.
+var allowlistClient = http.DefaultClient
 
 func ValidateStagingURL(raw string) error {
 	parsed, err := url.Parse(raw)
@@ -80,32 +101,74 @@ func ConfirmAllowlist(ctx context.Context, endpoint, token, contactHash string) 
 	if err := ValidateStagingURL(endpoint); err != nil {
 		return err
 	}
-	if len(token) < 32 || len(contactHash) != 64 {
-		return errors.New("staging allowlist does not match the local contact")
+	if len(token) < 32 {
+		return errAllowlistTokenShort
+	}
+	if len(contactHash) != 64 {
+		return errAllowlistLocalHash
 	}
 	encoded, err := json.Marshal(map[string]string{"contactCheck": contactHash})
 	if err != nil {
-		return err
+		return errAllowlistTransport
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil {
-		return err
+		return errAllowlistTransport
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("x-lvpt-rcs-sync-token", token)
-	response, err := http.DefaultClient.Do(request)
+	response, err := allowlistClient.Do(request)
 	if err != nil {
-		return errors.New("staging allowlist does not match the local contact")
+		return errAllowlistTransport
 	}
 	defer response.Body.Close()
-	var parsed struct {
-		OK      bool `json:"ok"`
-		Allowed bool `json:"allowed"`
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1024))
+	if err != nil {
+		return errAllowlistTransport
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1024)).Decode(&parsed); err != nil || response.StatusCode != http.StatusOK || !parsed.OK || !parsed.Allowed {
-		return errors.New("staging allowlist does not match the local contact")
+	return classifyAllowlistResponse(response.StatusCode, body)
+}
+
+func classifyAllowlistResponse(status int, body []byte) error {
+	switch status {
+	case http.StatusUnauthorized:
+		return errAllowlistAuth
+	case http.StatusForbidden:
+		return errAllowlistForbidden
+	case http.StatusServiceUnavailable:
+		return errAllowlistUnconfigured
+	case http.StatusOK:
+		return classifyAllowlistOK(body)
+	default:
+		return unexpectedAllowlistStatus(status)
+	}
+}
+
+func classifyAllowlistOK(body []byte) error {
+	if !json.Valid(body) {
+		return errAllowlistNonJSON
+	}
+	var parsed struct {
+		OK      *bool `json:"ok"`
+		Allowed *bool `json:"allowed"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil || parsed.OK == nil || !*parsed.OK {
+		return errAllowlistMalformedOK
+	}
+	if parsed.Allowed == nil {
+		return errAllowlistMalformedOK
+	}
+	if !*parsed.Allowed {
+		return errAllowlistHashMismatch
 	}
 	return nil
+}
+
+func unexpectedAllowlistStatus(status int) error {
+	if status < 100 || status > 599 {
+		return errAllowlistUnexpected
+	}
+	return fmt.Errorf("%w %d", errAllowlistUnexpected, status)
 }
 
 func ResolveContact(fromEnv, fromFile string) (string, error) {

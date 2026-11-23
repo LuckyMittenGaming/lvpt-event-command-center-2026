@@ -59,13 +59,27 @@ test('a model cannot pass failing checks or request changes after a pass', () =>
     cursorTask: null,
   }), evidence);
   assert.equal(fail.reason, 'model_disagreed_with_failing_checks');
-  const pass = applyEvidencePolicy(normalizeDecision({
+  const vague = applyEvidencePolicy(normalizeDecision({
     decision: 'REQUEST_CHANGES',
     rationale: 'Refactor the world.',
-    findings: [{ path: 'lib/sample.mjs', line: 1, summary: 'Rename it.' }],
+    findings: [],
     cursorTask: 'Refactor the world.',
   }), { testSummary: 'PASS', changedFiles: ['lib/sample.mjs'] });
-  assert.equal(pass.reason, 'model_disagreed_with_passing_checks');
+  assert.equal(vague.reason, 'model_disagreed_with_passing_checks');
+  const concrete = applyEvidencePolicy(normalizeDecision({
+    decision: 'REQUEST_CHANGES',
+    rationale: 'A null guard is missing.',
+    findings: [{ path: 'lib/sample.mjs', line: 12, summary: 'Null guard is missing before the call.' }],
+    cursorTask: 'Add the null guard in lib/sample.mjs only. Do not merge or deploy.',
+  }), { testSummary: 'PASS', changedFiles: ['lib/sample.mjs'] });
+  assert.equal(concrete.decision, 'REQUEST_CHANGES');
+  const risky = applyEvidencePolicy(normalizeDecision({
+    decision: 'REQUEST_CHANGES',
+    rationale: 'Change the mailbox route.',
+    findings: [{ path: 'app/api/gmail/send/route.ts', line: 4, summary: 'This route can send mail.' }],
+    cursorTask: 'Edit the gmail route.',
+  }), { testSummary: 'PASS', changedFiles: ['app/api/gmail/send/route.ts'] });
+  assert.equal(risky.reason, 'sensitive_path');
 });
 
 test('the prompt fences untrusted text and redacts secrets before they leave the process', () => {

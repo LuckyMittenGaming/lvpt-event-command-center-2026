@@ -15,7 +15,7 @@ const HUMAN_RATIONALE = {
   unsafe_path: 'The changed-file list was incomplete or unsafe, so the loop stopped.',
   evidence_missing: 'Check evidence was missing or ambiguous, so the loop stopped.',
   model_disagreed_with_failing_checks: 'The reviewer disagreed with failing checks, so a person must decide.',
-  model_disagreed_with_passing_checks: 'The reviewer asked for a change after checks passed, so a person must decide.',
+  model_disagreed_with_passing_checks: 'The reviewer asked for a change without a concrete in-diff finding, so a person must decide.',
   unsafe_model_output: 'The reviewer output was discarded because it contained unsafe content.',
   max_iterations: 'The autonomous correction cap was reached. A person must decide before another change.',
   spend_cap: 'The configured spend cap was reached. The loop stopped before another paid review.',
@@ -101,6 +101,15 @@ export function normalizeDecision(raw) {
   };
 }
 
+export function hasConcreteFindings(decision, evidence) {
+  const changed = new Set(Array.isArray(evidence?.changedFiles) ? evidence.changedFiles : []);
+  if (!decision?.cursorTask || !Array.isArray(decision.findings)) return false;
+  return decision.findings.some((finding) => changed.has(finding.path)
+    && isSafePath(finding.path)
+    && finding.summary
+    && finding.summary.length >= 8);
+}
+
 export function applyEvidencePolicy(decision, evidence) {
   const files = classifyFiles(evidence?.changedFiles);
   if (files === 'sensitive') return fixedHuman('sensitive_path');
@@ -108,7 +117,9 @@ export function applyEvidencePolicy(decision, evidence) {
   const kind = evidenceKind(evidence);
   if (kind === 'unknown') return fixedHuman('evidence_missing');
   if (kind === 'fail' && decision.decision === 'PASS') return fixedHuman('model_disagreed_with_failing_checks');
-  if (kind === 'pass' && decision.decision === 'REQUEST_CHANGES') return fixedHuman('model_disagreed_with_passing_checks');
+  if (kind === 'pass' && decision.decision === 'REQUEST_CHANGES' && !hasConcreteFindings(decision, evidence)) {
+    return fixedHuman('model_disagreed_with_passing_checks');
+  }
   if (decision.decision === 'HUMAN_APPROVAL_REQUIRED') return fixedHuman(decision.reason || 'human_review');
   return decision;
 }

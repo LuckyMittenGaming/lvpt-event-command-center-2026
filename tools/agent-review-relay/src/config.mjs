@@ -55,7 +55,8 @@ export function loadConfig(env = {}) {
     githubAppPrivateKey: typeof env.GITHUB_APP_PRIVATE_KEY === 'string' ? env.GITHUB_APP_PRIVATE_KEY : '',
     openaiApiKey: cleanSecret(env.OPENAI_API_KEY),
     openaiUrl: OPENAI_RESPONSES_URL,
-    statePath: typeof env.AGENT_RELAY_STATE_PATH === 'string' ? env.AGENT_RELAY_STATE_PATH.trim() : '',
+    upstashUrl: cleanSecret(env.UPSTASH_REDIS_REST_URL),
+    upstashToken: cleanSecret(env.UPSTASH_REDIS_REST_TOKEN),
     requiredLabel: label,
     maxIterations: intEnv(env.AGENT_RELAY_MAX_ITERATIONS, MAX_ITERATIONS_CEILING, 1, MAX_ITERATIONS_CEILING),
     maxEventAgeMs: intEnv(env.AGENT_RELAY_MAX_EVENT_AGE_MS, 30 * 60 * 1000, 60 * 1000, 24 * 60 * 60 * 1000),
@@ -80,8 +81,25 @@ export function simulationConfig() {
   config.githubToken = '';
   config.openaiApiKey = '';
   config.githubAppPrivateKey = '';
-  config.statePath = '';
+  config.upstashUrl = '';
+  config.upstashToken = '';
   return config;
+}
+
+export function upstashUrlAllowed(value) {
+  if (typeof value !== 'string' || !value) return false;
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname;
+    return parsed.protocol === 'https:'
+      && parsed.username === ''
+      && parsed.password === ''
+      && parsed.pathname === '/'
+      && (host === 'upstash.io' || host.endsWith('.upstash.io'))
+      && !host.includes('..');
+  } catch {
+    return false;
+  }
 }
 
 function pemOk(value) {
@@ -106,7 +124,9 @@ export function assertLiveReady(config) {
   if (!config.live) problems.push('not_live');
   if (!config.webhookSecret || config.webhookSecret.length < 24) problems.push('webhook_secret');
   if (config.webhookSecret === FIXTURE_WEBHOOK_SECRET || hasBlockedMarker(config.webhookSecret)) problems.push('webhook_secret');
-  if (!config.statePath || config.statePath.includes('.env') || config.statePath.includes('..')) problems.push('state');
+  if (!upstashUrlAllowed(config.upstashUrl) || !config.upstashToken || config.upstashToken.length < 20 || hasBlockedMarker(config.upstashToken)) {
+    problems.push('store');
+  }
   if (!hasGitHubApp(config) && !patOk(config.githubToken)) problems.push('github');
   if (!/^sk-[A-Za-z0-9_-]{20,}$/.test(config.openaiApiKey) || hasBlockedMarker(config.openaiApiKey)) problems.push('openai');
   if (config.openaiUrl !== OPENAI_RESPONSES_URL) problems.push('openai_url');

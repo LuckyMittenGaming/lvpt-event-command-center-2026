@@ -48,9 +48,9 @@ The optional file `examples/workflow_dispatch.yml` only replays local fixtures. 
 | `REQUEST_CHANGES` | One comment that mentions `@cursor` once, counted toward the cap of 3 |
 | `HUMAN_APPROVAL_REQUIRED` | One final comment, no `@cursor`, loop stops |
 
-A fourth failing head after three corrections stops for a person. A model `PASS` while checks are failing, or a model change request while checks passed, also stops for a person. Model text that contains a secret, email, phone number, or an instruction override is discarded and the loop stops.
+A fourth failing head after three corrections stops for a person. A model `PASS` while checks are failing stops for a person. A model change request after green checks is posted only when it cites a concrete finding on a file in the diff. A request with no such finding stops for a person. After three corrections, a green head is still reviewed; it is not marked passed just because CI is green. Model text that contains a secret, email, phone number, or an instruction override is discarded and the loop stops.
 
-If checks are not finished yet, the event is recorded as `evidence_pending`. Nothing is posted and the head stays open so a later allowlisted review comment can review it. The relay does not listen for `check_run` events.
+Accepted events are `pull_request` `opened` and `synchronize`, `pull_request_review_comment` `created`, `issue_comment` `created` on a pull request, `check_run` `completed`, and commit `status`. The pull request must be a draft. If checks are not finished, the event is `evidence_pending` and the head stays open. A later `check_run` or `status` event reviews that head without a person commenting. Comments that contain the relay marker are ignored, so the relay does not reply to itself. Live evidence reads both check runs and commit statuses, including Vercel statuses. No checks at all cannot be a pass. Before a live review and again before a comment, the relay re-reads the pull request and refuses to comment if the head SHA changed.
 
 ## Flags
 
@@ -61,7 +61,8 @@ If checks are not finished yet, the event is recorded as `evidence_pending`. Not
 | `AGENT_RELAY_LIVE` | unset / false | exact `true` |
 | `AGENT_RELAY_KILL_SWITCH` | unset / false | must not be `true` |
 | `GITHUB_WEBHOOK_SECRET` | empty | 24+ characters, not the fixture secret |
-| `AGENT_RELAY_STATE_PATH` | empty | a file path outside `.env` and without `..` |
+| `UPSTASH_REDIS_REST_URL` | empty | `https://*.upstash.io` only |
+| `UPSTASH_REDIS_REST_TOKEN` | empty | 20+ characters, server-side |
 | GitHub credential | empty | GitHub App, or a one-repo fine-grained PAT |
 | `OPENAI_API_KEY` | empty | server-side `sk-` key on the isolated host |
 
@@ -79,21 +80,21 @@ node tools/agent-review-relay/cli/replay.mjs tools/agent-review-relay/fixtures/p
 
 The replay command forces simulation mode. It ignores ambient API keys and webhook secrets. The fixture secret `fixture-webhook-secret-not-real` is public and is refused for live mode.
 
-The suite covers signature checks, wrong repo / base / label / author / fork, duplicate deliveries, duplicate heads, a failed reviewer, a failed comment post, the iteration cap, stop on pass, spend cap, kill switch, disabled default, prompt injection, and a mocked live post. No test calls OpenAI or GitHub.
+The suite covers signature checks, wrong repo / base / label / author / fork / non-draft, duplicate deliveries across two instances, duplicate heads, a failed reviewer, a failed comment post, the iteration cap, review-on-green, stop on pass, spend cap, kill switch, disabled default, prompt injection, check completion, Vercel status evidence, a moved head, and live wiring through mocked HTTP. Dry-run and replay do not call the network. Live mode is the only path that uses the host `fetch`.
 
 ## One-time owner setup
 
 Do these steps only if you decide to run the relay. They are not done in this change.
 
-1. Create a **new** Vercel project whose root is `tools/agent-review-relay`, or another host that runs only this package. Do not add `examples/separate-project-function.mjs` to the command center `app/api` tree, and do not put these variables on the production command center project.
+1. Create a **new** Vercel project and set its root directory to `tools/agent-review-relay`. The route is `api/webhook.js` (`vercel.json` turns the JSON body parser off so the HMAC sees the raw body). Do not attach this route to the command center project, and do not put these variables on production. A preview that Vercel builds from the repository root is the dashboard, not this relay.
 2. In OpenAI, create an API key on a **separate** project from any ChatGPT subscription. Set a monthly budget before the first live call. Five dollars is a reasonable first ceiling. API usage is billed separately from ChatGPT Plus or Pro. Put the key only in the isolated host as `OPENAI_API_KEY`.
-3. Create a GitHub App installed only on `LuckyMittenGaming/lvpt-event-command-center-2026`. Permissions: Pull requests read/write, Contents read, Checks read, Metadata read. No administration, workflows, secrets, or emails. Subscribe to `pull_request` and `pull_request_review_comment`. Store the app id, installation id, and private key as `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY`. The relay mints a short-lived installation token itself.
+3. Create a GitHub App installed only on `LuckyMittenGaming/lvpt-event-command-center-2026`. Permissions: Pull requests read/write, Contents read, Checks read, Metadata read. No administration, workflows, secrets, or emails. Subscribe to `pull_request`, `pull_request_review_comment`, `issue_comment`, `check_run`, and `status`. Store the app id, installation id, and private key as `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY`. The relay mints a short-lived installation token itself. Point the webhook at `https://<isolated-host>/api/webhook`.
 4. A fine-grained PAT restricted to this one repository, with the same read/write pull-request scope and read scopes for contents and checks, also works as `GITHUB_TOKEN`. Prefer the app. Do not use a classic token with repo-wide admin scope.
 5. Generate a webhook secret of at least 24 random characters. Store it as `GITHUB_WEBHOOK_SECRET` on the isolated host and on the GitHub App. Do not commit it.
-6. Choose a state file path on that host (`AGENT_RELAY_STATE_PATH`). The file is mode `0600`. It is single-instance. Deleting it resets iteration counts.
+6. Create a new Upstash Redis database that is not shared with customer data. Put its REST URL and token in `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. The URL is accepted only when it is `https://*.upstash.io`. Check current Upstash pricing before choosing a plan; this relay sends a handful of commands per event, so a free database is usually enough. This change does not create that database. A filesystem path cannot satisfy live mode.
 7. Leave the relay disabled and run the replay commands above.
-8. To watch real events without posting, set only `AGENT_RELAY_ENABLED=true` and keep dry-run on. Audit records stay on the state file.
-9. Live posting requires `AGENT_RELAY_ENABLED=true`, `AGENT_RELAY_LIVE=true`, and `AGENT_RELAY_DRY_RUN=false`, plus the secret, state path, GitHub credential, and OpenAI key. Apply the `agent-loop` label only to draft pull requests against `feature/unified-command-center-staging`.
+8. To watch real events without posting, set only `AGENT_RELAY_ENABLED=true` and keep dry-run on. Dry-run keeps its idempotency in memory for that process and does not call OpenAI or GitHub.
+9. Live posting requires `AGENT_RELAY_ENABLED=true`, `AGENT_RELAY_LIVE=true`, and `AGENT_RELAY_DRY_RUN=false`, plus the webhook secret, Upstash credentials, GitHub credential, and OpenAI key. Apply the `agent-loop` label only to draft pull requests against `feature/unified-command-center-staging`.
 10. Set `AGENT_RELAY_KILL_SWITCH=true` to stop. The next valid event records `killed` and posts nothing.
 
 Price inputs `AGENT_RELAY_INPUT_USD_PER_MILLION` (default `0.4`) and `AGENT_RELAY_OUTPUT_USD_PER_MILLION` (default `1.6`) are estimates for the default model, not an invoice. Confirm current OpenAI prices before relying on the cap. The OpenAI dashboard budget is the real spend control. This process cap is a second, smaller brake.
@@ -114,17 +115,16 @@ The label must already be present when the pull request is opened or synchronize
 - Reviewer output is schema-checked. Leaks and instruction echoes become a human stop. The posted comment is rendered from that cleaned result, and `@cursor` is added by the template only.
 - Paths under `.env`, `.github`, `apps-script`, `sql`, `vercel.json`, this relay, and the Gmail, SMS, and sync routes stop for a person.
 - Audit fields are event id, repo, pull request, SHA, decision, transition, iteration, token count, and cost estimate. No prompt, raw body, login, email, or phone.
-- Live mode cannot target a non-OpenAI URL.
-- Tests and the replay CLI use a fetch implementation that refuses the network unless a test supplies a mock.
+- Live mode uses the host `fetch` only after every live gate passes. Dry-run, replay, and tests refuse the network unless a test installs a mock. The OpenAI URL cannot be redirected, and the Redis URL cannot leave Upstash.
+- The correction count is stored beside a floor that the relay never lowers. A missing pull-request record with a surviving floor fail-closes instead of starting again at zero. Flushing the whole database is an owner action and does reset the floor.
 
 ## Limitations
 
-- File state does not coordinate multiple server instances. Turn live mode on only for a single instance until a shared store is added. Two instances can double-post.
-- Deleting or replacing the state file resets the correction count.
-- The spend figure is an estimate. A model price change or a missing usage field (charged at the configured maximum) will not match the OpenAI invoice.
+- The spend figure is an estimate. A model price change or a missing usage field (charged at the configured maximum) will not match the OpenAI invoice. The OpenAI dashboard budget remains the real control. Two live calls that pass the cap check in the same moment can both complete; the next event then stops.
 - `gpt-4.1-mini` is the default. Some newer models reject `temperature: 0`. If a live call fails for that reason, the loop stops with `api_failure_stopped` instead of posting a task. Check the model’s request rules before enabling it.
-- Open and synchronize events often arrive before checks finish. Those return `evidence_pending` and wait for a later allowlisted review comment. There is no `check_run` subscription in this version.
-- Check evidence uses check names and a truncated, redacted diff. It does not send full CI logs.
+- If the store is down, the delivery is refused and is not retried by this process. A later GitHub event can try again. A failed save does not schedule another model call for that same delivery.
+- Check evidence uses check names, status contexts, and a truncated, redacted diff. It does not send full CI logs.
+- This relay does not wake a ChatGPT conversation. A person continues by opening the pull request URL.
 - A pull request with 100 or more files stops for a person because the file list may be truncated.
 - Best-effort redaction is not a substitute for keeping secrets and customer contact details out of pull requests.
 - A review comment that quotes the relay marker is ignored. That can only suppress a review, not widen one.

@@ -17,6 +17,7 @@ export function buildPayload(overrides = {}) {
     repository: { full_name: overrides.repo || RELAY_REPO },
     pull_request: {
       number: overrides.number || 21,
+      draft: overrides.draft !== false,
       title: overrides.title || 'Staging sample',
       body: overrides.body || 'Bounded staging change.',
       user: { login: overrides.author || 'LuckyMittenGaming' },

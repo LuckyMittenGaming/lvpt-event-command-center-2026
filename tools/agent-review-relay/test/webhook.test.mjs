@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, createVerify } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { loadConfig } from '../src/config.mjs';
 import { OPENAI_RESPONSES_URL, RELAY_REPO } from '../src/constants.mjs';
 import { createAppJwt, fetchPullEvidence, summarizeEvidence } from '../src/github.mjs';
 import { createRuntime } from '../src/runtime.mjs';
+import { createMemoryStore } from '../src/store.mjs';
 import { handleSignedDelivery, handleWebhook } from '../src/webhook.mjs';
 import { FIXED_NOW, UPDATED_AT, buildPayload, signedHeaders } from './helpers.mjs';
 
@@ -40,6 +38,7 @@ test('rejects the wrong repository, base, label, author, fork, and event', async
     ['rejected_base', buildPayload({ base: 'main' })],
     ['rejected_label', buildPayload({ labels: [] })],
     ['rejected_author', buildPayload({ author: 'EvilUser123' })],
+    ['rejected_draft', buildPayload({ draft: false })],
     ['rejected_fork', buildPayload({ headRepo: 'EvilUser123/lvpt-event-command-center-2026' })],
     ['rejected_event', buildPayload({ action: 'closed' })],
   ];
@@ -48,7 +47,7 @@ test('rejects the wrong repository, base, label, author, fork, and event', async
     const result = await deliver(runtime, payload, { deliveryId: `delivery-${transition}` });
     assert.equal(result.transition, transition, transition);
     assert.equal(result.plannedComment, null);
-    const audit = JSON.stringify(runtime.state.data.audits);
+    const audit = JSON.stringify(runtime.store.audits);
     assert.equal(audit.includes('EvilUser123'), false);
     assert.equal(audit.includes('evil/other'), false);
   }
@@ -163,8 +162,6 @@ test('unexpected throws fail closed without echoing the error', async () => {
 });
 
 test('live mode posts one sanitized comment and stops when the API fails', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'lvpt-relay-live-'));
-  const statePath = join(dir, 'state.json');
   const config = loadConfig({
     AGENT_RELAY_ENABLED: 'true',
     AGENT_RELAY_DRY_RUN: 'false',
@@ -172,7 +169,8 @@ test('live mode posts one sanitized comment and stops when the API fails', async
     GITHUB_WEBHOOK_SECRET: 'local-test-webhook-secret-32',
     GITHUB_TOKEN: `github_pat_${'abcDEF123'.repeat(4)}`,
     OPENAI_API_KEY: 'sk-livepathsimulationkey01',
-    AGENT_RELAY_STATE_PATH: statePath,
+    UPSTASH_REDIS_REST_URL: 'https://relay-test.upstash.io',
+    UPSTASH_REDIS_REST_TOKEN: 'upstashTokenForLocalTest01',
   });
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
@@ -195,13 +193,22 @@ test('live mode posts one sanitized comment and stops when the API fails', async
         }),
       };
     }
+    if (String(url).includes('/pulls/21') && !String(url).includes('/comments') && !String(url).includes('/files')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => buildPayload().pull_request,
+      };
+    }
     if (String(url).includes('/issues/21/comments')) {
       return { ok: true, status: 201, json: async () => ({ id: 9 }) };
     }
     throw new Error(`unexpected ${url}`);
   };
+  const store = createMemoryStore();
   const runtime = createRuntime(config, {
     fetchImpl,
+    store,
     now: () => FIXED_NOW,
     evidence: async () => ({ testSummary: 'FAIL tests/sample.test.mjs', changedFiles: ['lib/sample.mjs'], diff: 'FILE lib/sample.mjs\n+fix\n' }),
   });
@@ -211,8 +218,9 @@ test('live mode posts one sanitized comment and stops when the API fails', async
   const headers = signedHeaders(rawBody, config.webhookSecret, 'delivery-live1');
   const posted = await handleSignedDelivery({ rawBody, headers, runtime });
   assert.equal(posted.transition, 'comment_posted');
-  assert.equal(calls.length, 2);
-  const comment = JSON.parse(calls[1].options.body).body;
+  assert.equal(calls.filter((call) => call.url === OPENAI_RESPONSES_URL).length, 1);
+  assert.equal(calls.filter((call) => String(call.url).includes('/comments')).length, 1);
+  const comment = JSON.parse(calls.find((call) => String(call.url).includes('/comments')).options.body).body;
   assert.equal(comment.split('@cursor').length - 1, 1);
   assert.equal(comment.includes('sk-'), false);
   assert.equal(comment.includes('evil.example'), false);
@@ -223,9 +231,12 @@ test('live mode posts one sanitized comment and stops when the API fails', async
     runtime,
   });
   assert.equal(duplicate.transition, 'duplicate_delivery');
-  assert.equal(calls.length, 2);
+  assert.equal(calls.filter((call) => String(call.url).includes('/comments')).length, 1);
 
   const failingFetch = async (url, options = {}) => {
+    if (String(url).includes('/pulls/21') && !String(url).includes('/comments')) {
+      return { ok: true, status: 200, json: async () => buildPayload({ head: { sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' } }).pull_request };
+    }
     if (url === OPENAI_RESPONSES_URL) return { ok: false, status: 500, json: async () => ({ error: 'secret body' }) };
     if (String(url).includes('/issues/21/comments')) {
       const comment = JSON.parse(options.body).body;
@@ -237,8 +248,8 @@ test('live mode posts one sanitized comment and stops when the API fails', async
   };
   const failedRuntime = createRuntime(config, {
     fetchImpl: failingFetch,
+    store,
     now: () => FIXED_NOW,
-    state: runtime.state,
     evidence: async () => ({ testSummary: 'FAIL tests/sample.test.mjs', changedFiles: ['lib/sample.mjs'] }),
   });
   const failed = await handleSignedDelivery({
@@ -247,7 +258,7 @@ test('live mode posts one sanitized comment and stops when the API fails', async
     runtime: failedRuntime,
   });
   assert.equal(failed.transition, 'api_failure_stopped');
-  assert.equal(JSON.stringify(failedRuntime.state.data.audits).includes(config.openaiApiKey), false);
+  assert.equal(JSON.stringify(failedRuntime.store.audits).includes(config.openaiApiKey), false);
 });
 
 test('GitHub evidence uses the fixed API host and a GitHub App JWT stays key-free', async () => {
@@ -283,6 +294,9 @@ test('GitHub evidence uses the fixed API host and a GitHub App JWT stays key-fre
     }
     if (String(url).includes('/check-runs')) {
       return { ok: true, json: async () => ({ check_runs: [{ name: 'tests/sample.test.mjs', status: 'completed', conclusion: 'success' }] }) };
+    }
+    if (String(url).endsWith('/status')) {
+      return { ok: true, json: async () => ({ state: 'success', statuses: [{ state: 'success', context: 'Vercel' }] }) };
     }
     throw new Error(`unexpected ${url}`);
   };

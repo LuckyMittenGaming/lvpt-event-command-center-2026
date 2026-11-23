@@ -1,3 +1,4 @@
+// File state is not valid for the Vercel relay. Live mode uses the Redis store.
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';

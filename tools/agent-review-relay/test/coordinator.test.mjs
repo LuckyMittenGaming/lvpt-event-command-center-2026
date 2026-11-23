@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { simulationConfig } from '../src/config.mjs';
 import { coordinate } from '../src/coordinate.mjs';
 import { readEvent } from '../src/event.mjs';
 import { createRuntime } from '../src/runtime.mjs';
-import { createState } from '../src/state.mjs';
+import { createMemoryStore } from '../src/store.mjs';
 import { FIXED_NOW, buildPayload } from './helpers.mjs';
 
 function ctxFrom(overrides = {}, evidence) {
@@ -16,10 +13,10 @@ function ctxFrom(overrides = {}, evidence) {
   return { ...parsed.ctx, deliveryId: overrides.deliveryId || 'delivery-0001', suppliedEvidence: evidence };
 }
 
-function runtimeFor(state, review) {
+function runtimeFor(store, review) {
   const plans = [];
   const runtime = createRuntime(simulationConfig(), {
-    state,
+    store,
     now: () => FIXED_NOW,
     onPlan: (comment) => plans.push(comment),
     review: review || (async (input) => ({ decision: (await Promise.resolve(input)), usage: { inputTokens: 0, outputTokens: 0 } })),
@@ -37,7 +34,7 @@ const failEvidence = { testSummary: 'FAIL tests/sample.test.mjs', changedFiles: 
 const passEvidence = { testSummary: 'PASS', changedFiles: ['lib/sample.mjs'] };
 
 test('duplicate deliveries and the same head do not request a second comment', async () => {
-  const state = createState();
+  const state = createMemoryStore();
   const { runtime, plans } = runtimeFor(state);
   let calls = 0;
   runtime.review = async (input) => {
@@ -56,7 +53,7 @@ test('duplicate deliveries and the same head do not request a second comment', a
 });
 
 test('three corrections is the cap, and a later pass still stops cleanly', async () => {
-  const state = createState();
+  const state = createMemoryStore();
   const { runtime, plans } = runtimeFor(state);
   let calls = 0;
   runtime.review = async () => {
@@ -94,7 +91,7 @@ test('three corrections is the cap, and a later pass still stops cleanly', async
 });
 
 test('a passing result stops the loop and a later failure does not mention Cursor', async () => {
-  const state = createState();
+  const state = createMemoryStore();
   const { runtime, plans } = runtimeFor(state);
   const passed = await coordinate(ctxFrom({ deliveryId: 'delivery-2001' }, passEvidence), runtime);
   assert.equal(passed.transition, 'pass_stopped');
@@ -111,7 +108,7 @@ test('a passing result stops the loop and a later failure does not mention Curso
 });
 
 test('reviewer and comment failures stop without a Cursor task', async () => {
-  const state = createState();
+  const state = createMemoryStore();
   const { runtime, plans } = runtimeFor(state);
   runtime.review = async () => {
     throw new Error('OpenAI review failed (500)');
@@ -127,8 +124,8 @@ test('reviewer and comment failures stop without a Cursor task', async () => {
   assert.equal(again.transition, 'already_stopped');
   assert.equal(plans.length, 1);
 
-  const liveState = createState();
-  const live = createRuntime(simulationConfig(), { state: liveState, now: () => FIXED_NOW });
+  const liveState = createMemoryStore();
+  const live = createRuntime(simulationConfig(), { store: liveState, now: () => FIXED_NOW });
   live.live = true;
   live.review = async () => ({
     decision: {
@@ -147,12 +144,12 @@ test('reviewer and comment failures stop without a Cursor task', async () => {
   const posted = await coordinate(ctxFrom({ deliveryId: 'delivery-0300' }, failEvidence), live);
   assert.equal(posted.transition, 'comment_failed_stopped');
   assert.equal(posts, 1);
-  assert.equal(JSON.stringify(liveState.data.audits).includes('github_pat_'), false);
-  assert.equal(JSON.stringify(liveState.data.audits).includes('token='), false);
+  assert.equal(JSON.stringify(liveState.audits).includes('github_pat_'), false);
+  assert.equal(JSON.stringify(liveState.audits).includes('token='), false);
 });
 
 test('missing evidence does not spend a review, and a later comment can', async () => {
-  const state = createState();
+  const state = createMemoryStore();
   const { runtime } = runtimeFor(state);
   let calls = 0;
   runtime.review = async (input) => {
@@ -169,7 +166,7 @@ test('missing evidence does not spend a review, and a later comment can', async 
 });
 
 test('sensitive paths, spend caps, and prompt injection never become a Cursor task', async () => {
-  const state = createState();
+  const state = createMemoryStore();
   const { runtime, plans } = runtimeFor(state);
   let calls = 0;
   runtime.review = async () => {
@@ -212,24 +209,21 @@ test('sensitive paths, spend caps, and prompt injection never become a Cursor ta
   assert.equal(injected.plannedComment.includes('@cursor'), false);
   assert.equal(injected.plannedComment.includes('sk-'), false);
   assert.equal(injected.plannedComment.includes('avery@'), false);
-  assert.equal(JSON.stringify(state.data.audits).includes('EvilUser'), false);
-  assert.equal(JSON.stringify(state.data.audits).includes('sk-'), false);
+  assert.equal(JSON.stringify(state.audits).includes('EvilUser'), false);
+  assert.equal(JSON.stringify(state.audits).includes('sk-'), false);
   assert.equal(plans.at(-1).includes('does not wake a ChatGPT conversation'), true);
 });
 
-test('state survives a new process and rejects a corrupt file', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'lvpt-relay-'));
-  const file = join(dir, 'state.json');
-  const state = createState({ file });
-  assert.equal(state.claim('delivery-0001'), true);
-  state.data.iterations['21'] = 2;
-  state.data.stopped['21'] = 'pass_stopped';
-  state.persist();
-  const reloaded = createState({ file });
-  assert.equal(reloaded.claim('delivery-0001'), false);
-  assert.equal(reloaded.data.iterations['21'], 2);
-  assert.equal(reloaded.data.stopped['21'], 'pass_stopped');
-  const corrupt = join(dir, 'corrupt.json');
-  writeFileSync(corrupt, '{');
-  assert.throws(() => createState({ file: corrupt }), /relay state rejected/);
+test('a shared store keeps the correction floor and rejects a lower reset', async () => {
+  const store = createMemoryStore();
+  const first = createRuntime(simulationConfig(), { store, now: () => FIXED_NOW });
+  const second = createRuntime(simulationConfig(), { store, now: () => FIXED_NOW });
+  assert.equal(first.store, second.store);
+  assert.equal(await store.claimDelivery('delivery-0001'), true);
+  assert.equal(await store.claimDelivery('delivery-0001'), false);
+  assert.equal(await store.commitPr(21, 0, { iterations: 2, stopped: 'pass_stopped', reviewed: [], firstSeen: '' }), true);
+  assert.equal(await store.commitPr(21, 1, { iterations: 0, stopped: '', reviewed: [], firstSeen: '' }), false);
+  const loaded = await second.store.loadPr(21);
+  assert.equal(loaded.iterations, 2);
+  assert.equal(loaded.stopped, 'pass_stopped');
 });

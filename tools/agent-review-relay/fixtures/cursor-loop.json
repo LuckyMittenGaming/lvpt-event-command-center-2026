@@ -13,6 +13,7 @@
         "repository": { "full_name": "LuckyMittenGaming/lvpt-event-command-center-2026" },
         "pull_request": {
           "number": 21,
+          "draft": true,
           "title": "Fix the staging sample check",
           "body": "Bounded staging fix.",
           "user": { "login": "LuckyMittenGaming" },
@@ -35,6 +36,7 @@
         "repository": { "full_name": "LuckyMittenGaming/lvpt-event-command-center-2026" },
         "pull_request": {
           "number": 21,
+          "draft": true,
           "title": "Fix the staging sample check",
           "body": "Bounded staging fix.",
           "user": { "login": "LuckyMittenGaming" },
@@ -57,6 +59,7 @@
         "repository": { "full_name": "LuckyMittenGaming/lvpt-event-command-center-2026" },
         "pull_request": {
           "number": 21,
+          "draft": true,
           "title": "Fix the staging sample check",
           "body": "Bounded staging fix.",
           "user": { "login": "LuckyMittenGaming" },
@@ -79,6 +82,7 @@
         "repository": { "full_name": "LuckyMittenGaming/lvpt-event-command-center-2026" },
         "pull_request": {
           "number": 21,
+          "draft": true,
           "title": "Fix the staging sample check",
           "body": "Bounded staging fix.",
           "user": { "login": "LuckyMittenGaming" },

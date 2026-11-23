@@ -3,6 +3,10 @@ import { renderComment } from './comment.mjs';
 import { classifyFiles, evidenceKind } from './sanitize.mjs';
 import { applyEvidencePolicy, fixedHuman, normalizeDecision } from './policy.mjs';
 
+function toMicro(usd) {
+  return Math.max(0, Math.round(usd * 1e6));
+}
+
 function outcome(transition, extra = {}) {
   return {
     httpStatus: 200,
@@ -27,154 +31,204 @@ async function publish(runtime, ctx, decision, iteration, dryRun, nowMs) {
 }
 
 export async function coordinate(ctx, runtime) {
-  const { config, state } = runtime;
+  const { config, store } = runtime;
   const nowMs = runtime.now();
   const dryRun = !runtime.live;
-  const prKey = String(ctx.pr);
-  const shaKey = `${ctx.pr}:${ctx.sha}`;
-  let seal = false;
+  const sha = ctx.sha;
+  let record = await store.loadPr(ctx.pr);
 
-  const audit = (transition, extra = {}) => {
-    state.record({
+  const audit = async (transition, extra = {}) => {
+    const spendMicro = await store.readSpendMicro();
+    await store.appendAudit({
       at: new Date(nowMs).toISOString(),
       deliveryId: ctx.deliveryId,
       repo: ctx.repo,
       pr: ctx.pr,
-      sha: ctx.sha,
+      sha,
       event: ctx.event,
       action: ctx.action,
       decision: extra.decision || null,
       transition,
-      iterations: state.data.iterations[prKey] || 0,
+      iterations: record.iterations || 0,
       tokens: extra.tokens || 0,
       costUsd: extra.costUsd || 0,
-      totalSpendUsd: state.data.spendUsd,
+      totalSpendUsd: spendMicro / 1e6,
       dryRun,
     });
   };
 
+  const commit = async (next) => {
+    const saved = await store.commitPr(ctx.pr, record.version, next);
+    if (!saved) {
+      const error = new Error('relay state conflict');
+      error.code = 'conflict';
+      throw error;
+    }
+    record = { ...next, version: record.version + 1 };
+  };
+
   const finish = async (transition, decision, { sealSha = true, comment = true, tokens = 0, costUsd = 0, ok = true } = {}) => {
-    if (sealSha) {
-      seal = true;
-      if (!state.data.reviewed.includes(shaKey)) state.data.reviewed.push(shaKey);
+    const next = {
+      ...record,
+      reviewed: [...record.reviewed],
+      stopped: record.stopped,
+    };
+    if (sealSha && sha && !next.reviewed.includes(sha)) next.reviewed.push(sha);
+    if (comment && decision && !dryRun) {
+      const fresh = await runtime.confirmHead(ctx);
+      if (!fresh.ok) {
+        await audit(fresh.transition || 'stale_head');
+        return outcome(fresh.transition || 'stale_head', { ok: false, dryRun, iterations: record.iterations });
+      }
     }
     if (decision?.decision === 'REQUEST_CHANGES') {
-      state.data.iterations[prKey] = (state.data.iterations[prKey] || 0) + 1;
-    } else if (decision && transition !== 'evidence_pending' && transition !== 'duplicate_sha' && transition !== 'rejected_stale') {
-      state.data.stopped[prKey] = transition;
+      if (next.iterations >= config.maxIterations) {
+        decision = fixedHuman('max_iterations');
+        transition = 'max_iterations_stopped';
+      } else {
+        next.iterations += 1;
+      }
+    }
+    if (decision && decision.decision !== 'REQUEST_CHANGES' && !['evidence_pending', 'duplicate_sha', 'rejected_stale', 'stale_head', 'access_denied', 'state_conflict'].includes(transition)) {
+      next.stopped = transition;
+    }
+    if (costUsd > 0) await store.addSpendMicro(toMicro(costUsd));
+    try {
+      if (next.iterations !== record.iterations || next.stopped !== record.stopped || next.reviewed.join() !== record.reviewed.join() || next.firstSeen !== record.firstSeen) {
+        await commit(next);
+      }
+    } catch (error) {
+      if (error && error.code === 'conflict') {
+        await audit('state_conflict');
+        return outcome('state_conflict', { ok: false, dryRun, iterations: record.iterations });
+      }
+      await audit('state_unreadable').catch(() => {});
+      return outcome('state_unreadable', { ok: false, dryRun });
     }
     let plannedComment = null;
     if (comment && decision) {
       try {
-        plannedComment = await publish(
-          runtime,
-          ctx,
-          decision,
-          state.data.iterations[prKey] || 0,
-          dryRun,
-          nowMs,
-        );
+        plannedComment = await publish(runtime, ctx, decision, record.iterations, dryRun, nowMs);
       } catch {
-        state.data.stopped[prKey] = 'comment_failed_stopped';
-        seal = sealSha;
-        audit('comment_failed_stopped', { decision: decision.decision, tokens, costUsd });
-        return outcome('comment_failed_stopped', { decision: decision.decision, dryRun, iterations: state.data.iterations[prKey] || 0, ok: false });
+        const stopped = { ...record, stopped: 'comment_failed_stopped' };
+        try {
+          await commit(stopped);
+        } catch {
+          /* The delivery is already claimed, so a failed save cannot retry this event. */
+        }
+        await audit('comment_failed_stopped', { decision: decision.decision, tokens, costUsd });
+        return outcome('comment_failed_stopped', { decision: decision.decision, dryRun, iterations: record.iterations, ok: false });
       }
     }
-    audit(transition, { decision: decision?.decision || null, tokens, costUsd });
+    await audit(transition, { decision: decision?.decision || null, tokens, costUsd });
     return outcome(transition, {
       decision: decision?.decision || null,
       dryRun,
-      iterations: state.data.iterations[prKey] || 0,
+      iterations: record.iterations,
       plannedComment,
       ok,
     });
   };
 
-  try {
-    if (state.data.stopped[prKey]) {
-      return await finish('already_stopped', null, { sealSha: false, comment: false });
-    }
+  if (record.stopped) {
+    return finish('already_stopped', null, { sealSha: false, comment: false });
+  }
 
-    const age = nowMs - Date.parse(ctx.updatedAt);
-    if (!Number.isFinite(age) || age > config.maxEventAgeMs || age < -120_000) {
-      return await finish('rejected_stale', null, { sealSha: false, comment: false, ok: false });
-    }
+  const age = nowMs - Date.parse(ctx.updatedAt);
+  if (!Number.isFinite(age) || age > config.maxEventAgeMs || age < -120_000) {
+    return finish('rejected_stale', null, { sealSha: false, comment: false, ok: false });
+  }
 
-    if (!state.data.firstSeen[prKey]) state.data.firstSeen[prKey] = new Date(nowMs).toISOString();
-    if (nowMs - Date.parse(state.data.firstSeen[prKey]) > config.prBudgetMs) {
-      return await finish('pr_budget_stopped', fixedHuman('pr_budget'));
-    }
-
-    if (round6(state.data.spendUsd + maxCallCostUsd(config)) > config.spendCapUsd) {
-      return await finish('spend_cap_stopped', fixedHuman('spend_cap'));
-    }
-
-    if (state.data.reviewed.includes(shaKey) || state.data.inFlight[shaKey]) {
-      return await finish('duplicate_sha', null, { sealSha: false, comment: false });
-    }
-
-    state.data.inFlight[shaKey] = true;
-    let evidence;
+  if (!record.firstSeen) {
+    record = { ...record, firstSeen: new Date(nowMs).toISOString() };
     try {
-      evidence = runtime.live
-        ? await runtime.evidence(ctx)
-        : (ctx.suppliedEvidence || await runtime.evidence(ctx));
-    } catch {
-      return await finish('api_failure_stopped', fixedHuman('api_failure'));
-    }
-    const fileClass = classifyFiles(evidence?.changedFiles);
-    if (evidence?.incomplete || evidence?.unsafe || fileClass !== 'ok') {
-      const sensitive = fileClass === 'sensitive';
-      return await finish(sensitive ? 'sensitive_path_stopped' : 'unsafe_path_stopped', fixedHuman(sensitive ? 'sensitive_path' : 'unsafe_path'));
-    }
-
-    if (evidenceKind(evidence) === 'unknown') {
-      return await finish('evidence_pending', null, { sealSha: false, comment: false });
-    }
-
-    const iterations = state.data.iterations[prKey] || 0;
-    if (iterations >= config.maxIterations) {
-      if (evidenceKind(evidence) === 'pass') {
-        return await finish('pass_stopped', {
-          decision: 'PASS',
-          rationale: 'Checks passed for this commit.',
-          findings: [],
-          cursorTask: null,
-          reason: 'checks_passed',
-        });
-      }
-      return await finish('max_iterations_stopped', fixedHuman('max_iterations'));
-    }
-
-    let reviewed;
-    try {
-      reviewed = await runtime.review({ evidence, untrusted: ctx.untrusted, config });
-    } catch {
-      return await finish('api_failure_stopped', fixedHuman('api_failure'));
-    }
-
-    const usage = reviewed.usage || {};
-    const charged = usage.inputTokens == null || usage.outputTokens == null
-      ? (dryRun
-        ? { inputTokens: 0, outputTokens: 0 }
-        : { inputTokens: Math.ceil(config.maxInputChars / 4), outputTokens: config.maxOutputTokens })
-      : usage;
-    const costUsd = estimateCostUsd(config, charged);
-    state.data.spendUsd = round6(state.data.spendUsd + costUsd);
-    const tokens = (charged.inputTokens || 0) + (charged.outputTokens || 0);
-
-    let decision = applyEvidencePolicy(normalizeDecision(reviewed.decision || reviewed), evidence);
-    if (decision.decision === 'PASS') return await finish('pass_stopped', decision, { tokens, costUsd });
-    if (decision.decision === 'HUMAN_APPROVAL_REQUIRED') return await finish('human_stopped', decision, { tokens, costUsd });
-    return await finish(dryRun ? 'dry_run_planned' : 'comment_posted', decision, { tokens, costUsd });
-  } finally {
-    delete state.data.inFlight[shaKey];
-    if (seal && !state.data.reviewed.includes(shaKey)) state.data.reviewed.push(shaKey);
-    try {
-      state.persist();
-    } catch {
-      /* The caller fail-closes if a later read cannot trust state. */
+      await commit(record);
+    } catch (error) {
+      if (error && error.code === 'conflict') return outcome('state_conflict', { ok: false, dryRun });
+      return outcome('state_unreadable', { ok: false, dryRun });
     }
   }
+  if (nowMs - Date.parse(record.firstSeen) > config.prBudgetMs) {
+    return finish('pr_budget_stopped', fixedHuman('pr_budget'));
+  }
+
+  const spendMicro = await store.readSpendMicro();
+  if ((spendMicro + toMicro(maxCallCostUsd(config))) / 1e6 > config.spendCapUsd) {
+    return finish('spend_cap_stopped', fixedHuman('spend_cap'));
+  }
+
+  if (runtime.live) {
+    const fresh = await runtime.confirmHead(ctx);
+    if (!fresh.ok) return finish(fresh.transition || 'stale_head', null, { sealSha: false, comment: false, ok: false });
+  }
+
+  if (record.reviewed.includes(sha)) {
+    return finish('duplicate_sha', null, { sealSha: false, comment: false });
+  }
+
+  let evidence;
+  try {
+    evidence = runtime.live
+      ? await runtime.evidence(ctx)
+      : (ctx.suppliedEvidence || await runtime.evidence(ctx));
+  } catch (error) {
+    if (error && error.code === 'access_denied') {
+      return finish('access_denied', null, { sealSha: false, comment: false, ok: false });
+    }
+    return finish('api_failure_stopped', fixedHuman('api_failure'));
+  }
+
+  const fileClass = classifyFiles(evidence?.changedFiles);
+  if (evidence?.incomplete || evidence?.unsafe || fileClass !== 'ok') {
+    const sensitive = fileClass === 'sensitive';
+    return finish(sensitive ? 'sensitive_path_stopped' : 'unsafe_path_stopped', fixedHuman(sensitive ? 'sensitive_path' : 'unsafe_path'));
+  }
+
+  if (evidenceKind(evidence) === 'unknown' || evidence?.noChecks) {
+    return finish('evidence_pending', null, { sealSha: false, comment: false });
+  }
+
+  if (record.iterations >= config.maxIterations && evidenceKind(evidence) === 'fail') {
+    return finish('max_iterations_stopped', fixedHuman('max_iterations'));
+  }
+
+  try {
+    await commit({ ...record, reviewed: [...record.reviewed, sha] });
+  } catch (error) {
+    if (error && error.code === 'conflict') {
+      const latest = await store.loadPr(ctx.pr);
+      if (latest.reviewed.includes(sha) || latest.stopped) {
+        record = latest;
+        return finish(latest.stopped ? 'already_stopped' : 'duplicate_sha', null, { sealSha: false, comment: false });
+      }
+      return outcome('state_conflict', { ok: false, dryRun });
+    }
+    return outcome('state_unreadable', { ok: false, dryRun });
+  }
+
+  let reviewed;
+  try {
+    reviewed = await runtime.review({ evidence, untrusted: ctx.untrusted, config });
+  } catch {
+    return finish('api_failure_stopped', fixedHuman('api_failure'));
+  }
+
+  const usage = reviewed.usage || {};
+  const charged = usage.inputTokens == null || usage.outputTokens == null
+    ? (dryRun
+      ? { inputTokens: 0, outputTokens: 0 }
+      : { inputTokens: Math.ceil(config.maxInputChars / 4), outputTokens: config.maxOutputTokens })
+    : usage;
+  const costUsd = estimateCostUsd(config, charged);
+  const tokens = (charged.inputTokens || 0) + (charged.outputTokens || 0);
+  let decision = applyEvidencePolicy(normalizeDecision(reviewed.decision || reviewed), evidence);
+  if (record.iterations >= config.maxIterations && decision.decision === 'REQUEST_CHANGES') {
+    decision = fixedHuman('max_iterations');
+  }
+  if (decision.decision === 'PASS') return finish('pass_stopped', decision, { tokens, costUsd });
+  if (decision.decision === 'HUMAN_APPROVAL_REQUIRED') {
+    const transition = decision.reason === 'max_iterations' ? 'max_iterations_stopped' : 'human_stopped';
+    return finish(transition, decision, { tokens, costUsd });
+  }
+  return finish(dryRun ? 'dry_run_planned' : 'comment_posted', decision, { tokens, costUsd });
 }

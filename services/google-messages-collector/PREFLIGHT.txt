@@ -1,0 +1,52 @@
+LVPT Google Messages collector preflight
+
+libgm pin
+  module:  go.mau.fi/mautrix-gmessages
+  version: v0.2611.1-0.20261119194137-ed5dc19eb2b4
+  commit:  ed5dc19eb2b4149ee242cf000c86a7150dca9947
+  reviewed: 2026-11-19
+
+Reproducible build, from services/google-messages-collector
+  Go 1.26 or newer. The Windows rehearsal used Go 1.27.4.
+  go test ./...
+  go test -tags livelibgm ./...
+  go build -o lvpt-rcs-collector.exe ./cmd/lvpt-rcs-collector
+  go build -tags livelibgm -o lvpt-rcs-collector-live.exe ./cmd/lvpt-rcs-collector
+
+The default executable does not link pkg/libgm and cannot open a Google session.
+The livelibgm executable links pkg/libgm. That binary is AGPL-3.0. Keep it as its own process.
+Offer its source to anyone who interacts with it over a network. The Command Center web app does not include libgm.
+
+Windows staging
+  Run the default executable on the owner PC. Do not rent a server for the first device test.
+  lvpt-rcs-collector.exe -synthetic
+  lvpt-rcs-collector.exe -preflight
+  A live start without -synthetic or -preflight exits before any Google connection.
+
+Keys stay outside the repository. Do not create them in this folder.
+  Session key file: %LOCALAPPDATA%\LVPT\rcs\session.key
+  Allowlist file:   %LOCALAPPDATA%\LVPT\rcs\allowlist.txt
+  Set LVPT_RCS_SESSION_KEY_FILE only to a path outside the git checkout.
+  -preflight rejects a key path inside the repository and does not read the key.
+
+Pairing is not implemented in this process. Do not paste Google cookies into Cursor or ChatGPT.
+When the owner authorizes the first live test, cookie intake has to be a localhost-only step on this PC.
+Required cookie names in the pinned libgm login are SID, HSID, SSID, APISID, SAPISID, and OSID.
+__Secure-1PSIDTS is optional. Those cookies authenticate the Google account.
+After the phone confirms the emoji, libgm stores a Tachyon token, device identity, and request encryption keys.
+Cookies and that session must be sealed with the external key file. Google can refresh cookies from responses.
+Revoke access by unpairing the browser in Google Messages on the phone, calling UnpairGaia, deleting the local sealed session, and signing the Google account out of the browser used for pairing.
+The RPC acknowledgement that keeps the event stream alive is not MarkRead. This collector does not call MarkRead.
+The phone unread badge still has to be watched during the first live test.
+
+One-contact acceptance, after a separate written authorization
+  1. Name the Google account and the one consenting contact.
+  2. Put that contact in the external allowlist. Leave every other contact out.
+  3. Note the encrypted SMS row count before the run.
+  4. Pair on this PC, confirm the emoji on the phone, and keep messages.google.com closed afterward.
+  5. Collect one bounded window from that conversation only.
+  6. Confirm one incoming RCS message and one outgoing RCS message by identifier, direction, and timestamp.
+  7. Diagnostic output may contain Google message IDs. It must not contain message bodies.
+  8. Confirm the SMS row count is unchanged.
+  9. Confirm no send, reaction, delete, or mark-read call was made.
+  10. Disconnect, confirm the health failure, reconnect once, then stop and unpair if the test is finished.

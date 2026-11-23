@@ -1,0 +1,9 @@
+The Google Messages collector is a separate process from the LVPT Command Center web application.
+
+go.mau.fi/mautrix-gmessages, including pkg/libgm, is published under AGPL-3.0.
+https://github.com/mautrix/gmessages
+Pinned commit: ed5dc19eb2b4149ee242cf000c86a7150dca9947
+
+This service does not copy that source into the web application. A binary built with -tags livelibgm links pkg/libgm and is covered by AGPL-3.0. The default binary does not link it and cannot open a Google session. The source of any networked libgm binary must be offered to the people who interact with it.
+
+The Command Center receives normalized records through its own staging interface. It does not include libgm.

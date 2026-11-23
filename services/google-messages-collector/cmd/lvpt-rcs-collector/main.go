@@ -22,7 +22,34 @@ func main() {
 	check := flag.Bool("preflight", false, "check the local Windows staging path and exit")
 	pair := flag.Bool("pair", false, "start the localhost pairing helper without contacting Google")
 	revoke := flag.Bool("revoke", false, "delete the local sealed pairing bundle")
+	liveTest := flag.Bool("live-test", false, "start an authorized read-only collection; requires the livelibgm build")
+	health := flag.Bool("health", false, "print local collection health without contacting Google")
+	stop := flag.Bool("stop", false, "ask the local collector to stop")
+	reconnect := flag.Bool("reconnect", false, "ask the local collector to reconnect")
 	flag.Parse()
+	if *stop {
+		if err := writeControl("stop"); err != nil {
+			fmt.Fprintln(os.Stderr, "stop failed")
+			os.Exit(1)
+		}
+		fmt.Println("stop requested")
+		return
+	}
+	if *reconnect {
+		if err := writeControl("reconnect"); err != nil {
+			fmt.Fprintln(os.Stderr, "reconnect failed")
+			os.Exit(1)
+		}
+		fmt.Println("reconnect requested")
+		return
+	}
+	if *health {
+		if err := printHealth(); err != nil {
+			fmt.Fprintln(os.Stderr, "health unavailable")
+			os.Exit(1)
+		}
+		return
+	}
 	if *revoke {
 		if err := runRevoke(); err != nil {
 			fmt.Fprintln(os.Stderr, "revoke failed")
@@ -42,6 +69,13 @@ func main() {
 		if err := runPreflight(); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
+		}
+		return
+	}
+	if *liveTest {
+		if err := runLiveTest(); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(2)
 		}
 		return
 	}
@@ -93,6 +127,77 @@ func runPreflight() error {
 	encoded, _ := json.Marshal(report)
 	fmt.Println(string(encoded))
 	return nil
+}
+
+func writeControl(name string) error {
+	dir, err := controlDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, name), []byte("1"), 0o600)
+}
+
+func printHealth() error {
+	dir, err := controlDir()
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "health.json"))
+	if err != nil {
+		fmt.Println(`{"connected":false,"googleSessionOpened":false,"sendCalls":0,"markReadCalls":0}`)
+		return nil
+	}
+	if bytesContain(raw, []byte("SID")) || bytesContain(raw, []byte("cookie")) {
+		return errors.New("health file is not safe to print")
+	}
+	fmt.Println(string(raw))
+	return nil
+}
+
+func controlDir() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	repo, err := preflight.FindRepo(wd)
+	if err != nil {
+		return "", err
+	}
+	dir := os.Getenv("LVPT_RCS_CONTROL_DIR")
+	if dir == "" {
+		base := os.Getenv("LOCALAPPDATA")
+		if base == "" {
+			return "", errors.New("LOCALAPPDATA is not set")
+		}
+		dir = filepath.Join(base, "LVPT", "rcs")
+	}
+	if err := preflight.SessionKeyAllowed(dir, repo); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func bytesContain(haystack, needle []byte) bool {
+	return len(needle) > 0 && len(haystack) >= len(needle) && bytesIndex(haystack, needle) >= 0
+}
+
+func bytesIndex(haystack, needle []byte) int {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		match := true
+		for j := range needle {
+			if haystack[i+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
 }
 
 func runPair() error {

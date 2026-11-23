@@ -22,7 +22,17 @@ Windows staging
   lvpt-rcs-collector.exe -synthetic
   lvpt-rcs-collector.exe -preflight
   lvpt-rcs-collector.exe -pair
+  lvpt-rcs-collector.exe -health
+  lvpt-rcs-collector.exe -stop
+  lvpt-rcs-collector.exe -reconnect
   lvpt-rcs-collector.exe -revoke
+  go build -tags livelibgm -o lvpt-rcs-collector-live.exe ./cmd/lvpt-rcs-collector
+  The live executable is not started during development.
+  An authorized test later uses:
+  $env:LVPT_RCS_OWNER_CONFIRM='yes'
+  .\lvpt-rcs-collector-live.exe -live-test
+  -stop disconnects collection locally. -revoke deletes the sealed files on this PC.
+  Neither removes the linked browser inside Google Messages. That revocation is done on the phone after a real pairing.
   A live start without -synthetic, -preflight, -pair, or -revoke exits before any Google connection.
   -pair listens on 127.0.0.1 only and does not contact Google.
   The sealed bundle defaults to %LOCALAPPDATA%\LVPT\rcs\session.sealed and is protected with Windows DPAPI.

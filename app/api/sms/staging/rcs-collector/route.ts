@@ -1,4 +1,5 @@
-import { jsonNoStore } from '../_lib';
+import { jsonNoStore, supabaseEndpoint, supabaseHeaders } from '../_lib';
+import { publicRcsRecord } from '../../../../../lib/rcs-staging.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,29 @@ export async function GET(request: Request) {
   if (!sameOrigin(request)) {
     return jsonNoStore({ ok: false, reason: 'same_origin_required', sendEnabled: false }, 403);
   }
+  const records: ReturnType<typeof publicRcsRecord>[] = [];
+  let readOk = false;
+  if ((process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').includes('.supabase.co')) {
+    try {
+      const response = await fetch(supabaseEndpoint('lvpt_rcs_staging?select=google_message_id,conversation_id,transport,direction,timestamp_ms,source,schema_version,ingested_at&order=ingested_at.desc&limit=20'), {
+        headers: supabaseHeaders(),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8_000)
+      });
+      if (response.ok) {
+        const rows = await response.json();
+        if (Array.isArray(rows)) {
+          for (const row of rows) {
+            if (!row || typeof row !== 'object' || 'body_ciphertext' in row || 'contact_hash' in row) continue;
+            records.push(publicRcsRecord(row));
+          }
+          readOk = true;
+        }
+      }
+    } catch {
+      readOk = false;
+    }
+  }
   return jsonNoStore({
     ok: true,
     pairing: 'unpaired',
@@ -30,9 +54,9 @@ export async function GET(request: Request) {
     sendEnabled: false,
     markReadEnabled: false,
     lastSuccess: '',
-    lastFailure: '',
+    lastFailure: readOk ? '' : 'rcs_metadata_unavailable',
     reconnects: 0,
-    records: [],
+    records,
     transports: ['SMS', 'RCS'],
     existingSmsRewritten: false,
     libgmCommit: LIBGM_COMMIT,

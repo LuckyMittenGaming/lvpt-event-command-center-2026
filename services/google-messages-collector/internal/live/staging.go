@@ -3,10 +3,13 @@ package live
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 var ErrProductionStaging = errors.New("production staging is refused")
@@ -34,36 +37,60 @@ func PostStaging(ctx context.Context, endpoint, token string, records []Record) 
 	}
 	payload := make([]map[string]any, 0, len(records))
 	for _, record := range records {
+		meta := strings.ToLower(record.GoogleMessageID + record.ConversationID + record.Source + record.Transport + record.Direction + record.ContactHash)
+		if strings.Contains(meta, "cookie") || strings.Contains(meta, "preview") || record.SchemaVersion != 1 || record.BodyNonce == nil {
+			return errors.New("staging payload contained forbidden material")
+		}
 		payload = append(payload, map[string]any{
+			"schemaVersion":   record.SchemaVersion,
+			"source":          record.Source,
+			"tenantId":        "lvpt-owner-pilot",
 			"googleMessageId": record.GoogleMessageID,
 			"conversationId":  record.ConversationID,
 			"transport":       record.Transport,
 			"direction":       record.Direction,
 			"timestampMs":     record.TimestampMs,
 			"contactHash":     record.ContactHash,
-			"bodyCiphertext":  record.BodyCiphertext,
+			"bodyNonce":       base64.StdEncoding.EncodeToString(record.BodyNonce),
+			"bodyCiphertext":  base64.StdEncoding.EncodeToString(record.BodyCiphertext),
 		})
 	}
 	encoded, err := json.Marshal(map[string]any{"records": payload})
 	if err != nil {
 		return err
 	}
-	if bytes.Contains(bytes.ToLower(encoded), []byte("cookie")) || bytes.Contains(encoded, []byte("preview")) {
-		return errors.New("staging payload contained forbidden material")
+	var last error
+	for attempt := 0; attempt < 2; attempt++ {
+		status, err := postOnce(ctx, endpoint, token, encoded)
+		if err == nil && status == http.StatusOK {
+			return nil
+		}
+		last = err
+		if status != 0 && status != http.StatusBadGateway && status != http.StatusServiceUnavailable {
+			break
+		}
 	}
+	if last == nil {
+		last = errors.New("staging ingest was not accepted")
+	}
+	return last
+}
+
+func postOnce(ctx context.Context, endpoint, token string, encoded []byte) (int, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("x-lvpt-sms-sync-token", token)
+	request.Header.Set("x-lvpt-rcs-sync-token", token)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
 	if response.StatusCode != http.StatusOK {
-		return errors.New("staging ingest was not accepted")
+		return response.StatusCode, errors.New("staging ingest was not accepted")
 	}
-	return nil
+	return response.StatusCode, nil
 }

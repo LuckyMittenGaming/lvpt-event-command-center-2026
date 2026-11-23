@@ -67,6 +67,9 @@ type Record struct {
 	TimestampMs     int64
 	ContactHash     string
 	BodyCiphertext  []byte
+	BodyNonce       []byte
+	SchemaVersion   int
+	Source          string
 }
 
 type Health struct {
@@ -94,11 +97,15 @@ type Request struct {
 	Repo         string
 	ControlDir   string
 	HealthPath   string
+	StagingKey   []byte
 	Sink         func([]Record) error
 }
 
 func Run(ctx context.Context, gateway Gateway, req Request) (Health, error) {
 	health := Health{SendCalls: 0, MarkReadCalls: 0}
+	if len(req.StagingKey) != 0 && len(req.StagingKey) != 32 {
+		return health, finish(req, health, errors.New("staging encryption key is missing"))
+	}
 	if !req.OwnerConfirm || !req.Bundle.Approved || strings.TrimSpace(req.Bundle.GoogleAccount) == "" {
 		return health, finish(req, health, ErrNotConfirmed)
 	}
@@ -192,21 +199,28 @@ func Run(ctx context.Context, gateway Gateway, req Request) (Health, error) {
 				if event.Direction != "incoming" && event.Direction != "outgoing" {
 					continue
 				}
-				body, err := req.Protector.Protect([]byte(event.Body))
+				var record Record
+				if len(req.StagingKey) == 32 {
+					record, err = EncryptStaging(req.StagingKey, req.Bundle.Contact, event, nil)
+				} else {
+					body, protectErr := req.Protector.Protect([]byte(event.Body))
+					err = protectErr
+					record = Record{
+						GoogleMessageID: event.GoogleMessageID,
+						ConversationID:  event.ConversationID,
+						Transport:       event.Transport,
+						Direction:       event.Direction,
+						TimestampMs:     event.TimestampMs,
+						ContactHash:     hashContact(req.Bundle.Contact),
+						BodyCiphertext:  body,
+					}
+				}
 				if err != nil {
 					gateway.Disconnect()
 					return health, finish(req, health, err)
 				}
 				seen[event.GoogleMessageID] = struct{}{}
-				stored = append(stored, Record{
-					GoogleMessageID: event.GoogleMessageID,
-					ConversationID:  event.ConversationID,
-					Transport:       event.Transport,
-					Direction:       event.Direction,
-					TimestampMs:     event.TimestampMs,
-					ContactHash:     hashContact(req.Bundle.Contact),
-					BodyCiphertext:  body,
-				})
+				stored = append(stored, record)
 			}
 		}
 		if failed {

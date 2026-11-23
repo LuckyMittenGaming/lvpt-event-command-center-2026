@@ -127,7 +127,7 @@
     const rcsData = rcs.ok && rcs.data ? rcs.data : null;
     const rcsRecords = rcsData && Array.isArray(rcsData.records) ? rcsData.records : [];
     const smsRows = threads.map((item) => `<tr><td>SMS</td><td>Android bridge</td><td>${esc(item.threadKey)}</td><td>${esc(item.newestAt || '')}</td><td>${esc(item.incoming)}</td><td>${esc(item.outgoing)}</td><td>${esc(item.match)}</td><td>${esc(item.eventId || (item.candidateEventIds || []).join(', ') || 'Review')}</td></tr>`).join('');
-    const rcsTimeline = rcsRecords.map((item) => `<tr><td>${esc(item.transport || 'RCS')}</td><td>Google Messages</td><td>${esc(item.conversationId || '')}</td><td>${esc(item.ingestedAt || '')}</td><td></td><td></td><td>${esc(item.syncStatus || '')}</td><td>Review</td></tr>`).join('');
+    const rcsTimeline = rcsRecords.map((item) => `<tr><td>${esc(item.transport || 'RCS')}</td><td>Google Messages</td><td>${esc(item.conversationId || '')}</td><td>${esc(item.ingestedAt || '')}</td><td>${item.direction === 'incoming' ? '1' : ''}</td><td>${item.direction === 'outgoing' ? '1' : ''}</td><td>${esc(item.label || '')}</td><td>Review</td></tr>`).join('');
     const rcsNote = rcsData
       ? `Google Messages collector pairing is ${esc(rcsData.pairing)}. Last success ${esc(rcsData.lastSuccess || 'none')}. Last failure ${esc(rcsData.lastFailure || 'none')}. Reconnects ${esc(rcsData.reconnects)}. Sending is off. Mark-read is off. ${rcsRecords.length} Google Messages rows were returned. Existing SMS rows were not rewritten.`
       : `Google Messages collector status did not load (${esc((rcs.data && rcs.data.reason) || 'unavailable')}).`;

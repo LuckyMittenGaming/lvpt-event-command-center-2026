@@ -22,6 +22,10 @@ func runLiveTest() error {
 	}
 	endpoint := os.Getenv("LVPT_RCS_STAGING_URL")
 	token := os.Getenv("LVPT_RCS_STAGING_TOKEN")
+	stagingKey, err := live.StagingKeyFromBase64(os.Getenv("LVPT_RCS_STAGING_DATA_KEY_BASE64"))
+	if err != nil {
+		return errors.New("staging encryption key is missing; no Google session was opened")
+	}
 	if err := live.ValidateStagingURL(endpoint); err != nil {
 		return err
 	}
@@ -96,6 +100,7 @@ func runLiveTest() error {
 		Repo:        repo,
 		ControlDir:  dir,
 		HealthPath:  filepath.Join(dir, "health.json"),
+		StagingKey:  stagingKey,
 		Sink: func(records []live.Record) error {
 			return live.PostStaging(context.Background(), endpoint, token, records)
 		},

@@ -179,9 +179,15 @@ func TestStagingPostRejectsProductionAndKeepsBodiesOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	var body []byte
+	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("x-lvpt-sms-sync-token") == "" {
+		calls++
+		if r.Header.Get("x-lvpt-sms-sync-token") != "" || r.Header.Get("x-lvpt-rcs-sync-token") == "" {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if calls == 1 {
+			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
 		body, _ = io.ReadAll(r.Body)
@@ -191,13 +197,15 @@ func TestStagingPostRejectsProductionAndKeepsBodiesOut(t *testing.T) {
 	endpoint := server.URL + "/api/sms/staging/rcs-ingest"
 	err := PostStaging(context.Background(), endpoint, strings.Repeat("t", 32), []Record{{
 		GoogleMessageID: "gm-1", ConversationID: "conv", Transport: "RCS", Direction: "incoming",
-		TimestampMs: time.Now().UnixMilli(), ContactHash: "abc", BodyCiphertext: []byte("sealed-body"),
+		TimestampMs: time.Now().UnixMilli(), ContactHash: strings.Repeat("ab", 32),
+		SchemaVersion: 1, Source: "synthetic-test", BodyNonce: []byte("0123456789ab"),
+		BodyCiphertext: []byte("sealed-body"),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(body, []byte("gm-1")) || bytes.Contains(body, []byte(cookieMarker)) {
-		t.Fatalf("staging payload = %s", body)
+	if calls != 2 || !bytes.Contains(body, []byte("gm-1")) || !bytes.Contains(body, []byte("synthetic-test")) || bytes.Contains(body, []byte(cookieMarker)) || bytes.Contains(body, []byte("x-lvpt-sms-sync-token")) {
+		t.Fatalf("calls %d staging payload = %s", calls, body)
 	}
 }
 

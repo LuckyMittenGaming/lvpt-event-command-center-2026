@@ -21,7 +21,12 @@ Windows staging
   Run the default executable on the owner PC. Do not rent a server for the first device test.
   lvpt-rcs-collector.exe -synthetic
   lvpt-rcs-collector.exe -preflight
-  A live start without -synthetic or -preflight exits before any Google connection.
+  lvpt-rcs-collector.exe -pair
+  lvpt-rcs-collector.exe -revoke
+  A live start without -synthetic, -preflight, -pair, or -revoke exits before any Google connection.
+  -pair listens on 127.0.0.1 only and does not contact Google.
+  The sealed bundle defaults to %LOCALAPPDATA%\LVPT\rcs\session.sealed and is protected with Windows DPAPI.
+  No browser extension is installed, and the regular browser profile is not read.
 
 Keys stay outside the repository. Do not create them in this folder.
   Session key file: %LOCALAPPDATA%\LVPT\rcs\session.key

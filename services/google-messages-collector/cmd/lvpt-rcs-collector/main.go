@@ -9,7 +9,10 @@ import (
 	"os"
 	"runtime"
 
+	"path/filepath"
+
 	"lvpt.local/google-messages-collector/internal/collect"
+	"lvpt.local/google-messages-collector/internal/pairui"
 	"lvpt.local/google-messages-collector/internal/preflight"
 	"lvpt.local/google-messages-collector/internal/upstream"
 )
@@ -17,7 +20,24 @@ import (
 func main() {
 	synthetic := flag.Bool("synthetic", false, "run the offline synthetic rehearsal and exit")
 	check := flag.Bool("preflight", false, "check the local Windows staging path and exit")
+	pair := flag.Bool("pair", false, "start the localhost pairing helper without contacting Google")
+	revoke := flag.Bool("revoke", false, "delete the local sealed pairing bundle")
 	flag.Parse()
+	if *revoke {
+		if err := runRevoke(); err != nil {
+			fmt.Fprintln(os.Stderr, "revoke failed")
+			os.Exit(1)
+		}
+		fmt.Println("revoked")
+		return
+	}
+	if *pair {
+		if err := runPair(); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	if *check {
 		if err := runPreflight(); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
@@ -73,6 +93,60 @@ func runPreflight() error {
 	encoded, _ := json.Marshal(report)
 	fmt.Println(string(encoded))
 	return nil
+}
+
+func runPair() error {
+	repo, path, err := localSeal()
+	if err != nil {
+		return err
+	}
+	protector, err := pairui.NewOSProtector()
+	if err != nil {
+		return err
+	}
+	server, err := pairui.New(protector, path, repo, os.Stderr)
+	if err != nil {
+		return err
+	}
+	localURL, err := server.Start()
+	if err != nil {
+		return err
+	}
+	fmt.Println(localURL)
+	fmt.Fprintln(os.Stderr, "local pairing helper is waiting; no Google session was opened")
+	server.Wait()
+	return nil
+}
+
+func runRevoke() error {
+	repo, path, err := localSeal()
+	if err != nil {
+		return err
+	}
+	return pairui.RevokeFile(path, repo)
+}
+
+func localSeal() (string, string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", "", err
+	}
+	repo, err := preflight.FindRepo(wd)
+	if err != nil {
+		return "", "", err
+	}
+	path := os.Getenv("LVPT_RCS_SEALED_SESSION")
+	if path == "" {
+		base := os.Getenv("LOCALAPPDATA")
+		if base == "" {
+			return "", "", errors.New("LOCALAPPDATA is not set")
+		}
+		path = filepath.Join(base, "LVPT", "rcs", "session.sealed")
+	}
+	if err := preflight.SessionKeyAllowed(path, repo); err != nil {
+		return "", "", err
+	}
+	return repo, path, nil
 }
 
 func repeat(value byte) []byte {

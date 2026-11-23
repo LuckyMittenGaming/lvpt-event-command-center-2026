@@ -25,6 +25,9 @@ func runLiveTest() error {
 	if err := live.ValidateStagingURL(endpoint); err != nil {
 		return err
 	}
+	if err := live.PostStaging(context.Background(), endpoint, token, nil); err != nil {
+		return errors.New("staging ingest is not ready; no Google session was opened")
+	}
 	repo, sealPath, err := localSeal()
 	if err != nil {
 		return err

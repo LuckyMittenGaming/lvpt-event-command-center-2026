@@ -71,7 +71,15 @@ export async function POST(request: Request) {
     if (Buffer.byteLength(raw, 'utf8') > 256000) return jsonNoStore({ ok: false, reason: 'payload_too_large', sendEnabled: false }, 413);
     const records = validateRcsBatch(JSON.parse(raw));
     if (!records) return jsonNoStore({ ok: false, reason: 'invalid_or_unapproved_messages', sendEnabled: false }, 400);
-    if (records.length === 0) return jsonNoStore({ ok: true, accepted: 0, sendEnabled: false }, 200);
+    if (records.length === 0) {
+      const probe = await fetch(supabaseEndpoint('lvpt_rcs_staging?select=google_message_id&limit=0'), {
+        headers: supabaseHeaders(),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!probe.ok) return jsonNoStore({ ok: false, reason: 'staging_write_failed', sendEnabled: false }, 502);
+      return jsonNoStore({ ok: true, accepted: 0, sendEnabled: false }, 200);
+    }
     const response = await fetch(supabaseEndpoint('lvpt_rcs_staging?on_conflict=tenant_id,google_message_id'), {
       method: 'POST',
       headers: supabaseHeaders('resolution=ignore-duplicates,return=minimal'),

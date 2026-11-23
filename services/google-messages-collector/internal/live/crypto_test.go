@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+func TestResolveContactFailsClosedOnMismatch(t *testing.T) {
+	if _, err := ResolveContact("5550100199", "5550100100"); err == nil {
+		t.Fatal("mismatched contacts were accepted")
+	}
+	got, err := ResolveContact("15550100199", "")
+	if err != nil || got != "5550100199" {
+		t.Fatalf("%s %v", got, err)
+	}
+}
+
 func TestEncryptionMatchesStagingContract(t *testing.T) {
 	key := bytes.Repeat([]byte{7}, 32)
 	nonce := bytes.Repeat([]byte{4}, 12)

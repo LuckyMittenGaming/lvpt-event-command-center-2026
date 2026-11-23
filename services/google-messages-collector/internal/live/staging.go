@@ -76,6 +76,53 @@ func PostStaging(ctx context.Context, endpoint, token string, records []Record) 
 	return last
 }
 
+func ConfirmAllowlist(ctx context.Context, endpoint, token, contactHash string) error {
+	if err := ValidateStagingURL(endpoint); err != nil {
+		return err
+	}
+	if len(token) < 32 || len(contactHash) != 64 {
+		return errors.New("staging allowlist does not match the local contact")
+	}
+	encoded, err := json.Marshal(map[string]string{"contactCheck": contactHash})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("x-lvpt-rcs-sync-token", token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return errors.New("staging allowlist does not match the local contact")
+	}
+	defer response.Body.Close()
+	var parsed struct {
+		OK      bool `json:"ok"`
+		Allowed bool `json:"allowed"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1024)).Decode(&parsed); err != nil || response.StatusCode != http.StatusOK || !parsed.OK || !parsed.Allowed {
+		return errors.New("staging allowlist does not match the local contact")
+	}
+	return nil
+}
+
+func ResolveContact(fromEnv, fromFile string) (string, error) {
+	envContact := normalize(fromEnv)
+	fileContact := normalize(fromFile)
+	if envContact != "" && fileContact != "" && envContact != fileContact {
+		return "", errors.New("local allowlist does not match the supplied contact")
+	}
+	if envContact == "" && fileContact == "" {
+		return "", errors.New("contact allowlist must contain one contact")
+	}
+	if envContact != "" {
+		return envContact, nil
+	}
+	return fileContact, nil
+}
+
 func postOnce(ctx context.Context, endpoint, token string, encoded []byte) (int, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil {

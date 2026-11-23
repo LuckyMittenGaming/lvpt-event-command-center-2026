@@ -21,6 +21,19 @@ func StagingKeyFromBase64(raw string) ([]byte, error) {
 	return key, nil
 }
 
+func HashContact(key []byte, contact string) (string, error) {
+	if len(key) != 32 {
+		return "", errors.New("staging encryption key is missing")
+	}
+	local := normalize(contact)
+	if local == "" {
+		return "", errors.New("contact allowlist must contain one contact")
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(local))
+	return hexEncode(mac.Sum(nil)), nil
+}
+
 func EncryptStaging(key []byte, contact string, event Event, nonce []byte) (Record, error) {
 	if len(key) != 32 {
 		return Record{}, errors.New("staging encryption key is missing")
@@ -38,10 +51,10 @@ func EncryptStaging(key []byte, contact string, event Event, nonce []byte) (Reco
 	if len(nonce) != 12 {
 		return Record{}, errors.New("staging nonce is invalid")
 	}
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(local))
-	hash := mac.Sum(nil)
-	contactHash := hexEncode(hash)
+	contactHash, err := HashContact(key, contact)
+	if err != nil {
+		return Record{}, err
+	}
 	source := "google-messages"
 	record := Record{
 		GoogleMessageID: event.GoogleMessageID,

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  TENANT, contactHash, encryptBody, ingestRcs, openBody, publicRcsRecord
+  TENANT, collectorHealth, contactHash, encryptBody, ingestRcs, openBody, publicRcsRecord
 } from '../lib/rcs-staging.mjs';
+import { buildActionInbox } from '../lib/action-inbox.mjs';
 
 const key = Buffer.alloc(32, 7);
 const token = 'synthetic-rcs-token-not-a-google-secret';
@@ -109,5 +110,38 @@ const empty = await ingestRcs(request({ records: [] }), { env, fetch: fakeFetch 
 assert.equal(empty.status, 200);
 assert.equal(stored.length, 1);
 assert.equal(failed, true);
+const check = await ingestRcs(request({ contactCheck: hash }), { env, fetch: fakeFetch });
+assert.deepEqual(await check.json(), { ok: true, allowed: true, sendEnabled: false });
+const mismatch = await ingestRcs(request({ contactCheck: contactHash(key, '5550100100') }), { env, fetch: fakeFetch });
+assert.equal((await mismatch.json()).allowed, false);
+assert.equal(stored.length, 1);
+
+const now = Date.parse('2026-11-23T16:00:00Z');
+assert.equal(collectorHealth({ pairing: 'unpaired', now }).state, 'not_paired');
+assert.equal(collectorHealth({ pairing: 'unpaired', lastSuccess: '2026-11-23T15:59:00Z', now }).live, false);
+assert.equal(collectorHealth({ pairing: 'paired', connected: false, now }).state, 'paired_disconnected');
+assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastSuccess: '2026-11-23T15:50:00Z', now }).state, 'collecting');
+assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastSuccess: '2026-11-23T12:00:00Z', now }).state, 'synchronization_delayed');
+assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastFailure: 'credentials_expired', now }).state, 'authentication_expired');
+assert.equal(collectorHealth({ lastFailure: 'ingest_failed', now }).state, 'ingestion_failed');
+
+const inbox = buildActionInbox({
+  today: '2026-11-23',
+  smsThreads: [{ threadKey: 'abc123', match: 'unmatched', newestAt: '2026-11-23T15:00:00Z', incoming: 1, outgoing: 0 }],
+  rcsMessages: [
+    { googleMessageId: 'gm-in', conversationId: 'test-conversation', direction: 'incoming', messageAt: '2026-11-23T15:01:00Z', label: 'TEST' },
+    { googleMessageId: 'gm-out', conversationId: 'test-conversation', direction: 'outgoing', messageAt: '2026-11-23T15:02:00Z', label: 'TEST' }
+  ]
+});
+const rcsRecord = inbox.records.find((row) => row.id === 'rcs:test-conversation');
+const smsRecord = inbox.records.find((row) => row.id === 'sms:abc123');
+assert.equal(Boolean(rcsRecord && smsRecord), true);
+assert.equal(rcsRecord.providerIds.join(','), 'gm-in,gm-out');
+assert.equal(rcsRecord.timeline.length, 2);
+assert.equal(rcsRecord.timeline.some((item) => item.direction === 'inbound'), true);
+assert.equal(rcsRecord.timeline.some((item) => item.direction === 'outbound'), true);
+assert.equal(rcsRecord.timeline.every((item) => item.contentAvailable === false), true);
+assert.equal(rcsRecord.contact, 'TEST');
+assert.equal(smsRecord.source, 'SMS');
 assert.equal(randomBytes(1).length, 1);
 console.log('rcs staging contract tests passed');

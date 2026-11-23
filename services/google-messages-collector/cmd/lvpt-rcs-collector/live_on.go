@@ -73,6 +73,13 @@ func runLiveTest() error {
 	if len(allow) != 1 {
 		return errors.New("contact allowlist must contain one contact")
 	}
+	contactHash, err := live.HashContact(stagingKey, allow[0])
+	if err != nil {
+		return errors.New("staging allowlist does not match the local contact; no Google session was opened")
+	}
+	if err := live.ConfirmAllowlist(context.Background(), endpoint, token, contactHash); err != nil {
+		return errors.New("staging allowlist does not match the local contact; no Google session was opened")
+	}
 	dir, err := controlDir()
 	if err != nil {
 		return err

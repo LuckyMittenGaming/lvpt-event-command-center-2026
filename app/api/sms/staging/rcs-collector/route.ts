@@ -1,5 +1,5 @@
 import { jsonNoStore, supabaseEndpoint, supabaseHeaders } from '../_lib';
-import { publicRcsRecord } from '../../../../../lib/rcs-staging.mjs';
+import { collectorHealth, publicRcsRecord } from '../../../../../lib/rcs-staging.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,13 +47,30 @@ export async function GET(request: Request) {
       readOk = false;
     }
   }
+  const newestMessageAt = records.reduce((latest, record) => record.messageAt > latest ? record.messageAt : latest, '');
+  const lastIngestionAt = records.reduce((latest, record) => String(record.ingestedAt || '') > latest ? String(record.ingestedAt || '') : latest, '');
+  const health = collectorHealth({
+    pairing: 'unpaired',
+    connected: false,
+    lastFailure: readOk ? '' : 'rcs_metadata_unavailable',
+    lastSuccess: '',
+    now: Date.now()
+  });
   return jsonNoStore({
     ok: true,
     pairing: 'unpaired',
     connected: false,
+    live: health.live,
+    collectorState: health.state,
+    collectorLabel: health.label,
     sendEnabled: false,
     markReadEnabled: false,
+    readOnly: true,
+    encryption: 'aes-256-gcm-server-validated',
+    endToEndEncryption: false,
     lastSuccess: '',
+    lastIngestionAt,
+    newestMessageAt,
     lastFailure: readOk ? '' : 'rcs_metadata_unavailable',
     reconnects: 0,
     records,

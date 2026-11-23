@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	"path/filepath"
 
 	"lvpt.local/google-messages-collector/internal/collect"
+	"lvpt.local/google-messages-collector/internal/live"
 	"lvpt.local/google-messages-collector/internal/pairui"
 	"lvpt.local/google-messages-collector/internal/preflight"
 	"lvpt.local/google-messages-collector/internal/upstream"
@@ -26,7 +28,16 @@ func main() {
 	health := flag.Bool("health", false, "print local collection health without contacting Google")
 	stop := flag.Bool("stop", false, "ask the local collector to stop")
 	reconnect := flag.Bool("reconnect", false, "ask the local collector to reconnect")
+	checkAllow := flag.Bool("check-allowlist", false, "compare one local contact with the staging allowlist and do not contact Google")
 	flag.Parse()
+	if *checkAllow {
+		if err := runAllowlistCheck(); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(2)
+		}
+		fmt.Println("allowlist matches; no Google session was opened")
+		return
+	}
 	if *stop {
 		if err := writeControl("stop"); err != nil {
 			fmt.Fprintln(os.Stderr, "stop failed")
@@ -198,6 +209,48 @@ func bytesIndex(haystack, needle []byte) int {
 		}
 	}
 	return -1
+}
+
+func runAllowlistCheck() error {
+	endpoint := os.Getenv("LVPT_RCS_STAGING_URL")
+	token := os.Getenv("LVPT_RCS_STAGING_TOKEN")
+	key, err := live.StagingKeyFromBase64(os.Getenv("LVPT_RCS_STAGING_DATA_KEY_BASE64"))
+	if err != nil {
+		return errors.New("staging encryption key is missing; no Google session was opened")
+	}
+	dir, err := controlDir()
+	if err != nil {
+		return err
+	}
+	path := os.Getenv("LVPT_RCS_ALLOWLIST")
+	if path == "" {
+		path = filepath.Join(dir, "allowlist.txt")
+	}
+	fileContact := ""
+	if raw, readErr := os.ReadFile(path); readErr == nil {
+		fields := strings.Fields(string(raw))
+		if len(fields) > 1 {
+			return errors.New("contact allowlist must contain one contact")
+		}
+		if len(fields) == 1 {
+			fileContact = fields[0]
+		}
+	}
+	contact, err := live.ResolveContact(os.Getenv("LVPT_RCS_CONTACT"), fileContact)
+	if err != nil {
+		return err
+	}
+	hash, err := live.HashContact(key, contact)
+	if err != nil {
+		return err
+	}
+	if err := live.ConfirmAllowlist(context.Background(), endpoint, token, hash); err != nil {
+		return errors.New(err.Error() + "; no Google session was opened")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(contact+"\n"), 0o600)
 }
 
 func runPair() error {

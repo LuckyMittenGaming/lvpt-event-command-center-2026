@@ -17,6 +17,78 @@ const (
 	allowlistBodyMark  = "synthetic-body-marker"
 )
 
+func TestValidateStagingURLAllowsOnlyVerifiedHosts(t *testing.T) {
+	const path = "/api/sms/staging/rcs-ingest"
+	allowed := []string{
+		"https://lvpt-event-command-center-2026-sms-staging.vercel.app" + path,
+		"https://lvpt-event-command-center-2026-sms-staging.vercel.app:443" + path,
+		"https://LVPT-EVENT-COMMAND-CENTER-2026-SMS-STAGING.VERCEL.APP" + path,
+		"http://127.0.0.1" + path,
+		"http://127.0.0.1:9" + path,
+		"https://127.0.0.1:8443" + path,
+	}
+	for _, endpoint := range allowed {
+		if err := ValidateStagingURL(endpoint); err != nil {
+			t.Fatalf("verified staging URL was refused: %v", err)
+		}
+	}
+
+	rejected := []string{
+		"https://example.com" + path,
+		"https://unrelated.vercel.app" + path,
+		"https://lvpt-event-command-center-2026-sms-staging.vercel.app.example" + path,
+		"https://evil.lvpt-event-command-center-2026-sms-staging.vercel.app" + path,
+		"http://lvpt-event-command-center-2026-sms-staging.vercel.app" + path,
+		"https://lvpt-event-command-center-2026-sms-staging.vercel.app:8443" + path,
+		"https://127.0.0.1.example" + path,
+		"https://[::1]" + path,
+		"https://user:secret@lvpt-event-command-center-2026-sms-staging.vercel.app" + path,
+	}
+	for _, endpoint := range rejected {
+		err := ValidateStagingURL(endpoint)
+		if err == nil || errors.Is(err, ErrProductionStaging) {
+			t.Fatal("external staging URL was accepted")
+		}
+		assertSafeAllowlistError(t, err)
+	}
+	if err := ValidateStagingURL("https://lvpt-event-command-center-2026.vercel.app" + path); !errors.Is(err, ErrProductionStaging) {
+		t.Fatal("production staging URL was not refused")
+	}
+}
+
+func TestConfirmAllowlistRejectsExternalHTTPSBeforeDial(t *testing.T) {
+	tripwire := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Errorf("staging check dialed an external host")
+		return nil, errors.New("refused")
+	})}
+	useAllowlistClient(t, tripwire)
+	previous := http.DefaultClient
+	http.DefaultClient = tripwire
+	t.Cleanup(func() { http.DefaultClient = previous })
+	endpoints := []string{
+		"https://example.com/api/sms/staging/rcs-ingest",
+		"https://lvpt-event-command-center-2026-sms-staging.vercel.app.example/api/sms/staging/rcs-ingest",
+		"https://user:secret@example.com/api/sms/staging/rcs-ingest",
+	}
+	for _, endpoint := range endpoints {
+		err := ConfirmAllowlist(context.Background(), endpoint, allowlistTestToken, allowlistTestHash)
+		if err == nil || errors.Is(err, errAllowlistTransport) {
+			t.Fatal("external allowlist check reached the HTTP client")
+		}
+		assertSafeAllowlistError(t, err)
+		posted := PostStaging(context.Background(), endpoint, allowlistTestToken, nil)
+		if posted == nil || errors.Is(posted, errAllowlistTransport) {
+			t.Fatal("external ingest reached the HTTP client")
+		}
+		assertSafeAllowlistError(t, posted)
+		for _, leaked := range []string{"example.com", "secret", allowlistTestToken} {
+			if strings.Contains(err.Error(), leaked) || strings.Contains(posted.Error(), leaked) {
+				t.Fatal("rejected staging URL was echoed")
+			}
+		}
+	}
+}
+
 func TestConfirmAllowlistClassifiesLocalFailuresWithoutDialing(t *testing.T) {
 	useAllowlistClient(t, rejectDialClient(t))
 	endpoint := "http://127.0.0.1:9/api/sms/staging/rcs-ingest"

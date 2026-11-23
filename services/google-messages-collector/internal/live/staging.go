@@ -35,18 +35,40 @@ var (
 // public staging host. The collector leaves it as the default client.
 var allowlistClient = http.DefaultClient
 
+const (
+	stagingIngestHost    = "lvpt-event-command-center-2026-sms-staging.vercel.app"
+	productionIngestHost = "lvpt-event-command-center-2026.vercel.app"
+	loopbackIngestHost   = "127.0.0.1"
+)
+
 func ValidateStagingURL(raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" || parsed.Path != "/api/sms/staging/rcs-ingest" {
 		return errors.New("staging ingest URL is not the RCS path")
 	}
-	if parsed.Hostname() == "lvpt-event-command-center-2026.vercel.app" {
+	host := strings.ToLower(parsed.Hostname())
+	if host == productionIngestHost {
 		return ErrProductionStaging
 	}
-	if parsed.Scheme == "https" || parsed.Hostname() == "127.0.0.1" {
-		return nil
+	if parsed.User != nil || !stagingHostAllowed(parsed, host) {
+		return errors.New("staging ingest URL is not local or staging")
 	}
-	return errors.New("staging ingest URL is not local or staging")
+	return nil
+}
+
+func stagingHostAllowed(parsed *url.URL, host string) bool {
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		if host == stagingIngestHost {
+			port := parsed.Port()
+			return port == "" || port == "443"
+		}
+		return host == loopbackIngestHost
+	case "http":
+		return host == loopbackIngestHost
+	default:
+		return false
+	}
 }
 
 func PostStaging(ctx context.Context, endpoint, token string, records []Record) error {

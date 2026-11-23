@@ -47,10 +47,14 @@ const fakeFetch = async (url, options = {}) => {
     const rows = JSON.parse(options.body);
     assert.equal(rows.some((row) => String(row.body_ciphertext).includes('TEST') || String(row.body_nonce).includes('TEST')), false);
     assert.equal(options.headers.Prefer.includes('ignore-duplicates'), true);
+    const created = [];
     for (const row of rows) {
-      if (!stored.some((existing) => existing.google_message_id === row.google_message_id)) stored.push(row);
+      if (!stored.some((existing) => existing.google_message_id === row.google_message_id)) {
+        stored.push(row);
+        created.push({ google_message_id: row.google_message_id });
+      }
     }
-    return new Response('', { status: 201 });
+    return new Response(JSON.stringify(created), { status: 201 });
   }
   return new Response('[]', { status: 200 });
 };
@@ -58,9 +62,10 @@ const fakeFetch = async (url, options = {}) => {
 const payload = { records: [{ ...fields, ...sealed }] };
 const first = await ingestRcs(request(payload), { env, fetch: fakeFetch });
 assert.equal(first.status, 200);
-assert.deepEqual(await first.json(), { ok: true, accepted: 1, sendEnabled: false, merged: false });
+assert.deepEqual(await first.json(), { ok: true, accepted: 1, duplicate: false, sendEnabled: false, merged: false });
 const replay = await ingestRcs(request(payload), { env, fetch: fakeFetch });
 assert.equal(replay.status, 200);
+assert.deepEqual(await replay.json(), { ok: true, accepted: 0, duplicate: true, sendEnabled: false, merged: false });
 assert.equal(stored.length, 1);
 assert.equal(stored[0].tenant_id, TENANT);
 assert.equal(stored[0].source, 'synthetic-test');

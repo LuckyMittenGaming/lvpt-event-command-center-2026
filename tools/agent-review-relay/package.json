@@ -1,0 +1,9 @@
+{
+  "name": "lvpt-agent-review-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "replay": "node cli/replay.mjs fixtures/cursor-loop.json"
+  }
+}

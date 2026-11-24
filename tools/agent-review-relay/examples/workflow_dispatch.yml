@@ -1,0 +1,17 @@
+# Optional manual dry-run. Copy this to .github/workflows only after review.
+# Dispatch it from feature/unified-command-center-staging, never from an unreviewed branch.
+# Do not add pull_request or pull_request_target. Do not add secrets.
+name: relay-dry-run
+on:
+  workflow_dispatch:
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/agent-review-relay/cli/replay.mjs tools/agent-review-relay/fixtures/cursor-loop.json

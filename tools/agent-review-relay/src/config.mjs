@@ -43,6 +43,21 @@ export function loadConfig(env = {}) {
     ? env.AGENT_RELAY_MODEL
     : 'gpt-4.1-mini';
 
+  // The isolated Preview integration injects a complete KV REST credential pair.
+  // Never mix credential pairs, fall back in Production, or widen the pilot cap.
+  const explicitRedisUrl = cleanSecret(env.UPSTASH_REDIS_REST_URL);
+  const explicitRedisToken = cleanSecret(env.UPSTASH_REDIS_REST_TOKEN);
+  const integrationRedisUrl = cleanSecret(env.KV_REST_API_URL);
+  const integrationRedisToken = cleanSecret(env.KV_REST_API_TOKEN);
+  const usePreviewIntegration = env.VERCEL_ENV === 'preview'
+    && env.AGENT_RELAY_MAX_ITERATIONS === '1'
+    && env.AGENT_RELAY_SPEND_CAP_USD === '0.25'
+    && !upstashUrlAllowed(explicitRedisUrl)
+    && !explicitRedisToken
+    && upstashUrlAllowed(integrationRedisUrl)
+    && integrationRedisToken.length >= 20
+    && !hasBlockedMarker(integrationRedisToken);
+
   return {
     enabled: env.AGENT_RELAY_ENABLED === 'true',
     dryRun: env.AGENT_RELAY_DRY_RUN !== 'false',
@@ -55,8 +70,8 @@ export function loadConfig(env = {}) {
     githubAppPrivateKey: typeof env.GITHUB_APP_PRIVATE_KEY === 'string' ? env.GITHUB_APP_PRIVATE_KEY : '',
     openaiApiKey: cleanSecret(env.OPENAI_API_KEY),
     openaiUrl: OPENAI_RESPONSES_URL,
-    upstashUrl: cleanSecret(env.UPSTASH_REDIS_REST_URL),
-    upstashToken: cleanSecret(env.UPSTASH_REDIS_REST_TOKEN),
+    upstashUrl: usePreviewIntegration ? integrationRedisUrl : explicitRedisUrl,
+    upstashToken: usePreviewIntegration ? integrationRedisToken : explicitRedisToken,
     requiredLabel: label,
     maxIterations: intEnv(env.AGENT_RELAY_MAX_ITERATIONS, MAX_ITERATIONS_CEILING, 1, MAX_ITERATIONS_CEILING),
     maxEventAgeMs: intEnv(env.AGENT_RELAY_MAX_EVENT_AGE_MS, 30 * 60 * 1000, 60 * 1000, 24 * 60 * 60 * 1000),

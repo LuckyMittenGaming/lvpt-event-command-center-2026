@@ -129,6 +129,25 @@ test('status events can supply Vercel evidence and empty checks cannot pass', as
   assert.equal(result.plannedComment.includes('@cursor'), false);
 });
 
+test('unrelated relay-host build failures do not override Command Center checks', () => {
+  const files = [{ filename: 'lib/relay-pilot/discount.js', patch: '+export function applyDiscount() {}' }];
+  const relevant = { state: 'success', context: 'Vercel – lvpt-event-command-center-2026' };
+  const unrelated = { state: 'failure', context: 'Vercel – lvpt-agent-review-relay-staging' };
+
+  const evidence = summarizeEvidence(files, { check_runs: [] }, { statuses: [relevant, unrelated] });
+  assert.equal(evidence.testSummary, 'PASS');
+  assert.deepEqual(evidence.changedFiles, ['lib/relay-pilot/discount.js']);
+
+  const onlyUnrelated = summarizeEvidence(files, { check_runs: [] }, { statuses: [unrelated] });
+  assert.equal(onlyUnrelated.noChecks, true);
+  assert.equal(onlyUnrelated.testSummary, 'unavailable');
+
+  const relevantFailed = summarizeEvidence(files, { check_runs: [] }, {
+    statuses: [{ ...relevant, state: 'failure' }, unrelated],
+  });
+  assert.match(relevantFailed.testSummary, /^FAIL/);
+});
+
 test('green checks still allow a concrete review, and the cap does not skip that review', async () => {
   const { runtime, plans } = enabledRuntime();
   let reviews = 0;

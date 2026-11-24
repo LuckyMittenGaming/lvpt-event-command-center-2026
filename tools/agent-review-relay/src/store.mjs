@@ -7,7 +7,9 @@ export function normalizeLaunch(value) {
   const agentId = typeof value.agentId === 'string' && /^bc-[A-Za-z0-9-]{8,80}$/.test(value.agentId) ? value.agentId : '';
   const runId = typeof value.runId === 'string' && /^run-[A-Za-z0-9-]{8,80}$/.test(value.runId) ? value.runId : '';
   const sha = typeof value.sha === 'string' && /^[0-9a-f]{40}$/.test(value.sha) ? value.sha : '';
-  return { state: value.state, agentId, runId, sha };
+  const launchedAt = typeof value.launchedAt === 'string' && Number.isFinite(Date.parse(value.launchedAt)) ? value.launchedAt : '';
+  const attempts = Number.isInteger(value.attempts) && value.attempts >= 0 && value.attempts <= 20 ? value.attempts : 0;
+  return { state: value.state, agentId, runId, sha, launchedAt, attempts };
 }
 
 function blankPr() {
@@ -48,6 +50,7 @@ function storedPr(version, next) {
 
 export function createMemoryStore() {
   const deliveries = new Set();
+  const pending = new Set();
   const prs = new Map();
   const floors = new Map();
   const audits = [];
@@ -57,6 +60,22 @@ export function createMemoryStore() {
   return {
     kind: 'memory',
     audits,
+    async markPending(pr) {
+      if (!available) throw new Error('relay store failed (unavailable)');
+      const id = Number(pr);
+      if (!Number.isInteger(id) || id < 1) return false;
+      if (!pending.has(id) && pending.size >= 50) return false;
+      pending.add(id);
+      return true;
+    },
+    async clearPending(pr) {
+      pending.delete(Number(pr));
+      return true;
+    },
+    async listPending(limit = 10) {
+      const cap = Math.max(1, Math.min(10, Number(limit) || 10));
+      return [...pending].slice(0, cap);
+    },
     async ping() {
       if (!available) throw new Error('relay store failed (unavailable)');
       return true;
@@ -155,6 +174,24 @@ export function createRedisStore({ url, token, fetchImpl }) {
   return {
     kind: 'redis',
     audits,
+    async markPending(pr) {
+      const count = Number(await command(['SCARD', 'relay:pending']));
+      const member = String(Number(pr));
+      const exists = await command(['SISMEMBER', 'relay:pending', member]);
+      if (!exists && count >= 50) return false;
+      await command(['SADD', 'relay:pending', member]);
+      return true;
+    },
+    async clearPending(pr) {
+      await command(['SREM', 'relay:pending', String(Number(pr))]);
+      return true;
+    },
+    async listPending(limit = 10) {
+      const cap = Math.max(1, Math.min(10, Number(limit) || 10));
+      const members = await command(['SMEMBERS', 'relay:pending']);
+      const list = Array.isArray(members) ? members : [];
+      return list.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0).slice(0, cap);
+    },
     async ping() {
       const result = await command(['PING']);
       if (result !== 'PONG') throw new Error('relay store failed (ping)');

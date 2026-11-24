@@ -1,4 +1,5 @@
 import { assertLiveReady } from './config.mjs';
+import { RELAY_REPO } from './constants.mjs';
 import { launchCursorRun, readCursorRun } from './cursor-api.mjs';
 import { confirmPullHead, fetchPullEvidence, findPullNumberForSha, fetchPullRequest, postIssueComment } from './github.mjs';
 import { contextFromPull } from './event.mjs';
@@ -59,6 +60,17 @@ export function createRuntime(config, overrides = {}) {
       timeoutMs: config.timeoutMs,
       ...input,
     })),
+    loadPull: overrides.loadPull || (live
+      ? async (pr) => {
+        const pull = await fetchPullRequest({ config, fetchImpl, cache, pr, now: now() });
+        return contextFromPull(pull, {
+          requiredLabel: config.requiredLabel,
+          event: 'pull_request',
+          action: 'synchronize',
+          repo: RELAY_REPO,
+        });
+      }
+      : async () => ({ ok: false, transition: 'rejected_event' })),
     readCursorRun: overrides.readCursorRun || ((launch) => readCursorRun({
       config,
       fetchImpl,

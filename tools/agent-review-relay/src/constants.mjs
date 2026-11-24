@@ -57,4 +57,9 @@ export const TRANSITIONS = Object.freeze([
   'cursor_launch_ambiguous',
   'cursor_launch_failed',
   'cursor_api_unavailable',
+  'cursor_finished_unchanged',
+  'cursor_run_timeout',
+  'cursor_run_terminal_failed',
+  'cursor_evidence_timeout',
+  'reconciled',
 ]);

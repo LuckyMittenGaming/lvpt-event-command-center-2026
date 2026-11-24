@@ -32,7 +32,7 @@ export function buildLaunchBody({ pr, task }) {
 async function cursorFetch(fetchImpl, path, options) {
   if (!path.startsWith('/v1/agents')) throw launchError('Cursor launch failed (path)', false);
   const url = `${CURSOR_API_ORIGIN}${path}`;
-  return fetchImpl(url, options);
+  return fetchImpl(url, { ...options, redirect: 'error' });
 }
 
 export async function launchCursorRun({ config, fetchImpl, pr, task, timeoutMs }) {

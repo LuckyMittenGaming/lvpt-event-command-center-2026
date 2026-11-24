@@ -111,6 +111,14 @@ The handoff runs only after the same repository, base, draft, label, author, pat
 
 When the flag is off, the GitHub comment can still mention `@cursor` once. The comment states the configured cap (`AGENT_RELAY_MAX_ITERATIONS`, ceiling 3), not a hidden constant.
 
+The v1 Cloud Agents API documents completion webhooks as not available yet. The legacy v0 webhooks are not used. Vercel Cron is also not used: cron entries in `vercel.json` run only on production deployments, and this preview host must not depend on that. Reconciliation is `POST /api/reconcile` on the isolated preview host. It accepts a QStash `Upstash-Signature` (current or next signing key) or, for a private scheduler, `x-relay-reconcile-signature` as HMAC-SHA256 of the raw body with `AGENT_RELAY_RECONCILE_SECRET`. Each call checks at most 10 pending runs, re-reads the pull request from GitHub, and ignores any SHA or URL in the scheduler body.
+
+Create the schedule in the QStash console, aimed at the preview URL, about once a minute, with body `{}`. Put `QSTASH_CURRENT_SIGNING_KEY` and `QSTASH_NEXT_SIGNING_KEY` only on that preview project. Do not add the schedule to the command center project.
+
+A run that finishes with a new head is reviewed once and is not dispatched again. A run that finishes on the same head, or that ends as `ERROR`, `CANCELLED`, or `EXPIRED`, is stopped. Missing evidence and unknown status are retried a few times, then stopped. A run older than `AGENT_RELAY_RECONCILE_TIMEOUT_MS` (default 20 minutes, maximum 2 hours) is stopped. The correction count is reserved before the Cursor request, and the agent and run ids are stored before the GitHub comment is attempted.
+
+Cursor keys that start with `grok_` are refused before any request. Use a user API key, or a service-account key that is allowed to run cloud agents. Team `grok_` keys and automation webhook keys are not accepted. Requests are sent with `redirect: "error"` so the key cannot follow a redirect off `api.cursor.com`.
+
 ## Continuing in ChatGPT
 
 Each comment tells a person to open the pull request URL in ChatGPT. The URL is built as `https://github.com/LuckyMittenGaming/lvpt-event-command-center-2026/pull/<number>`. The relay never claims it resumed a chat. Paste that URL into ChatGPT when a person should take the next step.

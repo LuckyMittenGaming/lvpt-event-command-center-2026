@@ -86,14 +86,24 @@ export function loadConfig(env = {}) {
     cursorApi: env.AGENT_RELAY_CURSOR_API === 'true',
     cursorApiKey: cleanSecret(env.CURSOR_API_KEY),
     cursorSpendAuthorized: env.AGENT_RELAY_CURSOR_SPEND_AUTHORIZED === 'true',
+    reconcileSecret: cleanSecret(env.AGENT_RELAY_RECONCILE_SECRET),
+    qstashCurrentKey: cleanSecret(env.QSTASH_CURRENT_SIGNING_KEY),
+    qstashNextKey: cleanSecret(env.QSTASH_NEXT_SIGNING_KEY),
+    reconcileTimeoutMs: intEnv(env.AGENT_RELAY_RECONCILE_TIMEOUT_MS, 20 * 60 * 1000, 60 * 1000, 2 * 60 * 60 * 1000),
   };
+}
+
+export function cursorKeyAllowed(key) {
+  return typeof key === 'string'
+    && key.length >= 20
+    && !key.startsWith('grok_')
+    && !hasBlockedMarker(key);
 }
 
 export function cursorApiReady(config) {
   return config.cursorApi === true
     && config.cursorSpendAuthorized === true
-    && config.cursorApiKey.length >= 20
-    && !hasBlockedMarker(config.cursorApiKey);
+    && cursorKeyAllowed(config.cursorApiKey);
 }
 
 export function simulationConfig() {

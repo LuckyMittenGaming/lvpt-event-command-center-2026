@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertReconcileReady, cursorApiReady, loadConfig, simulationConfig } from '../src/config.mjs';
 import { RELAY_BASE, RELAY_REPO } from '../src/constants.mjs';
-import { maxCallCostUsd, spendOverageUsd } from '../src/cost.mjs';
+import { estimateCostUsd, maxCallCostUsd, spendOverageUsd } from '../src/cost.mjs';
+import { coordinate } from '../src/coordinate.mjs';
+import { readEvent } from '../src/event.mjs';
 import { launchCursorRun } from '../src/cursor-api.mjs';
 import { createRuntime } from '../src/runtime.mjs';
 import { handleReconcile, persistConfirmedRun, reconcileOne, reconcilePending } from '../src/reconcile.mjs';
@@ -692,4 +694,65 @@ test('the scheduler refuses a memory runtime, and a failed PASS comment is retri
   await reconcileOne(movedRuntime, 21, FIXED_NOW);
   assert.equal(wrong, 0);
   assert.equal((await moved.loadPr(21)).cursorLaunch.notified, true);
+});
+
+test('observed overage is added once, in microdollars, on both spend paths', async () => {
+  const usage = { inputTokens: 5_000_000, outputTokens: 0 };
+  const priced = simulationConfig();
+  const reservedUsd = maxCallCostUsd(priced);
+  const actual = estimateCostUsd(priced, usage);
+  const difference = actual - reservedUsd;
+  assert.equal(difference > 0, true);
+  const expected = Math.max(0, Math.round(difference * 1e6));
+  const doubled = Math.max(0, Math.round(expected * 1e6));
+  assert.notEqual(expected, doubled);
+
+  function watch(store) {
+    const added = [];
+    const original = store.addSpendMicro.bind(store);
+    store.addSpendMicro = async (amount) => {
+      added.push(amount);
+      return original(amount);
+    };
+    return added;
+  }
+
+  const webhookStore = createMemoryStore();
+  const webhookAdded = watch(webhookStore);
+  const webhook = createRuntime(priced, {
+    store: webhookStore,
+    now: () => FIXED_NOW,
+    review: async () => ({
+      decision: { decision: 'PASS', rationale: 'Checks passed for this commit.', findings: [], cursorTask: null },
+      usage,
+    }),
+  });
+  const parsed = readEvent('pull_request', buildPayload({ deliveryId: 'delivery-overage1' }), 'agent-loop');
+  assert.equal(parsed.ok, true);
+  const reviewed = await coordinate({
+    ...parsed.ctx,
+    deliveryId: 'delivery-overage1',
+    suppliedEvidence: { testSummary: 'PASS', changedFiles: ['lib/sample.mjs'] },
+  }, webhook);
+  assert.equal(reviewed.transition, 'pass_stopped');
+  assert.deepEqual(webhookAdded, [expected]);
+  assert.equal(await webhookStore.readSpendMicro(), Math.round(reservedUsd * 1e6) + expected);
+
+  const schedulerStore = createMemoryStore();
+  await seed(schedulerStore);
+  const schedulerAdded = watch(schedulerStore);
+  const scheduler = runtimeFor(schedulerStore, {
+    review: async () => ({
+      decision: { decision: 'PASS', rationale: 'Checks passed for this commit.', findings: [], cursorTask: null },
+      usage,
+    }),
+  }).runtime;
+  scheduler.config.inputUsdPerMillion = priced.inputUsdPerMillion;
+  scheduler.config.outputUsdPerMillion = priced.outputUsdPerMillion;
+  scheduler.config.maxInputChars = priced.maxInputChars;
+  scheduler.config.maxOutputTokens = priced.maxOutputTokens;
+  const settled = await reconcileOne(scheduler, 21, FIXED_NOW);
+  assert.equal(settled.transition, 'pass_stopped');
+  assert.deepEqual(schedulerAdded, [expected]);
+  assert.equal(await schedulerStore.readSpendMicro(), Math.round(maxCallCostUsd(scheduler.config) * 1e6) + expected);
 });

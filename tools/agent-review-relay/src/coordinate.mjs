@@ -106,7 +106,7 @@ export async function coordinate(ctx, runtime) {
     if (costUsd > 0 && !reserved) await store.addSpendMicro(toMicro(costUsd));
     if (reserved) {
       const reservedUsd = maxCallCostUsd(config);
-      if (costUsd > reservedUsd) await store.addSpendMicro(toMicro(Math.round((costUsd - reservedUsd) * 1e6)));
+      if (costUsd > reservedUsd) await store.addSpendMicro(toMicro(costUsd - reservedUsd));
     }
     try {
       const launchChanged = JSON.stringify(next.cursorLaunch || null) !== JSON.stringify(record.cursorLaunch || null);

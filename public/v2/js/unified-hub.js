@@ -102,10 +102,35 @@
     return `<div class="command-view-shell"><div class="command-view-head"><div><p class="eyebrow">${esc(eyebrow)}</p><h2>${esc(title)}</h2><p>${esc(copy)}</p></div></div><div class="command-view-body">${body}</div></div>`;
   }
 
+  let actionInboxPromise = null;
+  let actionInboxResult = null;
+  let readGeneration = 0;
+  async function loadActionInbox() {
+    if (actionInboxResult) return actionInboxResult;
+    if (actionInboxPromise) return actionInboxPromise;
+    const generation = readGeneration;
+    actionInboxPromise = readJson('/api/sync/action-inbox', false, 55000).then((result) => {
+      actionInboxPromise = null;
+      if (generation !== readGeneration) return result;
+      if (result.ok && result.data && result.data.ok === true) actionInboxResult = result;
+      else actionInboxResult = null;
+      return result;
+    });
+    return actionInboxPromise;
+  }
+  function clearOwnerReads() {
+    readGeneration += 1;
+    actionInboxPromise = null;
+    actionInboxResult = null;
+    if (typeof window.lvptReloadOperatingPicture === 'function') window.lvptReloadOperatingPicture();
+  }
+  window.lvptClearOwnerReads = clearOwnerReads;
   async function loadLedger() {
-    const result = await readJson('/api/sync/operating-picture', false, 50000);
-    if (result.ok && result.data && result.data.ok === true) ledgerCache = result.data;
-    return result;
+    const result = typeof window.lvptLoadOperatingPicture === 'function'
+      ? await window.lvptLoadOperatingPicture()
+      : await readJson('/api/sync/operating-picture', false, 50000);
+    if (result && result.ok && result.data && result.data.ok === true) ledgerCache = result.data;
+    return result || { ok: false, status: 0, data: { reason: 'timeout' } };
   }
 
   function financeBody(result) {
@@ -152,9 +177,10 @@
     return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. Unclassified rows stay out of both revenue and expenses. Client receipts, vendor bills, and owner draws stay in separate totals. Forecast margin does not subtract owner draws. Ledger contribution is not bank-verified and is not drawable cash. ${esc(report.money.drawableCashReason || 'Drawable cash is unavailable.')}${esc(incompleteNote)}${esc(marginNote)}</div><div class="lifecycle-summary hub-metrics">${cards}</div><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Invoice</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th></tr></thead><tbody>${rows || '<tr><td colspan="8">No payment rows returned.</td></tr>'}</tbody></table></div><h3>Event payouts, kept separate</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Payee</th><th>Type</th><th>Status</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${payoutRows || '<tr><td colspan="6">No payout rows returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) share a payment id and were not counted twice. ${report.counts.amountOverlapsNotMerged} same-amount row(s) stayed separate.${duplicateNote} Server time ${esc(data.serverTime || 'not provided')}.</p>`;
   }
 
-  function communicationsBody(session) {
-    const sessionLabel = session.status === 401 ? 'AUTH REQUIRED' : session.status === 503 ? 'NOT CONNECTED' : session.data && session.data.authenticated === true ? 'NOT VERIFIED' : 'NOT CONNECTED';
-    return `<div class="hub-split"><section><h3>Approval queue</h3><p>Approve, Make Changes, Deny, and Edit Myself are recorded only in the protected review workspace. That workspace checks the exact recipient. This page does not send and does not record those decisions.</p><div class="actions"><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a><a class="btn" href="/sms-review/index.html#paymentAuditTitle">Open invoice exceptions</a></div><p class="muted">Exactly-once delivery is enforced on the send route, which stays disabled until a separate owner test. A button on this page is not that proof. The four-times-daily email approval automation stays disabled.</p></section><section><h3>Session</h3><p>SMS review keeps its seven-day HttpOnly session. This page does not ask for the device token again and does not store message bodies.</p>${badge(sessionLabel)}<p class="muted">${esc(session.data.reason || (session.status === 401 ? 'The owner review session is missing or expired. Open the approval workspace to sign in.' : 'An audit response does not mean SMS is synchronized.'))}</p></section></div>`;
+  function communicationsBody(session, audit) {
+    const sessionLabel = session.status === 401 || !(session.data && session.data.authenticated === true) ? 'AUTH REQUIRED' : 'AUTHENTICATED';
+    const auditLabel = audit.status === 0 ? 'TIMED OUT' : audit.ok && audit.data && audit.data.ok === true ? 'CHECKED' : 'NOT CHECKED';
+    return `<div class="hub-split"><section><h3>Approval queue</h3><p>Approve, Make Changes, Deny, and Edit Myself are recorded only in the protected review workspace. That workspace checks the exact recipient. This page does not send and does not record those decisions.</p><div class="actions"><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></div></section><section><h3>Session</h3><p>Owner session ${badge(sessionLabel)}. Audit route ${badge(auditLabel)}. An audit check does not prove the session, and the session does not prove a collector heartbeat.</p><p class="muted">${sessionLabel === 'AUTH REQUIRED' ? 'The owner review session is missing or expired.' : 'The HttpOnly review session is present. Message text is not on this page.'}</p></section></div>`;
   }
 
   function jobRows(probes) {
@@ -182,26 +208,37 @@
 
   async function renderCommunications(view) {
     view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'The existing review workspace remains the place where a thread is opened. This hub only shows whether that session is healthy.', '<p class="muted">Checking the review session…</p>');
-    const [session, picture, conversations, rcs] = await Promise.all([
-      readJson('/api/sms/staging/audit-health', false, 8000),
-      readJson('/api/sync/operating-picture', false, 12000),
+    const generation = readGeneration;
+    const [session, audit, picture, conversations, rcs] = await Promise.all([
+      readJson('/api/sms/staging/session', false, 12000),
+      readJson('/api/sms/staging/audit-health', false, 12000),
+      loadLedger(),
       readJson('/api/sms/staging/conversations', false, 12000),
-      readJson('/api/sms/staging/rcs-collector', false, 8000)
+      readJson('/api/sms/staging/rcs-collector', false, 12000)
     ]);
-    const jobs = picture.ok && picture.data && Array.isArray(picture.data.jobs) ? picture.data.jobs : [];
+    if (generation !== readGeneration) return;
+    let ledger = picture;
+    if (session.status === 401) {
+      actionInboxResult = null;
+      actionInboxPromise = null;
+      window.lvptOperatingPictureResult = null;
+      window.lvptOperatingPicturePromise = null;
+      ledger = { ok: false, status: 401, data: {} };
+    }
+    const jobs = ledger.ok && ledger.data && Array.isArray(ledger.data.jobs) ? ledger.data.jobs : [];
     const evidence = jobs.filter((job) => /gmail|sms/i.test(job.name)).map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.detail || '')}</td></tr>`).join('');
-    const queue = picture.ok && picture.data && Array.isArray(picture.data.gmailQueue) ? picture.data.gmailQueue : [];
+    const queue = ledger.ok && ledger.data && Array.isArray(ledger.data.gmailQueue) ? ledger.data.gmailQueue : [];
     const gmailJob = jobs.find((job) => job.id === 'gmail-production') || null;
     const gmailCoverage = gmailJob && gmailJob.coverage;
     const queueRows = queue.map((item) => `<tr><td>${esc(item.domainKey)}</td><td>${esc(item.lastMessageAt || '')}</td><td>${esc(item.lastDirection || '')}</td><td>Needs review</td><td>${esc(item.subject || '')}</td></tr>`).join('');
-    const queueEmpty = !picture.ok
+    const queueEmpty = !ledger.ok
       ? 'Gmail header status did not load. This is not an empty mailbox.'
       : gmailCoverage === 'partial'
         ? 'The header read is partial. A missing row is not an empty mailbox, and this is not a full mailbox scan.'
         : gmailCoverage === 'read-complete'
           ? 'The bounded domain header read finished with no new threads. This is not a full mailbox scan.'
           : 'The header read is unavailable. No header count was taken. This is not an empty mailbox.';
-    const stored = picture.ok && picture.data ? `${picture.data.gmailActivityCount || 0} Gmail Activity rows are already stored. Threads already on the sheet are skipped. A thread is not assigned to an event from this page.` : 'The sheet did not load, so stored mail counts are hidden.';
+    const stored = ledger.ok && ledger.data ? `${ledger.data.gmailActivityCount || 0} Gmail Activity rows are already stored. Threads already on the sheet are skipped. A thread is not assigned to an event from this page.` : 'The sheet did not load, so stored mail counts are hidden.';
     const threads = conversations.status === 401 ? [] : (conversations.ok && conversations.data && Array.isArray(conversations.data.threads) ? conversations.data.threads : []);
     const rcsData = rcs.ok && rcs.data ? rcs.data : null;
     const rcsRecords = rcsData && Array.isArray(rcsData.records) ? rcsData.records : [];
@@ -220,15 +257,18 @@
       : `SMS conversations did not load (${esc((conversations.data && conversations.data.reason) || 'unavailable')}). Ciphertext was not shown. This is not an empty inbox.`;
     const heartbeatJob = jobs.find((job) => job.id === 'sms-heartbeat') || null;
     const heartbeatStatus = heartbeatJob ? finance.sourceStatus(heartbeatJob) : 'NOT VERIFIED';
-    view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'Approve, Make Changes, Deny, and Edit Myself stay in the review workspace. This page does not send.', `${communicationsBody(session)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Source</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${evidence || '<tr><td colspan="3">Connection evidence did not load.</td></tr>'}</tbody></table></div><h3>Gmail review queue</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Domain</th><th>Newest header</th><th>Direction</th><th>Match</th><th>Subject</th></tr></thead><tbody>${queueRows || `<tr><td colspan="5">${esc(queueEmpty)}</td></tr>`}</tbody></table></div><p class="muted">${gmailJob ? badge(finance.sourceStatus(gmailJob)) : badge('NOT CONNECTED')} Bounded header coverage: ${esc(gmailCoverage || 'unavailable')}. Metadata only. Full threads were not opened.</p><p class="muted">${esc(stored)}</p><h3>SMS and RCS timeline</h3><div class="hub-table-wrap" style="max-width:100%;overflow-x:auto"><table class="hub-table"><thead><tr><th>Source</th><th>Direction</th><th>Message time</th><th>Ingested</th><th>Match</th><th>Sync</th><th>Pairing</th><th>Access</th><th>Provider ID</th></tr></thead><tbody>${rcsTimeline}${smsRows}${(smsRows || rcsTimeline) ? '' : '<tr><td colspan="9">No SMS or RCS conversation metadata was returned.</td></tr>'}</tbody></table></div><p class="muted">${smsNote}</p><h3>Google Messages collector</h3><p class="muted">${rcsNote}</p><h3>Android heartbeat</h3><p>${badge(heartbeatStatus)} ${esc((heartbeatJob && heartbeatJob.detail) || 'No phone heartbeat is stored. A stored SMS row cannot certify that the approved handset is collecting. Local verification requires the owner to run the LVPT SMS bridge on the approved handset and confirm a bridge status whose last_success_at is current. This server does not read that report.')}</p><p class="muted">Sending stays off.</p>`);
+    const headerState = ledger.status === 0 ? 'TIMED OUT' : gmailCoverage || 'unavailable';
+    view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'Approve, Make Changes, Deny, and Edit Myself stay in the review workspace. This page does not send.', `${communicationsBody(session, audit)}<h3>Stored Gmail activity</h3><p class="muted">${esc(stored)}</p><h3>Bounded header read</h3><p class="muted">${badge(headerState)} ${esc(queueEmpty)} Full threads were not opened.</p><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Domain</th><th>Newest header</th><th>Direction</th><th>Match</th><th>Subject</th></tr></thead><tbody>${queueRows || `<tr><td colspan="5">${esc(queueEmpty)}</td></tr>`}</tbody></table></div><h3>SMS historical metadata</h3><p class="muted">${smsNote}</p><h3>Android heartbeat</h3><p>${badge(ledger.status === 0 ? 'TIMED OUT' : heartbeatStatus)} ${esc((heartbeatJob && heartbeatJob.detail) || 'No phone heartbeat is stored. A stored SMS row cannot certify that the approved handset is collecting. Run the LVPT SMS bridge on the approved handset and confirm last_success_at. This server does not read that report.')}</p><h3>RCS pairing</h3><p class="muted">${rcsNote}</p><h3>SMS and RCS rows</h3><div class="hub-table-wrap" style="max-width:100%;overflow-x:auto"><table class="hub-table"><thead><tr><th>Source</th><th>Direction</th><th>Message time</th><th>Ingested</th><th>Match</th><th>Sync</th><th>Pairing</th><th>Access</th><th>Provider ID</th></tr></thead><tbody>${rcsTimeline}${smsRows}${(smsRows || rcsTimeline) ? '' : '<tr><td colspan="9">No SMS or RCS conversation metadata was returned.</td></tr>'}</tbody></table></div><p class="muted">Sending stays off. Gmail full threads stay on the authorized thread route. Calendar confirmation is still runLVPTSafeTaskSync on the approved Apps Script project.</p>`);
   }
 
   async function renderHealth(view) {
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', '<p class="muted">Checking sources…</p>');
+    const generation = readGeneration;
     const [picture, inbox] = await Promise.all([
       loadLedger(),
-      readJson('/api/sync/action-inbox', false, 55000)
+      loadActionInbox()
     ]);
+    if (generation !== readGeneration) return;
     if (picture.status === 401 || inbox.status === 401) {
       view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'Sign-in is separate from provider health.', `<p>${badge('AUTH REQUIRED')} Owner session required.</p><p>Provider status was not read. A blocked read is not a disconnected provider and not an empty source.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>`);
       return;
@@ -277,7 +317,9 @@
 
   function renderAction(view) {
     view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', '<p class="muted">Reading the sheet, mailbox headers, and SMS metadata…</p>');
-    readJson('/api/sync/action-inbox', false, 55000).then((result) => {
+    const generation = readGeneration;
+    loadActionInbox().then((result) => {
+      if (generation !== readGeneration) return;
       if (result.status === 401) {
         view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups.', '<p class="hub-callout">Owner sign-in required. Action Required was not read. This is not an empty inbox.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>');
         return;
@@ -307,33 +349,41 @@
       const eventConflicts = Array.isArray(excluded.eventConflicts) ? excluded.eventConflicts.length : 0;
       const countedOnce = Array.isArray(pipe.duplicateEventsCountedOnce) ? pipe.duplicateEventsCountedOnce.length : 0;
       const taskConflicts = Array.isArray(pipe.taskConflicts) ? pipe.taskConflicts.length : 0;
-      const pipeline = `<section class="hub-callout"><h3>Lead pipeline</h3><p>Denominator: ${esc(pipe.denominator == null ? 'not counted' : pipe.denominator)} events with one stable id. Unknown stages stay in the list and are not booked. Conflicting event ids are left out of the denominator.</p><p>Stages: open ${esc(stages.open || 0)}, booked ${esc(stages.booked || 0)}, invoice sent ${esc(stages.invoiceSent || 0)}, declined ${esc(stages.declined || 0)}, cancelled ${esc(stages.cancelled || 0)}, completed ${esc(stages.completed || 0)}, closed won ${esc(stages.closedWon || 0)}, closure unknown ${esc(stages.unknownClosure || 0)}, unknown ${esc(stages.unknown || 0)}.</p><p>Acquisition: organic ${esc(acquired.organic || 0)}, referral ${esc(acquired.referral || 0)}, form ${esc(acquired.form || 0)}, UTM ${esc(acquired.utm || 0)}, other recorded ${esc(acquired.recorded || 0)}, unknown ${esc(acquired.unknown || 0)}. A Gmail or SMS row is a channel, not an acquisition source.</p><p>Outside the prospect list: vendor ${esc(excluded.vendor || 0)}, unassigned ${esc(excluded.unassigned || 0)}, ambiguous links ${esc(excluded.ambiguous || 0)}. Conflicting event ids excluded: ${esc(eventConflicts)}. Identical event ids counted once: ${esc(countedOnce)}.</p><p>Qualification gaps: ${esc(pipe.qualificationGaps || 0)}. Due today: ${esc(pipe.dueFollowUps || 0)}. Overdue: ${esc(pipe.overdueFollowUps || 0)}. A due date of today is not overdue. Conflicting task ids excluded: ${esc(taskConflicts)}.</p><p>${conversion ? esc(`${conversion.numerator} explicit booked / ${conversion.denominator} events. ${conversion.label}`) : 'No conversion rate. There is no event denominator.'}</p>${proposalLinks.length ? `<ul>${proposalLinks.map((link) => `<li><a href="${esc(link.url)}">${esc(link.eventId)}</a></li>`).join('')}</ul>` : '<p>No validated proposal link was supplied.</p>'}</section>`;
-      const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Recorded email, not verified</span><strong>${esc(counts.recordedRecipientUnverified || 0)}</strong></div><div><span>Vendor, excluded from leads</span><strong>${esc(counts.vendorExcluded || 0)}</strong></div></div>${pipeline}`;
-      const freshness = `<p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p><p class="muted">Approve, Make Changes, Deny, and Edit Myself there. Buttons on this page do not record a decision, do not prove the recipient, and do not send exactly once.</p><p class="muted">Sheet events ${esc(sources.events ?? 'not counted')}. RCS metadata rows returned ${esc(sources.rcsMessages ?? 'not counted')}, newest RCS message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS. A stored RCS message time is not a collector heartbeat. Message text was not included in this list.</p>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved ?? 'not counted')}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
-      const cards = records.map((record, index) => {
+      const pipeline = `<p class="muted">Lead pipeline. Stages: open ${esc(stages.open || 0)}, payment processing ${esc(stages.paymentProcessing || 0)}, awaiting deposit ${esc(stages.invoiceAwaitingDeposit || 0)}, invoice sent ${esc(stages.invoiceSent || 0)}, booked ${esc(stages.booked || 0)}, declined ${esc(stages.declined || 0)}, unknown ${esc(stages.unknown || 0)}. Booked divided by all events is not a conversion rate. Due today ${esc(pipe.dueFollowUps || 0)}. Overdue ${esc(pipe.overdueFollowUps || 0)}.</p>`;
+      const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Recorded email, not verified</span><strong>${esc(counts.recordedRecipientUnverified || 0)}</strong></div></div>${pipeline}<p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p><p class="muted">That workspace does not prove exactly-once delivery from this page.</p><details><summary>Source status</summary>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<p>${esc(gmail.blocker || '')}</p></details>`;
+      const cards = records.map((record) => {
         const info = record.qualification || {};
         const timeline = (record.timeline || []).map((item) => `<li><span>${esc(item.at || 'Time not recorded')}</span> ${esc(item.source)} ${esc(item.direction || '')} ${item.contentAvailable ? esc(item.summary) : 'Message text is not in this list. Open the authorized review only when a session can decrypt or read it.'}</li>`).join('');
         const draft = record.draft || {};
-        return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}"><header><span class="badge warn">${esc(ACTION_LABELS[record.bucket] || record.bucket)}</span><span>${esc(record.source)}</span></header><h3>${esc(field(record.contact))}${record.company ? ` · ${esc(record.company)}` : ''}</h3><p>${esc(record.eventName || 'No event assigned')} · Last activity ${esc(field(record.lastActivity))}</p><p><strong>Next action:</strong> ${esc(field(record.nextAction))}</p><dl class="action-fields"><div><dt>Email</dt><dd>${esc(field(info.email))}</dd></div><div><dt>Phone</dt><dd>${esc(field(info.phone))}</dd></div><div><dt>Date</dt><dd>${esc(field(info.eventDate))}</dd></div><div><dt>Guests</dt><dd>${esc(field(info.guestCount))}</dd></div><div><dt>Type</dt><dd>${esc(field(info.eventType))}</dd></div><div><dt>Budget</dt><dd>${esc(field(info.budget))}</dd></div><div><dt>Venue</dt><dd>${esc(field(info.venue))}</dd></div><div><dt>Acquisition</dt><dd>${esc(record.acquisitionLabel || 'Unknown')}</dd></div><div><dt>Channel</dt><dd>${esc(record.channel || 'unknown')}</dd></div><div><dt>Value</dt><dd>${esc(moneyCents(info.estimatedValueCents))}</dd></div><div><dt>Stage</dt><dd>${esc(field(info.stage))}</dd></div></dl><p class="muted">${info.missing && info.missing.length ? `Not recorded: ${esc(info.missing.join(', '))}.` : 'The recorded qualification fields are present.'}</p><details><summary>Conversation timeline</summary><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul></details><details><summary>Draft preview, not an approval</summary><p>Recorded recipient: ${esc(draft.recipient || 'None')}. Not verified. Not ready to approve or send.</p><textarea readonly rows="8">${esc(draft.body || '')}</textarea><p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p></details></article>`;
+        const label = ACTION_LABELS[record.bucket] || record.pipelineStage || record.bucket;
+        return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}" data-overdue="${record.bucket === 'follow_up_due' ? 'yes' : 'no'}"><header><span class="badge warn">${esc(label)}</span><strong>${esc(record.eventName || field(record.contact))}</strong></header><p>${esc(field(record.nextAction))}</p><details><summary>Details</summary><p>${esc(record.company || '')} · ${esc(field(info.stage))} · ${esc(record.channel || 'unknown')}</p><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul><p>Recorded recipient: ${esc(draft.recipient || 'None')}. Not verified and not an approval.</p></details></article>`;
       }).join('');
       const empty = sources.sms && sources.sms.coverage === 'read-complete'
         ? 'No lead or follow-up records were returned.'
         : 'No records are listed. This is not proof that the inbox is empty.';
-      view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', `${summary}<div class="review-actions action-filters">${filters.map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`).join('')}</div>${freshness}<div class="action-list">${cards || `<p>${empty}</p>`}</div>`);
+      view.innerHTML = shell('New leads and action required', 'One inbox', 'A short list. Open a row for details. This page does not approve or send.', `${summary}<div class="review-actions action-filters"><input class="input" id="actionSearch" placeholder="Search this list" />${filters.map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`).concat([['due', 'Due or overdue']].map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`)).join('')}</div><div class="action-list">${cards || `<p>${empty}</p>`}</div>`);
       const applyFilter = (name) => {
+        const query = (view.querySelector('#actionSearch') && view.querySelector('#actionSearch').value || '').toLowerCase();
         view.querySelectorAll('.action-card').forEach((card) => {
           const bucket = card.getAttribute('data-bucket');
-          const show = name === 'all'
+          const textMatch = !query || card.textContent.toLowerCase().includes(query);
+          const show = textMatch && (name === 'all'
             || (name === 'review' && card.getAttribute('data-review') === 'yes')
             || (name === 'vendor' && card.getAttribute('data-vendor') === 'yes')
+            || (name === 'due' && card.getAttribute('data-overdue') === 'yes')
             || (name === 'resolved' && bucket === 'resolved')
-            || (name === 'action' && !['resolved', 'declined', 'cancelled', 'unknown_closure'].includes(bucket) && card.getAttribute('data-vendor') !== 'yes');
+            || (name === 'action' && !['resolved', 'declined', 'cancelled', 'unknown_closure'].includes(bucket) && card.getAttribute('data-vendor') !== 'yes'));
           card.hidden = !show;
         });
       };
       applyFilter('action');
+      view.querySelector('#actionSearch')?.addEventListener('input', () => applyFilter(view.querySelector('[data-action-filter].active') ? view.querySelector('[data-action-filter].active').getAttribute('data-action-filter') : 'action'));
       view.querySelectorAll('[data-action-filter]').forEach((button) => {
-        button.addEventListener('click', () => applyFilter(button.getAttribute('data-action-filter')));
+        button.addEventListener('click', () => {
+          view.querySelectorAll('[data-action-filter]').forEach((item) => item.classList.remove('active'));
+          button.classList.add('active');
+          applyFilter(button.getAttribute('data-action-filter'));
+        });
       });
     });
   }

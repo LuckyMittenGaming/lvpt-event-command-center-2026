@@ -145,7 +145,10 @@ export async function GET(request: Request) {
         guestCount: Number(event.guestCount) || 0,
         leadSource: text(event.leadSource, 80),
         nextAction: text(event.nextAction, 180),
-        setup: { budgetRange: text(setup.budgetRange, 80), targetQuote: Number(setup.targetQuote) || 0 },
+        setup: {
+          budgetRange: text(setup.budgetRange, 80),
+          ...(setup && Object.prototype.hasOwnProperty.call(setup, 'targetQuote') && Number.isFinite(Number(setup.targetQuote)) ? { targetQuote: Number(setup.targetQuote) } : {})
+        },
         quote: quote.slice(0, 40).map((line) => ({
           quantity: Number(line.quantity) || 0,
           unitPrice: Number(line.unitPrice) || 0

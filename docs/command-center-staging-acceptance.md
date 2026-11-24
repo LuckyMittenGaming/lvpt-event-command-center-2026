@@ -8,7 +8,7 @@ Decision: **Hold production.** Draft PR #19 is the staging candidate. Do not mer
 | --- | --- | --- |
 | V2 navigation | STAGING | Ten views stay in `lifecycle-command-center.js`. Pipeline, Active, Past, Proposals, and Follow-Up read the owner-session sheet snapshot. A failed read is unavailable, not zero. The browser roster scripts are no longer loaded. |
 | Auth entry | STAGING | Private reads call `denyPrivateRead` before Apps Script. `lib/owner-read-guard.mjs` requires the existing HttpOnly review session. A missing cookie is 401. A foreign Origin is 403. The session signer was not changed. |
-| Dashboard overview | STAGING | Overview keeps the existing event workspace. Source badges come from the same `sourceStatus` helper as Source Health. Browser roster files are still loaded and are not the sheet ledger. |
+| Dashboard overview | STAGING | Overview is a compact global summary. Confirmed upcoming events stay separate from dated inquiries. Ledger receipts and outstanding come from the shared operating-picture read and are labeled ledger-recorded, not bank receipts and not drawable cash. |
 | Action Required / CRM | STAGING | `lib/action-inbox.mjs` keeps stage, acquisition, and channel separate. Duplicate event ids count once. Conflicting ids are excluded. The hub draft is read-only. |
 | Approval handoff | STAGING | The hub links to `/sms-review/index.html#inboxReviewTitle`. Approve, Make Changes, Deny, and Edit Myself are not recorded on the hub. `readyToSend` stays false. |
 | Send | DISABLED | `app/api/gmail/send/route.ts` returns 403. The SMS reply route stays `staging_only_no_production_send`. |
@@ -41,7 +41,7 @@ These are not done by the local tests:
 - Confirm a current run of `runLVPTSafeTaskSync` in the approved Apps Script project.
 - Confirm the live Apps Script response includes one row per payment and one row per payout before treating sheet totals as complete.
 - Decide whether expense completeness, overlap, and tax are established before using forecast margin. Drawable cash is not available from this ledger.
-- The pipeline card is labeled “Quote profit estimate.” It is a browser quote figure, not sheet profit and not drawable cash.
+- A positive `setup.targetQuote` is a recorded target quote, shown apart from line items. A blank target and an explicit zero both arrive as 0 from `listEvents`, so 0 is not shown as a recorded target. A budget range is not a quote. Quote profit appears only when every priced line has a cost. Missing cost is not zero.
 
 ## Release and rollback
 
@@ -63,3 +63,7 @@ Legacy roster scripts now live in `archive/public-roster-2026-11-24/` and are no
 Local browser evidence is `tests/command-center-browser.test.mjs` against a synthetic fixture and system Chrome. It is not a live sheet or a deployed preview.
 
 COMMAND_CENTER_BROWSER_REGRESSION_READY
+
+Operating read on this draft: one in-memory operating-picture snapshot is shared across finance, communications, and health. It uses the 50 second read. A timeout is timed out, not disconnected. A 401 or refresh drops that snapshot. Audit health is not the owner session. SMS metadata, the Android heartbeat, stored Gmail, the bounded header read, and RCS pairing stay separate. Action Required is a short list with source status on demand. The hub still does not approve or send.
+
+COMMAND_CENTER_OPERATIONS_RETEST_READY

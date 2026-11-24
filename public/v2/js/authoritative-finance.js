@@ -165,6 +165,9 @@
       const nextNote = picture && Array.isArray(picture.exceptions)
         ? picture.exceptions.map((row) => `<p><strong>Unresolved exception.</strong> ${esc(row.detail)}</p>`).join('')
         : '';
+      const activeView = document.querySelector('#commandNav [data-command-view].active');
+      const showExceptions = activeView && activeView.getAttribute('data-command-view') === 'finance';
+      note.hidden = !showExceptions;
       if (note.innerHTML !== nextNote) note.innerHTML = nextNote;
     }
   }
@@ -185,40 +188,56 @@
     paint();
   };
 
-  window.lvptLoadOperatingPicture = function () {
-    if (window.lvptOperatingPicturePromise) return window.lvptOperatingPicturePromise;
-    const request = fetch('/api/sync/operating-picture', { credentials: 'same-origin', cache: 'no-store' })
+  let pictureGeneration = 0;
+  window.lvptLoadOperatingPicture = function (force) {
+    if (force) {
+      pictureGeneration += 1;
+      window.lvptOperatingPicturePromise = null;
+      window.lvptOperatingPictureResult = null;
+    }
+    const generation = pictureGeneration;
+    if (!force && window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.generation === generation) {
+      return Promise.resolve(window.lvptOperatingPictureResult);
+    }
+    if (!force && window.lvptOperatingPicturePromise) return window.lvptOperatingPicturePromise;
+    const request = fetch('/api/sync/operating-picture', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(50000) })
       .then((response) => response.json().then((data) => ({ ok: response.ok, status: response.status, data })).catch(() => ({ ok: false, status: response.status, data: {} })))
       .then((result) => {
+        if (generation !== pictureGeneration) return result;
         loading = false;
         if (result.ok && result.data && result.data.ok) {
           picture = result.data;
           pictureError = '';
+          window.lvptOperatingPictureResult = { ok: true, status: result.status, data: result.data, generation };
         } else {
           picture = null;
           window.lvptOperatingPicturePromise = null;
+          window.lvptOperatingPictureResult = null;
           pictureError = result.status === 401
             ? 'Owner sign-in required. The ledger was not read.'
-            : ((result.data && (result.data.message || result.data.reason)) || 'The sheet ledger is unavailable.');
+            : result.status === 0
+              ? 'The ledger read timed out. It was not marked disconnected.'
+              : ((result.data && (result.data.message || result.data.reason)) || 'The sheet ledger is unavailable.');
         }
         paint();
-        return picture;
+        return window.lvptOperatingPictureResult || { ok: false, status: result.status, data: result.data, generation };
       })
       .catch(() => {
+        if (generation !== pictureGeneration) return { ok: false, status: 0, data: { reason: 'timeout' } };
         loading = false;
         picture = null;
         window.lvptOperatingPicturePromise = null;
-        pictureError = 'The sheet ledger did not respond. This is not an empty ledger.';
+        window.lvptOperatingPictureResult = null;
+        pictureError = 'The ledger read timed out. It was not marked disconnected.';
         paint();
-        return null;
+        return { ok: false, status: 0, data: { reason: 'timeout' }, generation };
       });
     window.lvptOperatingPicturePromise = request;
     return request;
   };
   window.lvptReloadOperatingPicture = function () {
-    window.lvptOperatingPicturePromise = null;
     loading = true;
-    return window.lvptLoadOperatingPicture();
+    return window.lvptLoadOperatingPicture(true);
   };
 
   const observer = new MutationObserver((records) => {

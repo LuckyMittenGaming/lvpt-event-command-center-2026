@@ -131,8 +131,16 @@
     let recordedZero = 0;
     let profitCents = 0;
     let costKnown = 0;
+    let targetCents = 0;
+    let targets = 0;
+    let partial = 0;
     items.forEach((event) => {
       const quote = statusApi().quoteCoverage(event);
+      if (quote.targetState === 'recorded') {
+        targets += 1;
+        targetCents += quote.recordedTargetCents;
+      }
+      if (quote.linePartial) partial += 1;
       if (quote.priced) {
         priced += 1;
         pricedCents += quote.pricedCents;
@@ -141,32 +149,36 @@
           profitCents += quote.pricedCents - quote.costCents;
         }
       } else if (quote.recordedZero) recordedZero += 1;
-      else unpriced += 1;
+      else if (quote.targetState !== 'recorded') unpriced += 1;
     });
-    const profit = priced === 0 ? 'No priced quotes' : costKnown === priced ? moneyCents(profitCents) : 'Cost not recorded';
-    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong></div><div><span>Priced quotes</span><strong>${moneyCents(priced ? pricedCents : null)}</strong><p class="muted">${priced} priced · ${unpriced} unpriced · ${recordedZero} recorded zero</p></div><div><span>Quote profit</span><strong>${escapeHtml(profit)}</strong><p class="muted">${costKnown} of ${priced} priced quotes have a recorded cost. Missing cost is not zero.</p></div><div><span>Open tasks</span><strong>${items.reduce((sum, event) => sum + openTaskCount(event), 0)}</strong></div></div>`;
+    const profit = priced === 0 ? 'No complete line quotes' : costKnown === priced ? moneyCents(profitCents) : 'Cost not recorded';
+    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong></div><div><span>Recorded targets</span><strong>${targets ? moneyCents(targetCents) : 'None recorded'}</strong><p class="muted">${targets} explicit target quotes. Not added to line items. A budget is not a target.</p></div><div><span>Priced line items</span><strong>${moneyCents(priced ? pricedCents : null)}</strong><p class="muted">${priced} complete · ${partial} partial · ${unpriced} unpriced · ${recordedZero} recorded zero</p></div><div><span>Quote profit</span><strong>${escapeHtml(profit)}</strong><p class="muted">${costKnown} of ${priced} line quotes have a cost on every line. Missing cost is not zero.</p></div><div><span>Open tasks</span><strong>${items.reduce((sum, event) => sum + openTaskCount(event), 0)}</strong></div></div>`;
   }
   function renderOverview(view) {
     if (snapshotBlocks(view, 'Overview', 'Current sheet')) return;
     const lanes = events.map(laneOf);
     const count = (lane) => lanes.filter((item) => item.lane === lane).length;
-    const upcoming = events.filter((event) => {
+    const confirmed = events.filter((event) => {
       const lane = laneOf(event);
-      return lane.date.recognized && !lane.past && lane.lane !== 'past';
+      return lane.lane === 'active' && lane.date.recognized && !lane.past;
     }).sort((a, b) => String(a.eventDate).localeCompare(String(b.eventDate))).slice(0, 5);
+    const tentative = events.filter((event) => laneOf(event).lane === 'pipeline' && laneOf(event).date.recognized).sort((a, b) => String(a.eventDate).localeCompare(String(b.eventDate))).slice(0, 5);
     const tasks = [];
     events.forEach((event) => {
       (event.tasks || []).forEach((task) => {
         const status = String(task.status || '').trim().toLowerCase();
         if (['complete', 'completed', 'resolved', 'done', 'cancelled', 'canceled', 'closed', 'declined'].includes(status)) return;
         if (!task.dueDate) return;
-        tasks.push({ event, task, due: task.dueDate });
+        const priority = String(task.priority || '').trim().toLowerCase();
+        tasks.push({ event, task, due: task.dueDate, priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'medium' ? 2 : priority === 'low' ? 3 : 4 });
       });
     });
-    tasks.sort((a, b) => String(a.due).localeCompare(String(b.due)));
+    tasks.sort((a, b) => String(a.due).localeCompare(String(b.due)) || a.priority - b.priority);
     const taskHtml = tasks.slice(0, 6).map((item) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(item.event.id)}">${escapeHtml(item.task.title || 'Open task')}</button> <span>${escapeHtml(item.event.eventName || 'Untitled event')} · ${escapeHtml(item.due)}</span></li>`).join('');
-    const upcomingHtml = upcoming.map((event) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(event.id)}">${escapeHtml(event.eventName || 'Untitled event')}</button> <span>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${escapeHtml(event.eventDate)}</span></li>`).join('');
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. Open Record shows one event.')}<div class="command-view-body">${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong></div><div><span>Active</span><strong>${count('active')}</strong></div><div><span>Past</span><strong>${count('past')}</strong></div><div><span>Needs review</span><strong>${count('review')}</strong></div></div><h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Upcoming events</h3><ul>${upcomingHtml || '<li>No upcoming dated event.</li>'}</ul><p class="muted">Booked and payment-processing events are in Active. A past date does not complete an event.</p></div></div>`;
+    const listHtml = (rows) => rows.map((event) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(event.id)}">${escapeHtml(event.eventName || 'Untitled event')}</button> <span>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${escapeHtml(event.eventDate)}</span></li>`).join('');
+    const ledger = window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.data && window.lvptOperatingPictureResult.data.report ? window.lvptOperatingPictureResult.data.report.money : null;
+    const ledgerHtml = ledger ? `<div class="lifecycle-summary"><div><span>Ledger-recorded receipts</span><strong>${ledger.verifiedClientReceiptsCents == null ? 'Unavailable' : moneyCents(ledger.verifiedClientReceiptsCents)}</strong><p class="muted">Not a bank receipt.</p></div><div><span>Ledger outstanding</span><strong>${ledger.openClientExposureCents == null ? 'Unavailable' : moneyCents(ledger.openClientExposureCents)}</strong><p class="muted">Open balances on the sheet. Not drawable cash.</p></div></div>` : '<p class="muted">Ledger receipts are still loading. They are not a bank balance.</p>';
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. Open Record shows one event.')}<div class="command-view-body">${ledgerHtml}${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong></div><div><span>Active</span><strong>${count('active')}</strong></div><div><span>Past</span><strong>${count('past')}</strong></div><div><span>Needs review</span><strong>${count('review')}</strong></div></div><h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Confirmed upcoming</h3><ul>${listHtml(confirmed) || '<li>No confirmed upcoming event.</li>'}</ul><h3>Dated inquiries and proposals</h3><ul>${listHtml(tentative) || '<li>No dated inquiry or proposal.</li>'}</ul><p class="muted">Booked and payment-processing events are confirmed. A past date does not complete an event.</p></div></div>`;
     bindEventOpeners(view);
   }
 
@@ -191,7 +203,7 @@
   function pipelineCard(event) {
     const proposal = proposalForEvent(event);
     const quote = statusApi().quoteCoverage(event);
-    const value = quote.priced ? moneyCents(quote.pricedCents) : quote.recordedZero ? 'Recorded zero' : 'Unpriced';
+    const value = quote.priced ? (quote.linePartial ? `Partial lines ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents)) : quote.recordedZero ? 'Recorded zero' : quote.targetState === 'recorded' ? `Recorded target ${moneyCents(quote.recordedTargetCents)}` : 'Unpriced';
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const next = String(event.nextAction || '').trim().slice(0, 90) || 'No next action recorded';
     return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate)}</p><div class="pipeline-card-meta"><span>${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${proposal ? ' · Proposal linked' : ''}</p></button>`;
@@ -208,9 +220,10 @@
 
   function portfolioCard(event) {
     const proposal = proposalForEvent(event);
-    const pastNote = laneOf(event).past && !laneOf(event).completed ? '<p>Past date. The recorded status was not changed to completed.</p>' : '';
+    const lane = laneOf(event);
+    const pastNote = `${lane.past && !lane.completed ? '<p>Past date. The recorded status was not changed to completed.</p>' : ''}${lane.needsOutcomeReview ? '<p>Outcome needs review.</p>' : ''}`;
     const quote = statusApi().quoteCoverage(event);
-    const value = quote.priced ? moneyCents(quote.pricedCents) : quote.recordedZero ? 'Recorded zero' : 'Unpriced';
+    const value = quote.priced ? (quote.linePartial ? `Partial lines ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents)) : quote.recordedZero ? 'Recorded zero' : quote.targetState === 'recorded' ? `Recorded target ${moneyCents(quote.recordedTargetCents)}` : 'Unpriced';
     const collected = event.paymentRecorded ? money(event.payment.amountPaid) : 'Not recorded';
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     return `<article class="portfolio-card"><p class="eyebrow small">${escapeHtml(laneOf(event).raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}<div class="portfolio-card-grid"><div><span>Priced quote</span><strong>${escapeHtml(value)}</strong></div><div><span>Ledger collected</span><strong>${escapeHtml(collected)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong>${proposal ? 'Historical reference' : event.proposalUrl ? 'Linked' : 'Not linked'}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${proposal ? `<button class="btn small" data-preview-proposal="${proposal.id}">Preview Proposal</button>` : ''}</div></article>`;

@@ -34,7 +34,9 @@
     if (state.phase === 'ready') {
       events = state.events.map((event) => {
         const date = window.LVPTEventStatus.normalizeEventDate(event.eventDate);
+        const supplied = event.setup && Object.prototype.hasOwnProperty.call(event.setup, 'targetQuote') ? event.setup.targetQuote : undefined;
         const shaped = ensureEventShape({ ...event, eventDate: date.iso || '' });
+        shaped.targetQuoteSupplied = supplied;
         shaped.eventDateRaw = event.eventDate || '';
         shaped.eventDateTimeZone = 'America/Los_Angeles';
         shaped.statusRaw = event.status || '';
@@ -91,7 +93,8 @@
 
   window.lvptReloadSheetSnapshot = function () {
     inflight = null;
-    if (typeof window.lvptReloadOperatingPicture === 'function') window.lvptReloadOperatingPicture();
+    if (typeof window.lvptClearOwnerReads === 'function') window.lvptClearOwnerReads();
+    else if (typeof window.lvptReloadOperatingPicture === 'function') window.lvptReloadOperatingPicture();
     return load();
   };
 

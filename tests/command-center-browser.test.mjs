@@ -9,7 +9,9 @@ const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const fixture = {
   events: [
-    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Private Client', contactName: 'Synthetic Guest', status: 'New Lead', eventDate: '12/20/2026', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', quote: [{ quantity: 1, unitPrice: 100 }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open' }] },
+    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Private Client', contactName: 'Synthetic Guest', status: 'New Lead', eventDate: '12/20/2026', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000' }, tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }] },
+    { id: 'evt-partial', eventName: 'Synthetic Partial', status: 'Quote Needed', eventDate: '2026-12-18', quote: [{ quantity: 1, unitPrice: 100 }, { quantity: 1 }], tasks: [] },
+    { id: 'evt-budget', eventName: 'Synthetic Budget', status: 'Needs Discovery', eventDate: '2026-12-16', setup: { budgetRange: '$10,000–$20,000', targetQuote: 0 }, tasks: [] },
     { id: 'evt-awaiting', eventName: 'Synthetic Awaiting', company: 'Private Client', status: 'Invoice Sent / Awaiting Deposit', eventDate: '2026-12-15', tasks: [] },
     { id: 'evt-processing', eventName: 'Synthetic Processing', company: 'Private Client', status: 'Booked — Payment Processing', eventDate: '2026-12-10', tasks: [] },
     { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', tasks: [] },
@@ -62,6 +64,7 @@ const inbox = {
 };
 
 let mode = 'unauthorized';
+let pictureGets = 0;
 const posts = [];
 const server = createServer((request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
@@ -117,6 +120,7 @@ await page.route('**/api/**', async (route) => {
     return;
   }
   if (pathname === '/api/sync/operating-picture') {
+    pictureGets += 1;
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledger) });
     return;
   }
@@ -171,6 +175,13 @@ try {
   mode = 'ready';
   await openHub(1280, 800);
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  const afterReady = pictureGets;
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForTimeout(200);
+  const overview = await page.locator('#commandView').innerText();
+  assert.match(overview, /Confirmed upcoming/);
+  assert.match(overview, /Dated inquiries and proposals/);
+  assert.match(overview, /ledger-recorded receipts/i);
   assert.equal(await page.locator('#eventEditorPanel').isVisible(), false);
   assert.equal(await page.locator('#reportCenter').isVisible(), false);
   assert.equal(await page.locator('#ownerSignInLink').count(), 1);
@@ -181,6 +192,8 @@ try {
   assert.match(pipelineText, /Synthetic Awaiting/);
   assert.match(pipelineText, /Synthetic Unverified/);
   assert.match(pipelineText, /Cost not recorded/);
+  assert.match(pipelineText, /Recorded target/);
+  assert.match(pipelineText, /Unpriced/);
   assert.equal(pipelineText.includes('Synthetic Processing'), false);
   await page.locator('[data-command-view="active"]').click();
   await page.waitForTimeout(200);
@@ -194,6 +207,7 @@ try {
   assert.match(past, /Synthetic Past/);
   assert.match(past, /Synthetic Declined/);
   assert.match(past, /Synthetic Closed/);
+  assert.match(past, /Outcome needs review/);
   assert.match(past, /Past date/);
   await page.locator('[data-command-view="proposals"]').click();
   await page.waitForTimeout(200);
@@ -205,8 +219,11 @@ try {
   await page.waitForTimeout(200);
   assert.match(await page.locator('#commandView').innerText(), /Send proposal/);
   await page.locator('[data-command-view="finance"]').click();
-  await page.waitForTimeout(400);
-  assert.match(await page.locator('#commandView').innerText(), /Drawable cash/);
+  await page.waitForTimeout(300);
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForTimeout(300);
+  assert.equal(pictureGets, afterReady);
+  assert.match(await page.locator('#commandView').innerText(), /Owner session/);
   await page.locator('[data-command-view="action"]').click();
   await page.waitForTimeout(400);
   assert.match(await page.locator('#commandView').innerText(), /Synthetic Lead/);

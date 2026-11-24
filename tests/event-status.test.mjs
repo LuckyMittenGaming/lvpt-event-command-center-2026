@@ -37,6 +37,16 @@ assert.equal(recordedZero.priced, false);
 const loss = quoteCoverage({ quote: [{ quantity: 1, unitPrice: 100, internalCost: 150 }] });
 assert.equal(loss.costKnown, true);
 assert.equal(loss.pricedCents - loss.costCents, -5000);
-assert.equal(quoteCoverage({ setup: { targetQuote: 5000 } }).priced, false);
+const target = quoteCoverage({ setup: { targetQuote: 5000 } });
+assert.equal(target.priced, false);
+assert.equal(target.recordedTargetCents, 500000);
+assert.equal(target.targetState, 'recorded');
+assert.equal(quoteCoverage({ setup: { budgetRange: '$10,000–$20,000' } }).targetState, 'omitted');
+assert.equal(quoteCoverage({ setup: { targetQuote: 0 } }).targetState, 'blank-or-zero');
+const partial = quoteCoverage({ quote: [{ quantity: 1, unitPrice: 100 }, { quantity: 1 }] });
+assert.equal(partial.linePartial, true);
+assert.equal(partial.pricedCents, 10000);
+assert.equal(partial.costKnown, false);
+assert.equal(quoteCoverage({ quote: [{ quantity: 1, unitPrice: 100 }], setup: { targetQuote: 5000 } }).pricedCents, 10000);
 
 console.log('event status classification tests passed');

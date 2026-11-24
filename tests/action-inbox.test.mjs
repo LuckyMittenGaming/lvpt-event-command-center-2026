@@ -335,7 +335,7 @@ assert.deepEqual(dueSplit.pipeline.taskConflicts, ['task-clash']);
 
 const hub = readFileSync(new URL('../public/v2/js/unified-hub.js', import.meta.url), 'utf8');
 assert.equal(hub.includes('data-decision="approve"'), false);
-assert.match(hub, /Draft preview, not an approval/);
+assert.match(hub, /Not verified and not an approval/);
 assert.match(hub, /Recorded email, not verified/);
 assert.match(hub, /Lead pipeline/);
 

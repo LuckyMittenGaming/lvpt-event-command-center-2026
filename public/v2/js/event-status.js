@@ -61,21 +61,39 @@
     if (closed || past) lane = 'past';
     else if (classified.stage === 'booked' || classified.stage === 'payment_processing') lane = 'active';
     else if (classified.stage === 'open' || classified.stage === 'invoice_sent' || classified.stage === 'invoice_awaiting_deposit') lane = 'pipeline';
-    return { raw: classified.raw, stage: classified.stage, lane, past, completed: classified.stage === 'completed', date, timeZone: TIME_ZONE };
+    return { raw: classified.raw, stage: classified.stage, lane, past, completed: classified.stage === 'completed', needsOutcomeReview: classified.stage === 'unknown' || classified.stage === 'unknown_closure', date, timeZone: TIME_ZONE };
+  }
+
+  function recordedTarget(event) {
+    const supplied = event && Object.prototype.hasOwnProperty.call(event, 'targetQuoteSupplied')
+      ? event.targetQuoteSupplied
+      : (event && event.setup && Object.prototype.hasOwnProperty.call(event.setup, 'targetQuote') ? event.setup.targetQuote : undefined);
+    if (supplied === undefined || supplied === null || supplied === '') {
+      return { cents: null, state: 'omitted', gap: 'setup.targetQuote was not supplied. A budget range is not a quote.' };
+    }
+    const number = Number(supplied);
+    if (!Number.isFinite(number) || number < 0) return { cents: null, state: 'unreadable', gap: 'setup.targetQuote was not a usable number.' };
+    if (number === 0) return { cents: null, state: 'blank-or-zero', gap: 'A blank target and an explicit zero both arrive as 0 from the current listEvents number conversion, so 0 is not shown as a recorded target.' };
+    return { cents: Math.round(number * 100), state: 'recorded', gap: '' };
   }
 
   function quoteCoverage(event) {
+    const target = recordedTarget(event);
     const lines = event && Array.isArray(event.quote) ? event.quote : null;
-    if (!lines) return { pricedCents: null, costCents: null, costKnown: false, priced: false, recordedZero: false };
+    const base = { recordedTargetCents: target.cents, targetState: target.state, targetGap: target.gap, linePartial: false, costPartial: false };
+    if (!lines) return { ...base, pricedCents: null, costCents: null, costKnown: false, priced: false, recordedZero: false };
     let pricedCents = 0;
     let costCents = 0;
     let priced = false;
     let recordedZero = false;
     let costKnown = true;
+    let incompletePrice = false;
+    let missingCost = false;
     lines.forEach((line) => {
       const quantity = Number(line && line.quantity);
       const price = Number(line && line.unitPrice);
       if (!Number.isFinite(quantity) || !Number.isFinite(price)) {
+        incompletePrice = true;
         costKnown = false;
         return;
       }
@@ -84,17 +102,21 @@
         return;
       }
       if (quantity < 0 || price < 0) {
+        incompletePrice = true;
         costKnown = false;
         return;
       }
       priced = true;
       pricedCents += Math.round(quantity * price * 100);
       const cost = line ? line.internalCost : undefined;
-      if (cost === undefined || cost === null || cost === '' || !Number.isFinite(Number(cost))) costKnown = false;
-      else costCents += Math.round(quantity * Number(cost) * 100);
+      if (cost === undefined || cost === null || cost === '' || !Number.isFinite(Number(cost))) {
+        missingCost = true;
+        costKnown = false;
+      } else costCents += Math.round(quantity * Number(cost) * 100);
     });
-    if (!priced) return { pricedCents: recordedZero ? 0 : null, costCents: null, costKnown: false, priced: false, recordedZero };
-    return { pricedCents, costCents: costKnown ? costCents : null, costKnown, priced: true, recordedZero: false };
+    const linePartial = incompletePrice || (priced && missingCost);
+    if (!priced) return { ...base, pricedCents: recordedZero ? 0 : null, costCents: null, costKnown: false, priced: false, recordedZero, linePartial: incompletePrice, costPartial: false };
+    return { ...base, pricedCents, costCents: costKnown && !linePartial ? costCents : null, costKnown: costKnown && !linePartial, priced: true, recordedZero: false, linePartial, costPartial: missingCost };
   }
 
   return { TIME_ZONE, normalizeStatus, classifyStatus, todayIso, normalizeEventDate, eventLane, quoteCoverage };

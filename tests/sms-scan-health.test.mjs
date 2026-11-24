@@ -316,6 +316,7 @@ assert.match(actionHtml, /PARTIAL/);
 assert.match(actionHtml, /Latest successful import: No valid import time/);
 assert.equal(actionHtml.includes('>LIVE<'), false);
 
+if (typeof window.lvptClearOwnerReads === 'function') window.lvptClearOwnerReads();
 const live = classifySmsScan({
   configured: true,
   now,
@@ -337,6 +338,7 @@ assert.match(liveHtml, new RegExp(live.newestIngestAt));
 assert.match(liveHtml, new RegExp(live.newestMessageAt));
 assert.match(liveHtml, /No lead or follow-up records were returned/);
 
+if (typeof window.lvptClearOwnerReads === 'function') window.lvptClearOwnerReads();
 responses.set('/api/sync/action-inbox', { ok: false, status: 502, reason: 'action_inbox_unavailable' });
 const errorHtml = await rendered('action');
 assert.match(errorHtml, /action_inbox_unavailable/);

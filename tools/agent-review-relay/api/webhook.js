@@ -1,4 +1,4 @@
-import { loadConfig } from '../src/config.mjs';
+import { assertLiveReady, loadConfig } from '../src/config.mjs';
 import { createRuntime } from '../src/runtime.mjs';
 import { handleSignedDelivery } from '../src/webhook.mjs';
 
@@ -29,6 +29,10 @@ export async function handleNodeRequest(req, res, deps = {}) {
     // Log only the decision category and HTTP status. Never log URLs, headers,
     // webhook signatures, payloads, credentials, comments, or contact data.
     console.info('lvpt_relay_webhook', JSON.stringify({ status: rich.httpStatus, transition: rich.transition, dryRun: rich.dryRun }));
+    if (rich.transition === 'live_misconfigured') {
+      // Only static validation categories after a verified delivery; never values or credentials.
+      console.info('lvpt_relay_live_readiness', JSON.stringify({ problems: assertLiveReady(runtime.config) }));
+    }
     res.statusCode = rich.httpStatus;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({

@@ -125,6 +125,38 @@ test('QStash signatures authorize reconciliation and a finished unchanged head d
   assert.equal((await store.listPending()).length, 0);
 });
 
+test('a padded QStash body hash is accepted and a tampered body stays a claim failure', () => {
+  const key = 'qstash_signing_key_value_01';
+  const url = 'https://preview.example/api/reconcile';
+  const raw = '{}';
+  const signature = signQstashRequest({ rawBody: raw, key, url, now: FIXED_NOW, padBody: true });
+  const payload = JSON.parse(Buffer.from(signature.split('.')[1], 'base64url').toString('utf8'));
+  assert.equal(payload.body.endsWith('='), true);
+  const config = { reconcileUrl: url, qstashCurrentKey: key, qstashNextKey: '', reconcileSecret: '' };
+  assert.equal(reconcileAuthorized(raw, { 'upstash-signature': signature }, config, FIXED_NOW).ok, true);
+  const tampered = reconcileAuthorized('{"changed":true}', { 'upstash-signature': signature }, config, FIXED_NOW);
+  assert.equal(tampered.ok, false);
+  assert.equal(tampered.diagnostic.reason, 'jwt_claim');
+  assert.equal(tampered.diagnostic.qstashHeader, true);
+  assert.equal(tampered.diagnostic.hmacHeader, false);
+  assert.equal(tampered.diagnostic.currentKey, true);
+  assert.equal(tampered.diagnostic.nextKey, false);
+  assert.equal(tampered.diagnostic.urlConfigured, true);
+  const logged = JSON.stringify(tampered.diagnostic);
+  assert.equal(logged.includes(key), false);
+  assert.equal(logged.includes(url), false);
+  assert.equal(logged.includes(signature), false);
+  assert.equal(logged.includes(payload.body), false);
+  const wrongKey = reconcileAuthorized(raw, { 'upstash-signature': signature }, {
+    ...config,
+    qstashCurrentKey: 'different_qstash_key_value',
+  }, FIXED_NOW);
+  assert.equal(wrongKey.diagnostic.reason, 'jwt_signature');
+  const missing = reconcileAuthorized(raw, {}, config, FIXED_NOW);
+  assert.equal(missing.diagnostic.reason, 'missing_header');
+  assert.equal(missing.diagnostic.qstashHeader, false);
+});
+
 test('terminal failure, expiry, and missing evidence stop without another launch', async () => {
   for (const status of ['ERROR', 'CANCELLED', 'EXPIRED']) {
     const store = createMemoryStore();

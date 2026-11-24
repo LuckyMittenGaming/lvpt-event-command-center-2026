@@ -22,6 +22,9 @@ export async function handleNodeRequest(req, res, deps = {}) {
     const runtime = (deps.createRuntime || createRuntime)((deps.loadConfig || loadConfig)(deps.env || process.env));
     const rich = await handleReconcile({ rawBody, headers: req.headers || {}, runtime });
     console.info('lvpt_relay_reconcile', JSON.stringify({ status: rich.httpStatus, transition: rich.transition, count: rich.results.length }));
+    if (rich.transition === 'rejected_signature' && rich.diagnostic) {
+      console.info('lvpt_relay_reconcile_signature', JSON.stringify(rich.diagnostic));
+    }
     if (rich.transition === 'reconcile_unavailable') {
       console.info('lvpt_relay_reconcile_readiness', JSON.stringify({ problems: assertReconcileReady(runtime.config) }));
     }

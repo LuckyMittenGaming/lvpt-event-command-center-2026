@@ -457,7 +457,7 @@ export async function persistConfirmedRun(runtime, pr, record, launch) {
 
 export async function handleReconcile({ rawBody, headers, runtime, now = Date.now() }) {
   const verdict = reconcileAuthorized(rawBody, headers, runtime.config, now);
-  if (!verdict.ok) return { httpStatus: 401, ok: false, transition: 'rejected_signature', results: [] };
+  if (!verdict.ok) return { httpStatus: 401, ok: false, transition: 'rejected_signature', results: [], diagnostic: verdict.diagnostic };
   try {
     const claimed = await runtime.store.claimDelivery(`reconcile-${verdict.replayKey}`);
     if (!claimed) return { httpStatus: 200, ok: false, transition: 'rejected_replay', results: [] };

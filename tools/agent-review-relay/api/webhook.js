@@ -26,6 +26,9 @@ export async function handleNodeRequest(req, res, deps = {}) {
       headers: req.headers || {},
       runtime,
     });
+    // Log only the decision category and HTTP status. Never log URLs, headers,
+    // webhook signatures, payloads, credentials, comments, or contact data.
+    console.info('lvpt_relay_webhook', JSON.stringify({ status: rich.httpStatus, transition: rich.transition, dryRun: rich.dryRun }));
     res.statusCode = rich.httpStatus;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({

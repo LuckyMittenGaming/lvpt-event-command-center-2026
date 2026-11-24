@@ -2,6 +2,7 @@ import { RELAY_REPO } from './constants.mjs';
 import { assertReconcileReady, cursorApiReady, pilotDispatchReady } from './config.mjs';
 import { reconcileAuthorized } from './reconcile-auth.mjs';
 import { renderComment } from './comment.mjs';
+import { CURSOR_PREFLIGHT_TTL_MS, preflightCursorKey } from './cursor-api.mjs';
 import { maxCallCostUsd, spendOverageUsd } from './cost.mjs';
 import { applyEvidencePolicy, fixedHuman, normalizeDecision } from './policy.mjs';
 import { classifyFiles, evidenceKind } from './sanitize.mjs';
@@ -469,6 +470,27 @@ export async function handleReconcile({ rawBody, headers, runtime, now = Date.no
   if (!runtime.live || !cursorApiReady(runtime.config) || !pilotDispatchReady(runtime.config) || assertReconcileReady(runtime.config).length > 0) {
     return { httpStatus: 200, ok: false, transition: 'reconcile_unavailable', results: [] };
   }
-  const results = await reconcilePending(runtime, runtime.now ? runtime.now() : now);
-  return { httpStatus: 200, ok: true, transition: 'reconciled', results };
+  const nowMs = runtime.now ? runtime.now() : now;
+  let preflight;
+  try {
+    const cached = typeof runtime.store.readCursorPreflight === 'function' && await runtime.store.readCursorPreflight(nowMs);
+    if (cached) preflight = { ok: true, status: 200, category: 'ready', cached: true };
+    else {
+      preflight = await preflightCursorKey({
+        config: runtime.config,
+        fetchImpl: runtime.fetchImpl,
+        timeoutMs: runtime.config.timeoutMs,
+      });
+      if (preflight.ok && typeof runtime.store.writeCursorPreflight === 'function') {
+        await runtime.store.writeCursorPreflight(nowMs + CURSOR_PREFLIGHT_TTL_MS);
+      }
+    }
+  } catch {
+    preflight = { ok: false, status: 0, category: 'unavailable', cached: false };
+  }
+  if (!preflight.ok) {
+    return { httpStatus: 200, ok: false, transition: 'reconcile_unavailable', results: [], preflight };
+  }
+  const results = await reconcilePending(runtime, nowMs);
+  return { httpStatus: 200, ok: true, transition: 'reconciled', results, preflight };
 }

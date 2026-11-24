@@ -123,7 +123,7 @@ Create the schedule in the QStash console, aimed at that exact preview URL, abou
 
 A run that finishes with a new head is reviewed once and is not dispatched again. A run that finishes on the same head, or that ends as `ERROR`, `CANCELLED`, or `EXPIRED`, is stopped. Missing evidence and unknown status are retried a few times, then stopped. A run older than `AGENT_RELAY_RECONCILE_TIMEOUT_MS` (default 20 minutes, maximum 2 hours) is stopped. The correction count is reserved before the Cursor request, and the agent and run ids are stored before the GitHub comment is attempted.
 
-Cursor keys that start with `grok_` are refused before any request. Use a user API key, or a service-account key that is allowed to run cloud agents. Team `grok_` keys and automation webhook keys are not accepted. Requests are sent with `redirect: "error"` so the key cannot follow a redirect off `api.cursor.com`.
+The current Cloud Agents API docs say to create a user API key at Cursor Dashboard → API Keys, or to use a service-account key. Both Basic (`apiKey:`) and Bearer authentication are accepted. A personal dashboard key is not rejected here because of its prefix. The signed preview scheduler checks that key with read-only `GET /v1/me` and `GET /v1/agents?limit=1` before any launch. A successful `/v1/me` by itself does not start an agent. A `403` is treated as unsupported, a `429` as rate limited, and any error fails closed. A successful check is remembered for 10 minutes. Requests use `redirect: "error"`. The log records only the HTTP status and a category.
 
 ## Continuing in ChatGPT
 

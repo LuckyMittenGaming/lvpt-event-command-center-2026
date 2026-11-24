@@ -98,7 +98,6 @@ export function loadConfig(env = {}) {
 export function cursorKeyAllowed(key) {
   return typeof key === 'string'
     && key.length >= 20
-    && !key.startsWith('grok_')
     && !hasBlockedMarker(key);
 }
 

@@ -114,6 +114,7 @@ export function createMemoryStore() {
   const audits = [];
   let spendMicro = 0;
   let pendingCursor = 0;
+  let cursorPreflightUntil = 0;
   let available = true;
 
   return {
@@ -137,6 +138,13 @@ export function createMemoryStore() {
       const page = takePending(pending, pendingCursor, limit);
       pendingCursor = page.cursor;
       return page.ids;
+    },
+    async readCursorPreflight(nowMs) {
+      return cursorPreflightUntil > nowMs;
+    },
+    async writeCursorPreflight(untilMs) {
+      cursorPreflightUntil = Number(untilMs) || 0;
+      return true;
     },
     async ping() {
       if (!available) throw new Error('relay store failed (unavailable)');
@@ -296,6 +304,15 @@ export function createRedisStore({ url, token, fetchImpl }) {
       const members = await command(['EVAL', RELAY_LIST_SCRIPT, 2, 'relay:pending:cursor', 'relay:pending', String(cap)]);
       const list = Array.isArray(members) ? members : [];
       return list.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0);
+    },
+    async readCursorPreflight(nowMs) {
+      const raw = await command(['GET', 'relay:cursor-preflight']);
+      const until = Number(raw || 0);
+      return Number.isFinite(until) && until > nowMs;
+    },
+    async writeCursorPreflight(untilMs) {
+      await command(['SET', 'relay:cursor-preflight', String(Number(untilMs) || 0)]);
+      return true;
     },
     async ping() {
       const result = await command(['PING']);

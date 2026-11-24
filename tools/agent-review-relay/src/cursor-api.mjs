@@ -29,10 +29,57 @@ export function buildLaunchBody({ pr, task }) {
   };
 }
 
+const READONLY_PATHS = new Set(['/v1/me', '/v1/agents?limit=1']);
+
+function cursorPathAllowed(path, method) {
+  if (method === 'GET' && READONLY_PATHS.has(path)) return true;
+  if (method === 'POST' && path === '/v1/agents') return true;
+  return method === 'GET' && /^\/v1\/agents\/bc-[A-Za-z0-9-]{8,80}\/runs\/run-[A-Za-z0-9-]{8,80}$/.test(path);
+}
+
 async function cursorFetch(fetchImpl, path, options) {
-  if (!path.startsWith('/v1/agents')) throw launchError('Cursor launch failed (path)', false);
+  const method = options.method || 'GET';
+  if (!cursorPathAllowed(path, method)) throw launchError('Cursor request failed (path)', false);
   const url = `${CURSOR_API_ORIGIN}${path}`;
   return fetchImpl(url, { ...options, redirect: 'error' });
+}
+
+function preflightCategory(status) {
+  if (status >= 200 && status < 300) return 'ready';
+  if (status === 401) return 'unauthorized';
+  if (status === 403) return 'unsupported';
+  if (status === 429) return 'rate_limited';
+  if (status >= 500 || status === 408) return 'unavailable';
+  return 'invalid';
+}
+
+async function readOnlyCursor({ fetchImpl, key, path, timeoutMs }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await cursorFetch(fetchImpl, path, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: { authorization: basicAuth(key) },
+    });
+    if (typeof response.text === 'function') await response.text().catch(() => {});
+    const status = Number(response.status) || 0;
+    const category = preflightCategory(status);
+    return { ok: category === 'ready', status, category, cached: false };
+  } catch (error) {
+    return { ok: false, status: 0, category: 'unavailable', cached: false, timeout: error?.name === 'AbortError' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export const CURSOR_PREFLIGHT_TTL_MS = 10 * 60 * 1000;
+
+export async function preflightCursorKey({ config, fetchImpl, timeoutMs }) {
+  const limit = timeoutMs || config.timeoutMs;
+  const me = await readOnlyCursor({ fetchImpl, key: config.cursorApiKey, path: '/v1/me', timeoutMs: limit });
+  if (!me.ok) return me;
+  return readOnlyCursor({ fetchImpl, key: config.cursorApiKey, path: '/v1/agents?limit=1', timeoutMs: limit });
 }
 
 export async function launchCursorRun({ config, fetchImpl, pr, task, timeoutMs }) {

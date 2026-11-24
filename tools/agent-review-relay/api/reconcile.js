@@ -28,6 +28,16 @@ export async function handleNodeRequest(req, res, deps = {}) {
     if (rich.transition === 'reconcile_unavailable') {
       console.info('lvpt_relay_reconcile_readiness', JSON.stringify(reconcileGateReport(runtime.config, runtime)));
     }
+    if (rich.preflight) {
+      const category = ['ready', 'unauthorized', 'unsupported', 'rate_limited', 'invalid', 'unavailable'].includes(rich.preflight.category)
+        ? rich.preflight.category
+        : 'unavailable';
+      console.info('lvpt_relay_cursor_preflight', JSON.stringify({
+        status: Number.isInteger(rich.preflight.status) ? rich.preflight.status : 0,
+        category,
+        cached: rich.preflight.cached === true,
+      }));
+    }
     res.statusCode = rich.httpStatus;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ ok: rich.ok, transition: rich.transition, count: rich.results.length }));

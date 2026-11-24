@@ -43,7 +43,7 @@ async function seed(store, launch = launchRecord()) {
   assert.equal(await store.markPending(21), true);
 }
 
-function runtimeFor(store, { status = 'FINISHED', head = NEW, evidence, review, postComment } = {}) {
+function runtimeFor(store, { status = 'FINISHED', head = NEW, evidence, review, postComment, preflight = true } = {}) {
   const comments = [];
   const runtime = createRuntime(simulationConfig(), {
     store,
@@ -82,6 +82,7 @@ function runtimeFor(store, { status = 'FINISHED', head = NEW, evidence, review, 
   runtime.config.cursorApi = true;
   runtime.config.cursorSpendAuthorized = true;
   runtime.config.cursorApiKey = 'cursor_live_test_key_value_01';
+  if (preflight) store.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   return { runtime, comments };
 }
 
@@ -188,8 +189,8 @@ test('a failed check with no in-diff finding is not dispatched, and a concrete f
   assert.equal(cursorApiReady(loadConfig({
     AGENT_RELAY_CURSOR_API: 'true',
     AGENT_RELAY_CURSOR_SPEND_AUTHORIZED: 'true',
-    CURSOR_API_KEY: 'grok_this_key_is_not_allowed_01',
-  })), false);
+    CURSOR_API_KEY: 'grok_personal_user_key_value_01',
+  })), true);
   const posts = [];
   const fetchImpl = async (url, options = {}) => {
     posts.push({ url: String(url), redirect: options.redirect, method: options.method });
@@ -218,9 +219,11 @@ test('a failed check with no in-diff finding is not dispatched, and a concrete f
     UPSTASH_REDIS_REST_TOKEN: 'upstashTokenForLocalTest01',
     CURSOR_API_KEY: 'cursor_live_test_key_value_01',
   });
+  const vagueStore = createMemoryStore();
+  vagueStore.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   const vague = createRuntime(cfg, {
     fetchImpl,
-    store: createMemoryStore(),
+    store: vagueStore,
     now: () => FIXED_NOW,
     evidence: async () => ({ testSummary: 'FAIL unrelated', changedFiles: ['lib/sample.mjs'] }),
     review: async () => ({
@@ -243,9 +246,11 @@ test('a failed check with no in-diff finding is not dispatched, and a concrete f
   assert.equal(posts.some((call) => call.url.includes('api.cursor.com')), false);
 
   let reserved = 0;
+  const concreteStore = createMemoryStore();
+  concreteStore.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   const concrete = createRuntime(cfg, {
     fetchImpl,
-    store: createMemoryStore(),
+    store: concreteStore,
     now: () => FIXED_NOW,
     evidence: async () => ({ testSummary: 'FAIL unrelated', changedFiles: ['lib/sample.mjs'] }),
     review: async () => ({
@@ -311,6 +316,7 @@ test('a comment failure keeps the run id, and a stale head after the reserve doe
     if (String(url).includes('/comments')) return { ok: true, json: async () => ({ id: 1 }) };
     throw new Error(String(url));
   };
+  store.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   const runtime = createRuntime(cfg, {
     fetchImpl,
     store,
@@ -341,9 +347,11 @@ test('a comment failure keeps the run id, and a stale head after the reserve doe
   assert.equal(saved.iterations, 1);
   assert.deepEqual(await store.listPending(), [21]);
 
+  const staleStore = createMemoryStore();
+  staleStore.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   const stale = createRuntime(cfg, {
     fetchImpl,
-    store: createMemoryStore(),
+    store: staleStore,
     now: () => FIXED_NOW,
     evidence: async () => ({ testSummary: 'FAIL tests/sample.test.mjs', changedFiles: ['lib/sample.mjs'] }),
     review: async () => ({
@@ -485,6 +493,7 @@ test('a finished failure is not reviewed, and the scheduler does not drop an in-
     CURSOR_API_KEY: 'cursor_live_test_key_value_01',
   });
   const live = createMemoryStore();
+  live.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   let raced = '';
   const runtime = createRuntime(cfg, {
     fetchImpl: async (url) => {
@@ -852,4 +861,61 @@ test('an unavailable reconcile logs the failed gate and not the credential', asy
   assert.equal(line.includes('sk-live'), false);
   assert.equal(res.body.includes(secret), false);
   assert.equal(res.body.includes('cursorKeyAllowed'), false);
+});
+
+test('read-only key preflight accepts a personal key and fails closed on 403 or 429', async () => {
+  const key = 'grok_personal_user_key_value_01';
+  const secret = 'reconcile_test_secret_value_01';
+  function scheduler(responses) {
+    const calls = [];
+    const store = createMemoryStore();
+    const { runtime } = runtimeFor(store, { preflight: false });
+    runtime.config.cursorApiKey = key;
+    runtime.fetchImpl = async (url, options = {}) => {
+      calls.push({ url: String(url), method: options.method, redirect: options.redirect });
+      const next = responses[calls.length - 1];
+      if (!next) throw new Error(String(url));
+      return { ok: next.status >= 200 && next.status < 300, status: next.status, text: async () => '{"userEmail":"secret@example.com","apiKeyName":"hidden"}' };
+    };
+    return { runtime, calls, store };
+  }
+  async function post(runtime, body) {
+    return handleReconcile({
+      rawBody: body,
+      headers: { 'x-relay-reconcile-signature': signReconcileBody(body, secret) },
+      runtime,
+      now: FIXED_NOW,
+    });
+  }
+  const ready = scheduler([{ status: 200 }, { status: 200 }]);
+  const first = await post(ready.runtime, '{"preflight":"ready"}');
+  assert.equal(first.preflight.category, 'ready');
+  assert.equal(first.preflight.cached, false);
+  assert.deepEqual(ready.calls.map((call) => call.url), [
+    'https://api.cursor.com/v1/me',
+    'https://api.cursor.com/v1/agents?limit=1',
+  ]);
+  assert.equal(ready.calls.every((call) => call.method === 'GET' && call.redirect === 'error'), true);
+  assert.equal(JSON.stringify(first).includes('secret@example.com'), false);
+  assert.equal(JSON.stringify(first).includes(key), false);
+  const second = await post(ready.runtime, '{"preflight":"cached"}');
+  assert.equal(second.preflight.cached, true);
+  assert.equal(ready.calls.length, 2);
+
+  const unsupported = scheduler([{ status: 200 }, { status: 403 }]);
+  const denied = await post(unsupported.runtime, '{"preflight":"denied"}');
+  assert.equal(denied.transition, 'reconcile_unavailable');
+  assert.equal(denied.preflight.category, 'unsupported');
+  assert.equal(denied.preflight.status, 403);
+  assert.equal(denied.results.length, 0);
+
+  const invalid = scheduler([{ status: 401 }]);
+  const rejected = await post(invalid.runtime, '{"preflight":"invalid"}');
+  assert.equal(rejected.preflight.category, 'unauthorized');
+  assert.equal(invalid.calls.length, 1);
+
+  const limited = scheduler([{ status: 429 }]);
+  const rate = await post(limited.runtime, '{"preflight":"rate"}');
+  assert.equal(rate.preflight.category, 'rate_limited');
+  assert.equal(rate.preflight.status, 429);
 });

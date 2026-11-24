@@ -293,6 +293,10 @@ export async function coordinate(ctx, runtime) {
     if (!pilotDispatchReady(config)) {
       return finish('reconcile_unavailable', fixedHuman('reconcile_unavailable'), { tokens, costUsd, handoff: 'blocked', reserved: true });
     }
+    const preflightFresh = typeof store.readCursorPreflight === 'function' && await store.readCursorPreflight(nowMs);
+    if (!preflightFresh) {
+      return finish('cursor_api_unavailable', fixedHuman('cursor_api_unavailable'), { tokens, costUsd, handoff: 'blocked', reserved: true });
+    }
     if (!hasConcreteFindings(decision, evidence)) {
       return finish('human_stopped', fixedHuman('evidence_missing'), { tokens, costUsd, handoff: 'blocked', reserved: true });
     }

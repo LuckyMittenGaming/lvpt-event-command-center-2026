@@ -71,6 +71,7 @@ function harness(cfg, { launch, status = 'RUNNING' } = {}) {
     if (target.includes('/comments')) return { ok: true, json: async () => ({ id: 4 }) };
     throw new Error(`unexpected ${target}`);
   };
+  store.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   const runtime = createRuntime(cfg, {
     fetchImpl,
     store,
@@ -131,6 +132,14 @@ test('a live handoff uses the fixed Cursor host and does not mention the bot or 
   assert.match(comment, /bc-11111111-1111-1111-1111-111111111111/);
   assert.equal(JSON.stringify(box.store.audits).includes(KEY), false);
   assert.equal(box.posts().every((call) => call.url === `${CURSOR_API_ORIGIN}/v1/agents`), true);
+});
+
+test('a launch stays blocked until the read-only key check has passed', async () => {
+  const box = harness(config());
+  await box.store.writeCursorPreflight(0);
+  const blocked = await deliver(box.runtime, { deliveryId: 'delivery-nopreflight1' });
+  assert.equal(blocked.transition, 'cursor_api_unavailable');
+  assert.equal(box.posts().length, 0);
 });
 
 test('a launch is refused unless the preview scheduler and the pilot caps are ready', async () => {
@@ -218,6 +227,7 @@ test('duplicate and concurrent deliveries launch at most once', async () => {
   assert.equal(box.posts().length, 1);
 
   const shared = createMemoryStore();
+  shared.writeCursorPreflight(FIXED_NOW + 10 * 60 * 1000);
   const left = harness(config());
   const right = harness(config());
   left.runtime.store = shared;

@@ -248,7 +248,7 @@ assert.match(scan,/function lvptInboxRelationship_\(sender,recipient,isFormLead,
 assert.match(scan,/wsopamatt@gmail\.com/);
 assert.match(scan,/elevatedbarservices/);
 assert.match(scan,/relationshipHint:relationship/);
-assert.match(scan,/lvpt_business_inbox_review_2026_v3_p/);
+assert.match(scan,/lvpt_business_inbox_review_2026_v4_form_leads_p/);
 assert(!/GmailApp\.sendEmail|MailApp\.sendEmail|SpreadsheetApp|DriveApp|\.send\(/.test(scan),
   'Read-only inbox scanner must not send messages or write business records');
 const inboxRoute=fs.readFileSync(require('node:path').join(__dirname,
@@ -285,7 +285,7 @@ assert.match(scan,/listGroup=Math\.floor\(page\/5\)/);
 assert.match(scan,/slotStart=\(page%5\)\*20/);
 assert.match(scan,/slice\(slotStart,slotStart\+20\)/);
 assert.match(scan,/var nextPage=hasRemaining\?page\+1/);
-assert.match(scan,/cacheKey='lvpt_business_inbox_review_2026_v3_p'\+page/);
+assert.match(scan,/cacheKey='lvpt_business_inbox_review_2026_v4_form_leads_p'\+page/);
 assert.match(scan,/function lvptReadOnlyBusinessInboxThread_\(threadId, expectedLastMessageAt\)/);
 assert.match(scan,/expected<Date\.now\(\)-32\*86400000/);
 assert.match(scan,/new Date\(lastStamp\)\.toISOString\(\)/);

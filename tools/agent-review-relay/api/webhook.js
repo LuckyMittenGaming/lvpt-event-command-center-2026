@@ -1,4 +1,4 @@
-import { assertLiveReady, loadConfig } from '../src/config.mjs';
+import { assertLiveReady, loadConfig, upstashUrlAllowed } from '../src/config.mjs';
 import { createRuntime } from '../src/runtime.mjs';
 import { handleSignedDelivery } from '../src/webhook.mjs';
 
@@ -31,7 +31,19 @@ export async function handleNodeRequest(req, res, deps = {}) {
     console.info('lvpt_relay_webhook', JSON.stringify({ status: rich.httpStatus, transition: rich.transition, dryRun: rich.dryRun }));
     if (rich.transition === 'live_misconfigured') {
       // Only static validation categories after a verified delivery; never values or credentials.
-      console.info('lvpt_relay_live_readiness', JSON.stringify({ problems: assertLiveReady(runtime.config) }));
+      const env = deps.env || process.env;
+      const integration = loadConfig({ UPSTASH_REDIS_REST_URL: env.KV_REST_API_URL, UPSTASH_REDIS_REST_TOKEN: env.KV_REST_API_TOKEN });
+      console.info('lvpt_relay_live_readiness', JSON.stringify({
+        problems: assertLiveReady(runtime.config),
+        redis: {
+          configuredUrlValid: upstashUrlAllowed(runtime.config.upstashUrl),
+          configuredTokenPresent: Boolean(runtime.config.upstashToken),
+          configuredTokenLengthValid: runtime.config.upstashToken.length >= 20,
+          integrationUrlValid: upstashUrlAllowed(integration.upstashUrl),
+          integrationTokenPresent: Boolean(integration.upstashToken),
+          integrationTokenLengthValid: integration.upstashToken.length >= 20,
+        },
+      }));
     }
     res.statusCode = rich.httpStatus;
     res.setHeader('content-type', 'application/json');

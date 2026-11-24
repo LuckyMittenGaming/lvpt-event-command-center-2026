@@ -58,7 +58,7 @@ Rollback: do not merge. Production stays on its current release. Revert this bra
 - The hub still cannot record an approval or prove exactly-once delivery.
 - Android heartbeat, RCS pairing, Gmail full threads, and a confirmed TaskSync run are still owner prerequisites.
 
-The roster files under `public/v2/js/roster-*.js` and `nium-profit-lineaje-neo-update.js` are still deployed as static files and contain client contact fields. The command center no longer loads them. Removing those public files is an owner decision and was not done in this pass.
+Legacy roster scripts now live in `archive/public-roster-2026-11-24/` and are not part of the public site output for this draft. Git history still contains them. This check did not request the deployed or older production URLs, so it does not say whether those older deployments still serve the files.
 
 Local browser evidence is `tests/command-center-browser.test.mjs` against a synthetic fixture and system Chrome. It is not a live sheet or a deployed preview.
 

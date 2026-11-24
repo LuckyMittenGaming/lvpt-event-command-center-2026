@@ -96,6 +96,21 @@ const flow = buildLedger({
   payouts: []
 });
 assert.equal(flow.counts.clientInvoices, 2);
+assert.equal(flow.counts.issuedInvoices, 2);
+assert.equal(flow.counts.notInvoicedRows, 0);
+const placeholders = buildLedger({
+  payments: [
+    { paymentId: 'placeholder', eventId: 'evt-placeholder', ledgerRole: 'client_receivable', invoiceTotal: 10, amountPaid: 0, balanceDue: 10, paymentStatus: 'Not Invoiced' },
+    { paymentId: 'issued', eventId: 'evt-placeholder', ledgerRole: 'client_receivable', invoiceTotal: 20, amountPaid: 0, balanceDue: 20, paymentStatus: 'Invoice Sent' },
+    { paymentId: 'unknown-status', eventId: 'evt-placeholder', ledgerRole: 'client_receivable', invoiceTotal: 5, amountPaid: 0, balanceDue: 5, paymentStatus: 'Outcome Unverified' }
+  ],
+  payouts: []
+});
+assert.equal(placeholders.counts.clientPaymentRows, 3);
+assert.equal(placeholders.counts.issuedInvoices, 1);
+assert.equal(placeholders.counts.notInvoicedRows, 1);
+assert.equal(placeholders.counts.unknownInvoiceRows, 1);
+assert.equal(placeholders.money.drawableCashCents, null);
 assert.equal(flow.money.verifiedClientReceiptsCents, 0);
 assert.equal(flow.money.forecastMarginCents, null);
 const completeExpenses = buildLedger({

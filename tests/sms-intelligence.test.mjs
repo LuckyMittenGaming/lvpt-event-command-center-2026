@@ -88,3 +88,4 @@ await import('./source-reliability.test.mjs');
 await import('./owner-read-guard.test.mjs');
 await import('./action-inbox.test.mjs');
 await import('./command-center-acceptance.test.mjs');
+await import('./event-status.test.mjs');

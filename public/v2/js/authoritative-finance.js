@@ -32,18 +32,11 @@
         const incomplete = new Set(report.incompleteFields || []);
         const shown = (field, cents) => incomplete.has(field) ? 'Incomplete' : (cents == null ? null : cents);
         const collected = shown('verifiedClientReceipts', report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents);
-        const named = ['evt-nium-2026', 'evt-neo-reunion-2026', 'evt-lineaje-2026'].map((id) => {
-          const row = (picture.report.byEvent || []).find((item) => item.eventId === id);
-          const label = id === 'evt-nium-2026' ? 'NIUM' : id === 'evt-neo-reunion-2026' ? 'NEO' : 'Lineaje';
-          if (!row) return card(label, 'No sheet invoice', 'No Payments row for this event.');
-          const unresolved = (picture.exceptions || []).filter((item) => item.eventId === id && item.includedInTotals === false).map((item) => item.detail).join(' ');
-          return card(label, money(row.collectedCents), `Outstanding ${money(row.outstandingCents)}. Invoice ${money(row.invoiceTotalCents)}. ${unresolved}`);
-        });
+        const counts = picture.report.counts || {};
         grid.innerHTML = [
-          card('Client invoices', money(shown('clientInvoiceTotal', report.clientInvoiceTotalCents)), 'Every included client Payments row on the sheet.'),
-          card('Ledger collected', money(collected), 'Paid in full on the sheet. Not bank-verified. Incomplete means a conflicting or unidentified row was excluded.'),
+          card('Issued invoices', counts.issuedInvoices ?? '—', `Client payment rows ${counts.clientPaymentRows ?? counts.clientInvoices ?? '—'}. Not invoiced ${counts.notInvoicedRows ?? '—'}. Unknown status ${counts.unknownInvoiceRows ?? '—'}.`),
+          card('Ledger-recorded receipts', money(collected), 'Paid in full on the sheet. Not a verified bank receipt. Incomplete means a conflicting or unidentified row was excluded.'),
           card('Outstanding', money(shown('openClientExposure', report.openClientExposureCents)), 'Open balances only. A received final is not outstanding.'),
-          ...named,
           card('Owner paid', money(shown('ownerPaid', report.ownerPaidCents)), 'Distributions marked Paid. Draws are not operating expenses.'),
           card('Owner planned', money(shown('ownerPlanned', report.ownerPlannedCents)), 'Planned draws are not expenses already paid.'),
           card('Ledger contribution', money(report.verifiedContributionCents), 'Recorded receipts minus recorded paid costs and recorded paid draws. Not bank-verified. Not drawable cash. Unavailable while a planned or unpaid obligation remains.'),

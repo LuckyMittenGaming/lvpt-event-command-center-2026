@@ -32,13 +32,21 @@
   function apply() {
     window.lvptSheetSnapshot = { state: state.phase, events: state.events, serverTime: state.serverTime, message: state.message };
     if (state.phase === 'ready') {
-      events = state.events.map(ensureEventShape);
-      if (!events.some((event) => event.id === selectedId)) selectedId = events[0] ? events[0].id : '';
+      events = state.events.map((event) => {
+        const date = window.LVPTEventStatus.normalizeEventDate(event.eventDate);
+        const shaped = ensureEventShape({ ...event, eventDate: date.iso || '' });
+        shaped.eventDateRaw = event.eventDate || '';
+        shaped.eventDateTimeZone = 'America/Los_Angeles';
+        shaped.statusRaw = event.status || '';
+        return shaped;
+      });
+      if (selectedId && !events.some((event) => event.id === selectedId)) selectedId = '';
     } else {
       events = [];
       selectedId = '';
     }
     paintBanner();
+    paintSessionLink();
     if (typeof render === 'function') render();
   }
 
@@ -53,7 +61,7 @@
           state.phase = 'auth-required';
           state.message = 'Owner sign-in required.';
           state.events = [];
-        } else if (!response.ok || data.ok === false) {
+        } else if (!response.ok || data.ok === false || !Array.isArray(data.events)) {
           state.phase = 'unavailable';
           state.message = 'The sheet did not load.';
           state.events = [];
@@ -93,9 +101,12 @@
       field.readOnly = true;
       if (field.tagName === 'SELECT') field.disabled = true;
     });
-    ['newEventTopBtn', 'newEventSideBtn', 'resetDataBtn', 'exportCsvBtn', 'exportJsonBtn'].forEach((id) => {
+    ['newEventTopBtn', 'newEventSideBtn', 'resetDataBtn', 'exportCsvBtn', 'exportJsonBtn', 'saveEditorBtn', 'deleteEventBtn', 'duplicateEventBtn', 'reopenWizardBtn'].forEach((id) => {
       const button = document.getElementById(id);
-      if (button) button.disabled = true;
+      if (button) {
+        button.disabled = true;
+        button.hidden = true;
+      }
     });
   }
 
@@ -107,13 +118,7 @@
   };
 
   const actions = document.querySelector('.hero-actions');
-  if (actions && !document.getElementById('ownerSignInLink')) {
-    const link = document.createElement('a');
-    link.id = 'ownerSignInLink';
-    link.className = 'btn primary';
-    link.href = '/sms-review/index.html';
-    link.textContent = 'Owner sign-in';
-    actions.prepend(link);
+  if (actions && !document.getElementById('refreshSheetBtn')) {
     const refresh = document.createElement('button');
     refresh.type = 'button';
     refresh.className = 'btn';
@@ -121,6 +126,12 @@
     refresh.textContent = 'Refresh sheet';
     refresh.addEventListener('click', () => window.lvptReloadSheetSnapshot());
     actions.append(refresh);
+  }
+  function paintSessionLink() {
+    const link = document.getElementById('ownerSignInLink');
+    if (!link) return;
+    if (state.phase === 'ready') link.textContent = 'Review workspace';
+    else link.textContent = 'Owner sign-in';
   }
 
   let sawShow = false;

@@ -124,10 +124,12 @@
     const shown = (field, cents) => incomplete.has(field) ? 'Incomplete' : dollars(cents);
     const cards = [
       ['Payment rows read', report.counts.payments],
-      ['Client invoices', report.counts.clientInvoices],
+      ['Client payment rows', report.counts.clientPaymentRows ?? report.counts.clientInvoices],
       ['Vendor bills', report.counts.vendorBills],
       ['Unclassified, excluded', report.counts.unclassified],
-      ['Verified client receipts', shown('verifiedClientReceipts', report.money.verifiedClientReceiptsCents)],
+      ['Ledger-recorded receipts', shown('verifiedClientReceipts', report.money.verifiedClientReceiptsCents)],
+      ['Issued invoices', report.counts.issuedInvoices ?? report.counts.clientInvoices],
+      ['Not invoiced', report.counts.notInvoicedRows ?? 0],
       ['Initiated, not settled', shown('initiatedNotSettled', report.money.initiatedNotSettledCents)],
       ['Vendor committed', shown('vendorCommitted', report.money.vendorCommittedCents)],
       ['Owner paid', shown('ownerPaid', report.money.ownerPaidCents)],

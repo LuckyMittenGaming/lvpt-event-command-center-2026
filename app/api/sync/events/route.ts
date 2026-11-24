@@ -10,7 +10,16 @@ export async function GET(request: Request) {
   if (denied) return denied;
   try {
     const data = await appsScriptRequest<{ events?: unknown[]; serverTime?: string }>('listEvents');
-    const events = Array.isArray(data.events) ? data.events : [];
+    if (!data || !Array.isArray(data.events)) {
+      return jsonNoStore({
+        ok: false,
+        readOnly: true,
+        writesPerformed: false,
+        reason: 'events_unavailable',
+        message: 'The sheet response did not include an event list. This is not an empty sheet.'
+      }, 502);
+    }
+    const events = data.events;
     return jsonNoStore({
       ok: true,
       readOnly: true,

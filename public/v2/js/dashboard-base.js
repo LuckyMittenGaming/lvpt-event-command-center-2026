@@ -3,7 +3,7 @@ function render(){
   renderMetrics(); renderAttention(); renderEventList(); renderEditor(); renderTab(); renderSystemStatuses();
 }
 function renderSystemStatuses(){
-  const gmail=$('#gmailHeroStatus'); gmail.textContent=gmailStatus.checked?(gmailStatus.configured?`Gmail ready: ${gmailStatus.email}`:'Gmail setup required'):'Gmail not checked'; gmail.className=`status-pill ${gmailStatus.configured?'':'pending'}`;
+  const gmail=$('#gmailHeroStatus'); gmail.textContent=gmailStatus.checked?(gmailStatus.configured?`Gmail ready: ${gmailStatus.email}`:'Gmail not verified'):'Gmail not checked'; gmail.className=`status-pill ${gmailStatus.configured?'':'pending'}`;
   const docs=events.reduce((sum,event)=>sum+event.documents.length,0); $('#documentStatus').textContent=`${docs} document${docs===1?'':'s'} indexed`;
 }
 function allDueItems(){

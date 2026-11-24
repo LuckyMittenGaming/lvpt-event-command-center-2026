@@ -1,0 +1,1 @@
+These files were moved out of `public/` so this draft does not serve them as website assets. Git history still has them. They are not loaded by the command center. Do not copy them back into `public/`.

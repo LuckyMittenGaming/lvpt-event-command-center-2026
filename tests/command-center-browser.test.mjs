@@ -9,9 +9,14 @@ const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const fixture = {
   events: [
-    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Synthetic Co', status: 'New Lead', eventDate: '2026-12-20', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open' }] },
+    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Private Client', contactName: 'Synthetic Guest', status: 'New Lead', eventDate: '12/20/2026', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', quote: [{ quantity: 1, unitPrice: 100 }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open' }] },
+    { id: 'evt-awaiting', eventName: 'Synthetic Awaiting', company: 'Private Client', status: 'Invoice Sent / Awaiting Deposit', eventDate: '2026-12-15', tasks: [] },
+    { id: 'evt-processing', eventName: 'Synthetic Processing', company: 'Private Client', status: 'Booked — Payment Processing', eventDate: '2026-12-10', tasks: [] },
     { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', tasks: [] },
-    { id: 'evt-past', eventName: 'Synthetic Past', company: 'Synthetic Past Co', status: 'Booked', eventDate: '2026-01-02', venue: 'Synthetic Archive', city: 'Las Vegas', state: 'NV', tasks: [{ id: 'task-old', title: 'Archive note', owner: 'Synthetic Owner', dueDate: '2026-01-01', status: 'Open' }] }
+    { id: 'evt-declined', eventName: 'Synthetic Declined', status: 'Client Declined', eventDate: '2026-12-18', tasks: [] },
+    { id: 'evt-unknown', eventName: 'Synthetic Unverified', status: 'Outcome Unverified', eventDate: '2026-12-19', tasks: [] },
+    { id: 'evt-closed', eventName: 'Synthetic Closed', status: 'Closed', eventDate: '2026-12-05', tasks: [] },
+    { id: 'evt-past', eventName: 'Synthetic Past', company: 'Synthetic Past Co', status: 'Booked', eventDate: '1/2/2026', venue: 'Synthetic Archive', city: 'Las Vegas', state: 'NV', tasks: [{ id: 'task-old', title: 'Archive note', owner: 'Synthetic Owner', dueDate: '2026-01-01', status: 'Open' }] }
   ]
 };
 const ledger = {
@@ -99,6 +104,10 @@ await page.route('**/api/**', async (route) => {
     return;
   }
   const pathname = new URL(request.url()).pathname;
+  if (mode === 'malformed' && pathname === '/api/sync/events') {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, readOnly: true }) });
+    return;
+  }
   if (mode === 'empty' && pathname === '/api/sync/events') {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, readOnly: true, events: [], eventCount: 0 }) });
     return;
@@ -162,16 +171,29 @@ try {
   mode = 'ready';
   await openHub(1280, 800);
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  assert.equal(await page.locator('#eventEditorPanel').isVisible(), false);
+  assert.equal(await page.locator('#reportCenter').isVisible(), false);
+  assert.equal(await page.locator('#ownerSignInLink').count(), 1);
   await page.locator('[data-command-view="pipeline"]').click();
   await page.waitForTimeout(200);
-  assert.match(await page.locator('#commandView').innerText(), /Synthetic Lead/);
+  const pipelineText = await page.locator('#commandView').innerText();
+  assert.match(pipelineText, /Synthetic Lead/);
+  assert.match(pipelineText, /Synthetic Awaiting/);
+  assert.match(pipelineText, /Synthetic Unverified/);
+  assert.match(pipelineText, /Cost not recorded/);
+  assert.equal(pipelineText.includes('Synthetic Processing'), false);
   await page.locator('[data-command-view="active"]').click();
   await page.waitForTimeout(200);
-  assert.match(await page.locator('#commandView').innerText(), /Synthetic Booked/);
+  const activeText = await page.locator('#commandView').innerText();
+  assert.match(activeText, /Synthetic Booked/);
+  assert.match(activeText, /Synthetic Processing/);
+  assert.equal(activeText.includes('Synthetic Awaiting'), false);
   await page.locator('[data-command-view="archive"]').click();
   await page.waitForTimeout(200);
   const past = await page.locator('#commandView').innerText();
   assert.match(past, /Synthetic Past/);
+  assert.match(past, /Synthetic Declined/);
+  assert.match(past, /Synthetic Closed/);
   assert.match(past, /Past date/);
   await page.locator('[data-command-view="proposals"]').click();
   await page.waitForTimeout(200);
@@ -216,6 +238,12 @@ try {
   await page.waitForTimeout(200);
   assert.match(await page.locator('#commandView').innerText(), /returned no events/);
 
+  mode = 'malformed';
+  await page.locator('#refreshSheetBtn').click();
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'unavailable');
+  assert.match(await page.locator('#snapshotBanner').innerText(), /unavailable/);
+  const asset = await page.request.get(`http://127.0.0.1:${port}/v2/js/roster-nium.js`);
+  assert.equal(asset.status(), 404);
   mode = 'unauthorized';
   await page.locator('[data-command-view="overview"]').click();
   await page.locator('#refreshSheetBtn').click();

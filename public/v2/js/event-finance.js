@@ -174,7 +174,8 @@
     const countedPayouts = payouts.filter((row) => !row.duplicatesPayment && row.includedInTotals !== false);
 
     const verified = sum(settledClients, (row) => row.amountPaidCents);
-    const clientInvoiced = sum(clients.filter((row) => row.settlement !== 'not_invoiced'), (row) => row.invoiceTotalCents);
+    const issuedClients = clients.filter((row) => row.settlement !== 'not_invoiced' && row.settlement !== 'unknown');
+    const clientInvoiced = sum(issuedClients, (row) => row.invoiceTotalCents);
     const vendorCommitted = sum(vendors.filter((row) => row.settlement !== 'not_invoiced'), (row) => row.invoiceTotalCents);
     const vendorLedgerPaid = sum(vendors.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
     const ownerCommitted = sum(owners, (row) => row.invoiceTotalCents);
@@ -283,6 +284,10 @@
       counts: {
         payments: payments.length,
         clientInvoices: clients.length,
+        clientPaymentRows: clients.length,
+        issuedInvoices: issuedClients.length,
+        notInvoicedRows: clients.filter((row) => row.settlement === 'not_invoiced').length,
+        unknownInvoiceRows: clients.filter((row) => row.settlement === 'unknown').length,
         vendorBills: vendors.length,
         unclassified: unclassified.length,
         payouts: payouts.length,

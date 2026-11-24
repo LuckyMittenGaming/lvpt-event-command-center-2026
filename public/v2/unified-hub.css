@@ -1,5 +1,8 @@
 #attentionBar[hidden],#metricScopeBar[hidden],#hubOverviewStrip[hidden],#metricsGrid[hidden],.layout-grid[hidden],#reportCenter[hidden],#selectedEventTasksPanel[hidden],#eventEditorPanel[hidden],#fullEventEditorTabs[hidden]{display:none !important}
 #attentionBar:not(.show){display:none}
+.metrics-grid,.lifecycle-summary{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.metric strong,.lifecycle-summary strong{font-size:clamp(16px,2vw,28px);overflow-wrap:anywhere}
+body:not(.record-open) .layout-grid,body:not(.record-open) #reportCenter,body:not(.record-open) #eventEditorPanel,body:not(.record-open) .tab-panel{display:none !important}
 .hero-card{position:sticky;top:0;z-index:20;padding:12px 16px}
 .hero-copy{display:none}
 .hero-card h1{font-size:clamp(26px,3vw,40px)}

@@ -1,15 +1,8 @@
 (() => {
   const VIEW_KEY = 'lvptCommandCenterView';
   const APP_KEY = 'lvptAppSyncKey';
-  const pipelineStatuses = ['New Lead','Needs Discovery','Quote Needed','Proposal Sent','Invoice Sent'];
-  const activeStatuses = ['Deposit Paid','Booked','Pre-Production','Event Day'];
-  const archiveStatuses = ['Completed','Post-Event Follow-Up','Closed Won','Closed Lost'];
-  const pipelineGroups = [
-    { label:'New & Discovery', statuses:['New Lead','Needs Discovery'] },
-    { label:'Quote & Proposal', statuses:['Quote Needed','Proposal Sent'] },
-    { label:'Approval & Payment', statuses:['Invoice Sent'] },
-    { label:'Booked Handoff', statuses:['Deposit Paid','Booked'] },
-  ];
+  let recordOpen = false;
+  const statusApi = () => window.LVPTEventStatus;
   const proposals = [
     { id:'proposal-nium', client:'NIUM', title:'NIUM VIP Casino Lounge', project:'lvpt-nium-proposal', url:'https://lvpt-nium-proposal.vercel.app/', status:'Accepted / Booked', updated:'2026-07-16', eventId:'evt-nium-2026', tags:['Palms Place','Casino Night','Custom Assets','Transportation'], notes:'Enterprise proposal with venue comparisons, custom chips/cards/felts, premium catering, open bar and transportation.' },
     { id:'proposal-neo-2026', client:'Mosaic Events / NEO', title:'NEO Reunion 2026', project:'mosaic-neo-2026-proposal', url:'https://mosaic-neo-2026-proposal.vercel.app/', status:'Updated Proposal', updated:'2026-08-13', eventId:'evt-neo-reunion-2026', tags:['Training','Tournament','Ritz-Carlton','Repeat Client'], notes:'Year-two training and tournament proposal with premium instructor positioning and event improvements.' },
@@ -25,7 +18,9 @@
 
   const baseEnsureEventShape = ensureEventShape;
   ensureEventShape = function(event) {
+    const hadPayment = event && event.payment && event.payment.amountPaid !== undefined && event.payment.amountPaid !== null && event.payment.amountPaid !== '';
     const shaped = baseEnsureEventShape(event);
+    shaped.paymentRecorded = Boolean(hadPayment);
     shaped.proposalUrl = shaped.proposalUrl || '';
     shaped.proposalId = shaped.proposalId || '';
     shaped.proposalStatus = shaped.proposalStatus || '';
@@ -35,12 +30,12 @@
   };
   events = events.map(ensureEventShape);
 
-  function todayString() { return new Date().toISOString().slice(0,10); }
-  function isPastDate(event) { return Boolean(event.eventDate && event.eventDate < todayString()); }
-  function isPipeline(event) { return pipelineStatuses.includes(event.status) && !isPastDate(event); }
-  function isActive(event) { return activeStatuses.includes(event.status) && !isPastDate(event); }
-  function isArchive(event) { return archiveStatuses.includes(event.status) || isPastDate(event); }
-  function eventValue(event) { return quoteTotal(event) || num(event.setup?.targetQuote); }
+  function todayString() { return statusApi() ? statusApi().todayIso() : new Date().toISOString().slice(0, 10); }
+  function laneOf(event) { return statusApi() ? statusApi().eventLane(event, todayString()) : { lane: 'review', stage: 'unknown', past: false, completed: false, raw: event.status || '' }; }
+  function isPastDate(event) { return laneOf(event).past && !laneOf(event).completed; }
+  function isPipeline(event) { return laneOf(event).lane === 'pipeline'; }
+  function isActive(event) { return laneOf(event).lane === 'active'; }
+  function isArchive(event) { return laneOf(event).lane === 'past'; }
   function openTaskCount(event) { return (event.tasks || []).filter(task => !taskIsComplete(task)).length; }
   function dateLabel(value) { if(!value) return 'Date TBD'; const date=new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime())?value:date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
   function ageInDays(value) { if(!value) return Infinity; return Math.floor((Date.now()-new Date(value).getTime())/86400000); }
@@ -70,7 +65,7 @@
     nav.setAttribute('aria-label','Command Center sections');
     nav.innerHTML = [
       ['overview','Overview'],['action','Action Required'],['pipeline','Pipeline'],['active','Active Events'],['archive','Past Events'],['proposals','Proposals'],['followup','Client Follow-Up'],['finance','Event Finance'],['communications','Communications'],['health','Source Health']
-    ].map(([view,label]) => `<button type="button" data-command-view="${view}">${label}</button>`).join('') + '<a class="btn small" href="/sms-review/index.html">Owner sign-in</a>';
+    ].map(([view,label]) => `<button type="button" data-command-view="${view}">${label}</button>`).join('') + '<a class="btn small" id="ownerSignInLink" href="/sms-review/index.html">Owner sign-in</a>';
     $('.hero-card').after(nav);
     const view = document.createElement('section');
     view.id = 'commandView';
@@ -101,10 +96,12 @@
     ensureShell();
     all('[data-command-view]').forEach(button => button.classList.toggle('active', button.dataset.commandView === commandView));
     const view = $('#commandView');
-    const overview = commandView === 'overview';
-    toggleStandardWorkspace(overview);
-    view.hidden = overview;
-    if (overview) {
+    const showRecord = recordOpen && commandView === 'overview';
+    document.body.classList.toggle('record-open', showRecord);
+    toggleStandardWorkspace(showRecord);
+    view.hidden = showRecord;
+    if (commandView === 'overview' && !showRecord) {
+      renderOverview(view);
       if (typeof window.lvptPaintOverviewHealth === 'function') window.lvptPaintOverviewHealth();
       return;
     }
@@ -123,27 +120,81 @@
     return `<div class="command-view-head"><div><p class="eyebrow">${escapeHtml(eyebrow)}</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p></div>${action}</div>`;
   }
 
-  function summaryCards(items) {
-    const value = items.reduce((sum,event)=>sum+eventValue(event),0);
-    const profit = items.reduce((sum,event)=>sum+Math.max(eventValue(event)-quoteCost(event),0),0);
-    const tasks = items.reduce((sum,event)=>sum+openTaskCount(event),0);
-    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong></div><div><span>Pipeline Value</span><strong>${money(value)}</strong></div><div><span>Quote profit estimate</span><strong>${money(profit)}</strong></div><div><span>Open Actions</span><strong>${tasks}</strong></div></div>`;
+  function moneyCents(cents) {
+    if (cents == null || !Number.isFinite(cents)) return 'Unpriced';
+    return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  }
+  function summarizeQuotes(items) {
+    let pricedCents = 0;
+    let priced = 0;
+    let unpriced = 0;
+    let recordedZero = 0;
+    let profitCents = 0;
+    let costKnown = 0;
+    items.forEach((event) => {
+      const quote = statusApi().quoteCoverage(event);
+      if (quote.priced) {
+        priced += 1;
+        pricedCents += quote.pricedCents;
+        if (quote.costKnown) {
+          costKnown += 1;
+          profitCents += quote.pricedCents - quote.costCents;
+        }
+      } else if (quote.recordedZero) recordedZero += 1;
+      else unpriced += 1;
+    });
+    const profit = priced === 0 ? 'No priced quotes' : costKnown === priced ? moneyCents(profitCents) : 'Cost not recorded';
+    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong></div><div><span>Priced quotes</span><strong>${moneyCents(priced ? pricedCents : null)}</strong><p class="muted">${priced} priced · ${unpriced} unpriced · ${recordedZero} recorded zero</p></div><div><span>Quote profit</span><strong>${escapeHtml(profit)}</strong><p class="muted">${costKnown} of ${priced} priced quotes have a recorded cost. Missing cost is not zero.</p></div><div><span>Open tasks</span><strong>${items.reduce((sum, event) => sum + openTaskCount(event), 0)}</strong></div></div>`;
+  }
+  function renderOverview(view) {
+    if (snapshotBlocks(view, 'Overview', 'Current sheet')) return;
+    const lanes = events.map(laneOf);
+    const count = (lane) => lanes.filter((item) => item.lane === lane).length;
+    const upcoming = events.filter((event) => {
+      const lane = laneOf(event);
+      return lane.date.recognized && !lane.past && lane.lane !== 'past';
+    }).sort((a, b) => String(a.eventDate).localeCompare(String(b.eventDate))).slice(0, 5);
+    const tasks = [];
+    events.forEach((event) => {
+      (event.tasks || []).forEach((task) => {
+        const status = String(task.status || '').trim().toLowerCase();
+        if (['complete', 'completed', 'resolved', 'done', 'cancelled', 'canceled', 'closed', 'declined'].includes(status)) return;
+        if (!task.dueDate) return;
+        tasks.push({ event, task, due: task.dueDate });
+      });
+    });
+    tasks.sort((a, b) => String(a.due).localeCompare(String(b.due)));
+    const taskHtml = tasks.slice(0, 6).map((item) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(item.event.id)}">${escapeHtml(item.task.title || 'Open task')}</button> <span>${escapeHtml(item.event.eventName || 'Untitled event')} · ${escapeHtml(item.due)}</span></li>`).join('');
+    const upcomingHtml = upcoming.map((event) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(event.id)}">${escapeHtml(event.eventName || 'Untitled event')}</button> <span>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${escapeHtml(event.eventDate)}</span></li>`).join('');
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. Open Record shows one event.')}<div class="command-view-body">${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong></div><div><span>Active</span><strong>${count('active')}</strong></div><div><span>Past</span><strong>${count('past')}</strong></div><div><span>Needs review</span><strong>${count('review')}</strong></div></div><h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Upcoming events</h3><ul>${upcomingHtml || '<li>No upcoming dated event.</li>'}</ul><p class="muted">Booked and payment-processing events are in Active. A past date does not complete an event.</p></div></div>`;
+    bindEventOpeners(view);
   }
 
   function renderPipeline(view) {
     if (snapshotBlocks(view, 'Sales Pipeline', 'Present & Future Opportunities')) return;
-    const items = events.filter(isPipeline);
-    const columns = pipelineGroups.map(group => {
-      const matches = items.filter(event => group.statuses.includes(event.status));
-      return `<section class="pipeline-column"><div class="pipeline-column-head"><h3>${escapeHtml(group.label)}</h3><span class="pipeline-column-count">${matches.length}</span></div><div class="pipeline-cards">${matches.map(pipelineCard).join('') || '<div class="command-empty">No deals</div>'}</div></section>`;
+    const items = events.filter((event) => isPipeline(event) || laneOf(event).lane === 'review');
+    const groups = [
+      { label: 'New & Discovery', match: (event) => laneOf(event).stage === 'open' && /^(new lead|needs discovery)$/i.test(laneOf(event).raw) },
+      { label: 'Quote & Proposal', match: (event) => laneOf(event).stage === 'open' && /^(quote needed|proposal sent)$/i.test(laneOf(event).raw) },
+      { label: 'Invoice, not booked', match: (event) => laneOf(event).stage === 'invoice_sent' || laneOf(event).stage === 'invoice_awaiting_deposit' },
+      { label: 'Needs review', match: (event) => laneOf(event).lane === 'review' }
+    ];
+    const columns = groups.map((group) => {
+      const matches = items.filter(group.match);
+      return `<section class="pipeline-column"><div class="pipeline-column-head"><h3>${escapeHtml(group.label)}</h3><span class="pipeline-column-count">${matches.length}</span></div><div class="pipeline-cards">${matches.map(pipelineCard).join('') || '<div class="command-empty">None</div>'}</div></section>`;
     }).join('');
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Every active conversation, proposal, approval and deposit handoff in one place.')}<div class="command-view-body">${summaryCards(items)}<div class="pipeline-board top-gap">${columns}</div></div></div>`;
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Booked events are listed in Active, not in a handoff column. Dates use America/Los_Angeles.')}<div class="command-view-body">${summarizeQuotes(items)}<p><a class="btn small" href="#" data-command-jump="active">Open Active events</a></p><div class="pipeline-board top-gap">${columns}</div></div></div>`;
+    view.querySelector('[data-command-jump="active"]')?.addEventListener('click', (clickEvent) => { clickEvent.preventDefault(); setCommandView('active'); });
     bindEventOpeners(view);
   }
 
   function pipelineCard(event) {
     const proposal = proposalForEvent(event);
-    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}"><strong>${escapeHtml(event.company || event.eventName)}</strong><p>${escapeHtml(event.eventName)} · ${dateLabel(event.eventDate)}</p><div class="pipeline-card-meta"><span>${money(eventValue(event))}</span><span>${num(event.probabilityToClose)}% likely</span></div><p class="pipeline-card-next">Next: ${escapeHtml(event.nextAction || 'Add next action')}${event.nextActionDue ? ` · ${dateLabel(event.nextActionDue)}` : ''}${proposal ? ' · Proposal linked' : ''}</p></button>`;
+    const quote = statusApi().quoteCoverage(event);
+    const value = quote.priced ? moneyCents(quote.pricedCents) : quote.recordedZero ? 'Recorded zero' : 'Unpriced';
+    const title = String(event.eventName || event.contactName || 'Untitled event').trim();
+    const next = String(event.nextAction || '').trim().slice(0, 90) || 'No next action recorded';
+    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate)}</p><div class="pipeline-card-meta"><span>${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${proposal ? ' · Proposal linked' : ''}</p></button>`;
   }
 
   function renderPortfolio(view, mode) {
@@ -151,14 +202,18 @@
     const items = events.filter(mode === 'active' ? isActive : isArchive).sort((a,b)=>String(b.eventDate||'').localeCompare(String(a.eventDate||'')));
     const title = mode === 'active' ? 'Booked & Active Events' : 'Past Event Archive';
     const copy = mode === 'active' ? 'Confirmed experiences moving through planning, production and event day.' : 'Completed, lost and historical opportunities with their financials, documents, proposals and follow-up history intact.';
-    view.innerHTML = `<div class="command-view-shell">${viewHeader(mode === 'active' ? 'Present & Future' : 'Past',''+title,copy)}<div class="command-view-body">${summaryCards(items)}<div class="portfolio-grid top-gap">${items.map(portfolioCard).join('') || '<div class="command-empty">No records in this section.</div>'}</div></div></div>`;
+    view.innerHTML = `<div class="command-view-shell">${viewHeader(mode === 'active' ? 'Present & Future' : 'Past',''+title,copy)}<div class="command-view-body">${summarizeQuotes(items)}<div class="portfolio-grid top-gap">${items.map(portfolioCard).join('') || '<div class="command-empty">No records in this section.</div>'}</div></div></div>`;
     bindEventOpeners(view);
   }
 
   function portfolioCard(event) {
     const proposal = proposalForEvent(event);
-    const pastNote = isPastDate(event) && !archiveStatuses.includes(event.status) ? '<p>Past date. The recorded status was not changed to completed.</p>' : '';
-    return `<article class="portfolio-card"><p class="eyebrow small">${escapeHtml(event.status)}</p><h3>${escapeHtml(event.eventName)}</h3><p>${escapeHtml(event.company)} · ${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}<div class="portfolio-card-grid"><div><span>Value</span><strong>${money(eventValue(event))}</strong></div><div><span>Collected</span><strong>${money(event.payment?.amountPaid)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong>${proposal ? proposal.status : event.proposalUrl ? 'Linked' : 'Not linked'}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${proposal ? `<button class="btn small" data-preview-proposal="${proposal.id}">Preview Proposal</button>` : ''}</div></article>`;
+    const pastNote = laneOf(event).past && !laneOf(event).completed ? '<p>Past date. The recorded status was not changed to completed.</p>' : '';
+    const quote = statusApi().quoteCoverage(event);
+    const value = quote.priced ? moneyCents(quote.pricedCents) : quote.recordedZero ? 'Recorded zero' : 'Unpriced';
+    const collected = event.paymentRecorded ? money(event.payment.amountPaid) : 'Not recorded';
+    const title = String(event.eventName || event.contactName || 'Untitled event').trim();
+    return `<article class="portfolio-card"><p class="eyebrow small">${escapeHtml(laneOf(event).raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}<div class="portfolio-card-grid"><div><span>Priced quote</span><strong>${escapeHtml(value)}</strong></div><div><span>Ledger collected</span><strong>${escapeHtml(collected)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong>${proposal ? 'Historical reference' : event.proposalUrl ? 'Linked' : 'Not linked'}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${proposal ? `<button class="btn small" data-preview-proposal="${proposal.id}">Preview Proposal</button>` : ''}</div></article>`;
   }
 
   function explicitProposalUrl(event) {
@@ -275,7 +330,7 @@
 
   function bindEventOpeners(scope=document) {
     scope.querySelectorAll('[data-open-event]').forEach(button=>button.addEventListener('click',()=>{
-      selectedId=button.dataset.openEvent; activeTab='setup'; setCommandView('overview'); render();
+      selectedId=button.dataset.openEvent; recordOpen=true; activeTab='setup'; setCommandView('overview');
     }));
     bindProposalOpeners(scope);
   }

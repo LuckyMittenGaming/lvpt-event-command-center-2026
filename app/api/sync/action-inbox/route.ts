@@ -4,6 +4,7 @@ import { buildActionInbox } from '../../../../lib/action-inbox.mjs';
 import { publicRcsRecord } from '../../../../lib/rcs-staging.mjs';
 import { matchThreads } from '../../../../lib/sms-bridge.mjs';
 import { classifySmsScan, observedTime, SMS_PAGE_CAP, SMS_PAGE_SIZE } from '../../../../lib/sms-scan-health.mjs';
+import { classifyGmailHeaderRead } from '../../../../lib/source-reliability.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -179,13 +180,28 @@ export async function GET(request: Request) {
     });
 
     const gmailThreads: Array<Record<string, string>> = [];
-    const keys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
+    const gmailKeys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
+    const gmailReads: Array<{ domain: string; ok: boolean; reason?: string; threads?: Array<{ lastMessageAt: string }> }> = [];
+    let gmailCapped = false;
     const started = Date.now();
-    for (const eventKey of keys) {
-      if (Date.now() - started > 15000) break;
+    for (const eventKey of gmailKeys) {
+      if (Date.now() - started > 15000) {
+        gmailCapped = true;
+        break;
+      }
       try {
         const evidence = await appsScriptRequest<{ threads?: Raw[] }>('listGmailThreadEvidence', { eventKey });
-        (Array.isArray(evidence.threads) ? evidence.threads : []).forEach((thread) => {
+        const threads = Array.isArray(evidence.threads) ? evidence.threads : null;
+        if (!threads) {
+          gmailReads.push({ domain: eventKey, ok: false, reason: 'invalid_body' });
+          continue;
+        }
+        gmailReads.push({
+          domain: eventKey,
+          ok: true,
+          threads: threads.map((thread) => ({ lastMessageAt: text(thread.lastMessageAt, 40) }))
+        });
+        threads.forEach((thread) => {
           gmailThreads.push({
             threadId: text(thread.threadId, 80),
             subject: text(thread.subject, 140),
@@ -195,9 +211,16 @@ export async function GET(request: Request) {
           });
         });
       } catch {
-        // A missed header read stays out of the inbox. Stored sheet rows remain.
+        gmailReads.push({ domain: eventKey, ok: false, reason: 'read_failed' });
       }
     }
+    const gmailHealth = classifyGmailHeaderRead({
+      requested: gmailKeys.length,
+      reads: gmailReads,
+      capped: gmailCapped,
+      storedNewest: newestGmail,
+      now: Date.now()
+    });
 
     let sms = { threads: [] as Array<Record<string, unknown>>, health: offlineScan(true) };
     try {
@@ -238,16 +261,34 @@ export async function GET(request: Request) {
       smsThreads: sms.threads,
       rcsMessages
     });
-    const gmailFresh = Boolean(newestGmail) && Date.now() - Date.parse(newestGmail) < 14 * 86400000;
     return jsonNoStore({
       ok: true,
       ...inbox,
       sources: {
         events: events.length,
         gmailRows,
-        newestGmail,
-        gmailFresh,
-        gmailHeaders: gmailThreads.length,
+        newestGmail: gmailHealth.storedNewestAt,
+        gmailFresh: false,
+        gmailHeaders: gmailHealth.headerThreads,
+        gmailHeader: {
+          coverage: gmailHealth.coverage,
+          connected: gmailHealth.connected,
+          partial: gmailHealth.partial,
+          unavailable: gmailHealth.unavailable,
+          readComplete: gmailHealth.readComplete,
+          metadataOnly: true,
+          fullThreadAccess: false,
+          domainsRequested: gmailHealth.domainsRequested,
+          domainsRead: gmailHealth.domainsRead,
+          headerThreads: gmailHealth.headerThreads,
+          countComplete: gmailHealth.countComplete,
+          newestHeaderAt: gmailHealth.newestHeaderAt,
+          newestHeaderAmongRead: gmailHealth.newestHeaderAmongRead,
+          storedNewestAt: gmailHealth.storedNewestAt,
+          invalidTimestamps: gmailHealth.invalidTimestamps,
+          fresh: false,
+          detail: gmailHealth.detail
+        },
         smsMessages: sms.health.countComplete ? sms.health.storedMessages : null,
         newestSms: sms.health.newestMessageAt,
         newestSmsIngest: sms.health.newestIngestAt,
@@ -280,6 +321,7 @@ export async function GET(request: Request) {
         messageTextIncluded: false
       },
       smsProbe: sms.health.probe,
+      gmailProbe: gmailHealth.probe,
       gmail: {
         productionWrites: false,
         historicalRowsPreserved: gmailRows,

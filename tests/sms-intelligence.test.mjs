@@ -84,3 +84,4 @@ assert.equal(decisions.decisions[0].event_key_unverified,'nium');
 assert(!JSON.stringify(decisions).includes('NIUM paid?'), 'No raw SMS excerpts in case export');
 assert(!JSON.stringify(decisions).includes('Need receipt'), 'No excerpts in review export');
 console.log('SMS event matching, redaction and grouped-case tests passed.');
+await import('./source-reliability.test.mjs');

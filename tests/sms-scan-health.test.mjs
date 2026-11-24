@@ -221,8 +221,10 @@ assert.match(hub, /finance\.sourceStatus/);
 assert.doesNotMatch(hub, /smsFresh \? 'fresh'/);
 
 const picture = readFileSync(new URL('../app/api/sync/operating-picture/route.ts', import.meta.url), 'utf8');
+const reliability = readFileSync(new URL('../lib/source-reliability.mjs', import.meta.url), 'utf8');
 assert.match(picture, /observedTime/);
-assert.match(picture, /A message timestamp is not an import/);
+assert.match(picture, /classifyStoredCollection/);
+assert.match(reliability, /Message time is not an import/);
 assert.match(picture, /command_center_all_payments/);
 assert.match(picture, /name: 'Financial source sync'/);
 assert.doesNotMatch(picture, /new Date\(Number\(messages\[0\]\.timestamp_ms\)\)\.toISOString/);

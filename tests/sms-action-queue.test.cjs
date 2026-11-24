@@ -306,7 +306,7 @@ assert.equal(internalNotice.needsHumanReview,false,
   'A document-notice subject cannot reclassify an internal thread into a client review');
 const internalForm=cleanThread(header({
   threadId:'bbbbbbbbbbbbbbbb',senderDomain:'b.bizlyapp.com',
-  subject:'New Contact Form Submission from Thom Johnston'
+  subject:'New Contact Form Submission from Synthetic Guest'
 }));
 assert.equal(internalForm.relationshipHint,'internal');
 assert.equal(internalForm.needsHumanReview,false,
@@ -339,7 +339,7 @@ assert.equal(notice.relationshipHint,'operational_notice');
 assert.notEqual(notice.relationshipHint,'internal');
 const form=cleanThread(header({
   threadId:'dddddddddddddddd',senderDomain:'b.bizlyapp.com',
-  subject:'New Contact Form Submission from Thom Johnston',relationshipHint:'unclassified'
+  subject:'New Contact Form Submission from Synthetic Guest',relationshipHint:'unclassified'
 }));
 assert.equal(form.relationshipHint,'form_notification');
 assert.notEqual(form.relationshipHint,'internal');

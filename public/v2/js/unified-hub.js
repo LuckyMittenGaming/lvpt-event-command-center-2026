@@ -38,6 +38,26 @@
     return `<div class="hub-callout"><strong>SMS metadata scan</strong><p>${badge(status)} Coverage: ${esc(coverage)}. ${esc(connected)}.</p><p>${esc((sms && sms.detail) || source.detail || '')}</p><p>Latest successful import: ${esc(ingest)}. Newest message: ${esc(message)}. ${esc(counted)}.</p>${among}</div>`;
   }
 
+  function gmailScanBlock(header) {
+    const source = header && header.probe ? header.probe : header;
+    const known = header && header.coverage;
+    const status = finance.sourceStatus(known ? {
+      connected: header.connected === true,
+      partial: header.partial === true,
+      lastSuccess: '',
+      now: header.checkedAt
+    } : { connected: false });
+    const coverage = header && header.coverage === 'read-complete' ? 'Read complete' : header && header.coverage === 'partial' ? 'Partial' : 'Unavailable';
+    const counted = !known
+      ? 'Header threads were not counted'
+      : header.countComplete
+        ? `${header.headerThreads} header threads, and that count is complete for the requested domains`
+        : header.headerThreads == null
+          ? 'Header threads were not counted'
+          : `${header.headerThreads} header threads were read. That is not a complete count`;
+    return `<div class="hub-callout"><strong>Gmail header read</strong><p>${badge(status)} Coverage: ${esc(coverage)}. Metadata only. Full threads were not opened.</p><p>${esc((header && header.detail) || (source && source.detail) || 'The header read did not report coverage. An empty queue is not proof the mailbox is empty.')}</p><p>Newest header: ${esc((header && header.newestHeaderAt) || 'No valid header time')}. Stored sheet date: ${esc((header && header.storedNewestAt) || 'not a valid stored date')}. ${esc(counted)}.</p></div>`;
+  }
+
   function smsScanJob(inbox) {
     if (inbox.ok && inbox.data && inbox.data.ok === true && inbox.data.smsProbe) return inbox.data.smsProbe;
     return {
@@ -168,14 +188,16 @@
     const smsRows = threads.slice(0, 12).map((item) => `<tr><td>SMS</td><td>${esc(smsDirection(item))}</td><td>${esc(item.newestAt || '')}</td><td>Not reported</td><td>${esc(item.match || 'unmatched')}</td><td>Android bridge</td><td>Not a Google pairing</td><td>Encrypted</td><td>${esc(item.threadKey)}</td></tr>`).join('');
     const rcsTimeline = rcsRecords.map((item) => `<tr><td>RCS</td><td>${esc(item.direction === 'outgoing' ? 'Outgoing' : 'Incoming')}</td><td>${esc(item.messageAt || '')}</td><td>${esc(item.ingestedAt || '')}</td><td>${esc(item.match || 'unmatched')}${item.label === 'TEST' ? ' · TEST' : ''}</td><td>${esc(collectorLabel)}</td><td>${esc(collectorLabel)}</td><td>Read only</td><td>${esc(item.providerId || item.googleMessageId || '')}</td></tr>`).join('');
     const rcsNote = rcsData
-      ? `${collectorBadge} Last RCS ingestion ${esc(rcsData.lastIngestionAt || 'none')}. Newest RCS message ${esc(rcsData.newestMessageAt || 'none')}. Read only. Sending is off. Mark-read is off. A stored row is not a live collector. ${rcsRecords.length} Google Messages rows were returned. Existing SMS rows were not rewritten. The staging server validates AES-GCM ciphertext with its storage key. That is not end-to-end encryption.`
+      ? `${collectorBadge} Last stored RCS ingestion ${esc(rcsData.lastIngestionAt || 'none')}. Newest RCS message ${esc(rcsData.newestMessageAt || 'none')}. Read only. Sending is off. Mark-read is off. A stored row is not a live collector. ${esc(rcsData.verificationPrerequisite || 'Collector heartbeat was not verified.')} ${rcsRecords.length} Google Messages rows were returned. Existing SMS rows were not rewritten. The staging server validates AES-GCM ciphertext with its storage key. That is not end-to-end encryption.`
       : `Google Messages collector status did not load (${esc((rcs.data && rcs.data.reason) || 'unavailable')}).`;
     const smsNote = conversations.ok
       ? `${conversations.data.storedMessages || 0} stored SMS metadata rows. Message text stays encrypted. Exact matches use the event contact phone. Ambiguous and unmatched threads stay in review. Outgoing SMS is disabled.`
       : `SMS conversations did not load (${esc((conversations.data && conversations.data.reason) || 'unavailable')}). Ciphertext was not shown.`;
     const devices = bridge.ok && bridge.data && Array.isArray(bridge.data.devices) ? bridge.data.devices : [];
     const deviceRows = devices.map((item) => `<tr><td>${esc(item.device)}</td><td>${esc(item.lastSuccessAt || 'none')}</td><td>${esc(item.reportedAt || '')}</td><td>${item.readSms ? 'granted' : 'missing'}</td><td>${item.monitoring ? 'on' : 'off'}</td><td>${item.batteryUnrestricted === true ? 'unrestricted' : item.batteryUnrestricted === false ? 'restricted' : 'unknown'}</td><td>${esc(item.lastFailure || 'none')}</td></tr>`).join('');
-    const deviceNote = devices.length ? 'The phone reported this health. A database row count is not a fresh upload.' : `No phone health report is stored (${esc((bridge.data && bridge.data.reason) || 'none')}).`;
+    const deviceNote = devices.length
+      ? 'The phone reported this health. A database row count is not a fresh upload and is not a current heartbeat.'
+      : `No phone heartbeat was read (${esc((bridge.data && bridge.data.reason) || 'bridge status is not available on this preview')}). A stored SMS row cannot certify that the approved handset is collecting. Local verification requires the owner to run the LVPT SMS bridge on the approved handset and confirm a bridge status whose last success time is current.`;
     view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'Approve, Make Changes, Deny, and Edit Myself stay in the review workspace. This page does not send.', `${communicationsBody(session)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Source</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${evidence || '<tr><td colspan="3">Connection evidence did not load.</td></tr>'}</tbody></table></div><h3>Gmail review queue</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Domain</th><th>Newest header</th><th>Direction</th><th>Match</th><th>Subject</th></tr></thead><tbody>${queueRows || '<tr><td colspan="5">No new header thread was waiting. Stored threads were left on the sheet.</td></tr>'}</tbody></table></div><p class="muted">${esc(stored)}</p><h3>SMS and RCS timeline</h3><div class="hub-table-wrap" style="max-width:100%;overflow-x:auto"><table class="hub-table"><thead><tr><th>Source</th><th>Direction</th><th>Message time</th><th>Ingested</th><th>Match</th><th>Sync</th><th>Pairing</th><th>Access</th><th>Provider ID</th></tr></thead><tbody>${rcsTimeline}${smsRows}${(smsRows || rcsTimeline) ? '' : '<tr><td colspan="9">No SMS or RCS conversation metadata was returned.</td></tr>'}</tbody></table></div><p class="muted">${smsNote}</p><h3>Google Messages collector</h3><p class="muted">${rcsNote}</p><h3>Android bridge</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Device</th><th>Last upload</th><th>Last report</th><th>Read SMS</th><th>Monitoring</th><th>Battery</th><th>Failure</th></tr></thead><tbody>${deviceRows || '<tr><td colspan="7">The phone has not reported health to this staging host.</td></tr>'}</tbody></table></div><p class="muted">${deviceNote} Sending stays off.</p>`);
   }
 
@@ -192,9 +214,13 @@
       { name: 'SMS ingestion', schedule: 'Android staging import', owner: 'Encrypted store', connected: false, detail: 'An audit response is not a message sync.' }
     ];
     const scan = smsScanJob(inbox);
-    const listed = namedJobs.concat([scan]);
+    const gmailHeader = inbox.ok && inbox.data && inbox.data.sources ? inbox.data.sources.gmailHeader : null;
+    const gmailJob = inbox.ok && inbox.data && inbox.data.gmailProbe
+      ? inbox.data.gmailProbe
+      : { name: 'Gmail header metadata', connected: false, lastSuccess: '', recordsExamined: null, recordsCreated: 0, detail: 'The Gmail header read did not load. No header count was taken.' };
+    const listed = namedJobs.concat([scan, gmailJob]);
     const sms = inbox.ok && inbox.data && inbox.data.sources ? inbox.data.sources.sms : null;
-    const body = `${smsScanBlock(sms, scan)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Job</th><th>Status</th><th>Last attempt</th><th>Last success</th><th>Examined</th><th>Created</th><th>Duplicates</th><th>Review</th><th>Evidence</th></tr></thead><tbody>${listed.map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.lastAttempt || '—')}</td><td>${esc(job.lastSuccess || '—')}</td><td>${esc(job.recordsExamined ?? '—')}</td><td>${esc(job.recordsCreated ?? '—')}</td><td>${esc(job.duplicates ?? '—')}</td><td>${esc(job.unmatched ?? '—')}</td><td>${esc(job.detail || '')}</td></tr>`).join('')}</tbody></table></div><p class="muted">A historical import is not a current ingestion. A database response is not a phone upload. A partial metadata scan is not a complete import. A job with no readable history stays Not observable. No customer message was sent by this check.</p>`;
+    const body = `${smsScanBlock(sms, scan)}${gmailScanBlock(gmailHeader)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Job</th><th>Status</th><th>Last attempt</th><th>Last success</th><th>Examined</th><th>Created</th><th>Duplicates</th><th>Review</th><th>Evidence</th></tr></thead><tbody>${listed.map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.lastAttempt || '—')}</td><td>${esc(job.lastSuccess || '—')}</td><td>${esc(job.recordsExamined ?? '—')}</td><td>${esc(job.recordsCreated ?? '—')}</td><td>${esc(job.duplicates ?? '—')}</td><td>${esc(job.unmatched ?? '—')}</td><td>${esc(job.detail || '')}</td></tr>`).join('')}</tbody></table></div><p class="muted">A historical import is not a current ingestion. A database response is not a phone upload. A stored row is not a device heartbeat. A partial metadata scan is not a complete import. A Gmail header is not a full thread. A job with no readable history stays Not observable. No customer message was sent by this check.</p>`;
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', body);
   }
 
@@ -238,7 +264,7 @@
         ['all', 'All']
       ];
       const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Drafts with a recipient</span><strong>${esc(counts.readyForApproval || 0)}</strong></div><div><span>Vendor, excluded from leads</span><strong>${esc(counts.vendorExcluded || 0)}</strong></div></div>`;
-      const freshness = `<p class="muted">Sheet events ${esc(sources.events ?? 'not counted')}. Stored Gmail rows ${esc(sources.gmailRows ?? 'not counted')}, newest stored row ${esc(sources.newestGmail || 'none')}. ${sources.gmailFresh ? 'That stored date is within 14 days.' : 'That stored date is missing or older than 14 days.'} A stored Gmail row is not a current mailbox ingestion. RCS metadata rows returned ${esc(sources.rcsMessages ?? 'not counted')}, newest RCS message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS, and that message time is not an ingestion result. Message text was not included in this list.</p>${smsScanBlock(sources.sms, data.smsProbe)}<div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved ?? 'not counted')}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
+      const freshness = `<p class="muted">Sheet events ${esc(sources.events ?? 'not counted')}. RCS metadata rows returned ${esc(sources.rcsMessages ?? 'not counted')}, newest RCS message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS. A stored RCS message time is not a collector heartbeat. Message text was not included in this list.</p>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved ?? 'not counted')}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
       const cards = records.map((record, index) => {
         const info = record.qualification || {};
         const timeline = (record.timeline || []).map((item) => `<li><span>${esc(item.at || 'Time not recorded')}</span> ${esc(item.source)} ${esc(item.direction || '')} ${item.contentAvailable ? esc(item.summary) : 'Message text is not in this list. Open the authorized review only when a session can decrypt or read it.'}</li>`).join('');

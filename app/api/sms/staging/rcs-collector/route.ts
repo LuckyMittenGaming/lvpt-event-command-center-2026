@@ -1,5 +1,6 @@
 import { jsonNoStore, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { collectorHealth, publicRcsRecord } from '../../../../../lib/rcs-staging.mjs';
+import { RCS_HEARTBEAT_PREREQUISITE } from '../../../../../lib/source-reliability.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,6 +70,8 @@ export async function GET(request: Request) {
     encryption: 'aes-256-gcm-server-validated',
     endToEndEncryption: false,
     lastSuccess: '',
+    heartbeat: 'unverified',
+    verificationPrerequisite: RCS_HEARTBEAT_PREREQUISITE,
     lastIngestionAt,
     newestMessageAt,
     lastFailure: readOk ? '' : 'rcs_metadata_unavailable',

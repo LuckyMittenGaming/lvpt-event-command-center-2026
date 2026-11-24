@@ -3,6 +3,7 @@ import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../../sms
 import { buildActionInbox } from '../../../../lib/action-inbox.mjs';
 import { publicRcsRecord } from '../../../../lib/rcs-staging.mjs';
 import { matchThreads } from '../../../../lib/sms-bridge.mjs';
+import { classifySmsScan, observedTime, SMS_PAGE_CAP, SMS_PAGE_SIZE } from '../../../../lib/sms-scan-health.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,46 +34,88 @@ function keyBytes(): Buffer | null {
   }
 }
 
-async function smsThreads(events: Array<{ id?: string; contactPhone?: string }>): Promise<{ threads: Array<Record<string, unknown>>; storedMessages: number; newestAt: string; fresh: boolean }> {
-  if (!ready()) return { threads: [], storedMessages: 0, newestAt: '', fresh: false };
+function offlineScan(configured: boolean) {
+  return classifySmsScan({
+    configured,
+    pages: [{ ok: false, reason: 'offline' }],
+    now: Date.now()
+  });
+}
+
+async function smsThreads(events: Array<{ id?: string; contactPhone?: string }>) {
+  const now = Date.now();
   const key = keyBytes();
-  if (!key) return { threads: [], storedMessages: 0, newestAt: '', fresh: false };
-  const rows: Array<{ contact_hash: string; direction: string; timestamp_ms: number }> = [];
-  let after = 0;
-  let newest = 0;
-  for (let page = 0; page < 8; page += 1) {
-    const query = new URLSearchParams({
-      select: 'contact_hash,direction,timestamp_ms,sms_id',
-      tenant_id: 'eq.lvpt-owner-pilot',
-      sms_id: `gt.${after}`,
-      order: 'sms_id.asc',
-      limit: '1000'
-    });
-    const response = await fetch(supabaseEndpoint(`lvpt_sms_staging?${query}`), {
-      headers: supabaseHeaders(),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(12_000)
-    });
-    if (!response.ok) break;
-    const batch = await response.json() as Array<Record<string, unknown>>;
-    if (!Array.isArray(batch) || batch.length === 0) break;
-    for (const row of batch) {
-      const smsId = Number(row.sms_id);
-      const stamp = Number(row.timestamp_ms) || 0;
-      if (Number.isSafeInteger(smsId) && smsId > after) after = smsId;
-      if (stamp > newest) newest = stamp;
-      rows.push({
-        contact_hash: String(row.contact_hash || ''),
-        direction: String(row.direction || ''),
-        timestamp_ms: stamp
-      });
-    }
-    if (batch.length < 1000) break;
+  if (!ready() || !key) {
+    return { threads: [] as Array<Record<string, unknown>>, health: classifySmsScan({ configured: false, pages: [], now }) };
   }
-  const threads = matchThreads(rows, events, key);
-  const newestAt = newest ? new Date(newest).toISOString() : '';
-  const fresh = Boolean(newestAt) && Date.now() - Date.parse(newestAt) < 14 * 86400000;
-  return { threads, storedMessages: rows.length, newestAt, fresh };
+  const pages: Array<Record<string, unknown>> = [];
+  const matchRows: Array<{ contact_hash: string; direction: string; timestamp_ms: number }> = [];
+  let after = 0;
+  for (let page = 0; page < SMS_PAGE_CAP; page += 1) {
+    try {
+      const query = new URLSearchParams({
+        select: 'contact_hash,direction,timestamp_ms,sms_id,received_at',
+        tenant_id: 'eq.lvpt-owner-pilot',
+        sms_id: `gt.${after}`,
+        order: 'sms_id.asc',
+        limit: String(SMS_PAGE_SIZE)
+      });
+      const response = await fetch(supabaseEndpoint(`lvpt_sms_staging?${query}`), {
+        headers: supabaseHeaders(),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(12_000)
+      });
+      if (!response.ok) {
+        pages.push({ ok: false, reason: 'http' });
+        break;
+      }
+      let batch: unknown;
+      try {
+        batch = await response.json();
+      } catch {
+        pages.push({ ok: false, reason: 'invalid_body' });
+        break;
+      }
+      if (!Array.isArray(batch)) {
+        pages.push({ ok: false, reason: 'invalid_body' });
+        break;
+      }
+      let cursor = after;
+      const summary: Array<{ timestamp_ms: unknown; received_at: unknown }> = [];
+      for (const row of batch) {
+        if (!row || typeof row !== 'object') continue;
+        const record = row as Record<string, unknown>;
+        const smsId = Number(record.sms_id);
+        if (Number.isSafeInteger(smsId) && smsId > cursor) cursor = smsId;
+        summary.push({ timestamp_ms: record.timestamp_ms, received_at: record.received_at });
+        const messageAt = observedTime(record.timestamp_ms, now);
+        matchRows.push({
+          contact_hash: String(record.contact_hash || ''),
+          direction: String(record.direction || ''),
+          timestamp_ms: messageAt ? Number(record.timestamp_ms) : 0
+        });
+      }
+      const advanced = cursor > after;
+      after = cursor;
+      pages.push({ ok: true, rows: summary, full: batch.length >= SMS_PAGE_SIZE });
+      if (batch.length < SMS_PAGE_SIZE) break;
+      if (!advanced) {
+        pages.push({ ok: false, reason: 'cursor_stalled' });
+        break;
+      }
+    } catch {
+      pages.push({ ok: false, reason: 'offline' });
+      break;
+    }
+  }
+  const health = classifySmsScan({ configured: true, pages, now });
+  let threads: Array<Record<string, unknown>> = [];
+  try {
+    threads = matchThreads(matchRows, events, key);
+  } catch {
+    threads = [];
+  }
+  return { threads, health };
 }
 
 export async function GET(request: Request) {
@@ -156,14 +199,14 @@ export async function GET(request: Request) {
       }
     }
 
-    let sms = { threads: [] as Array<Record<string, unknown>>, storedMessages: 0, newestAt: '', fresh: false };
+    let sms = { threads: [] as Array<Record<string, unknown>>, health: offlineScan(true) };
     try {
       sms = await smsThreads(sourceEvents.map((event) => ({
         id: text(event.id, 120),
         contactPhone: text(event.contactPhone, 40)
       })));
     } catch {
-      sms = { threads: [], storedMessages: 0, newestAt: '', fresh: false };
+      sms = { threads: [], health: offlineScan(true) };
     }
 
     let rcsMessages: ReturnType<typeof publicRcsRecord>[] = [];
@@ -205,13 +248,38 @@ export async function GET(request: Request) {
         newestGmail,
         gmailFresh,
         gmailHeaders: gmailThreads.length,
-        smsMessages: sms.storedMessages,
-        newestSms: sms.newestAt,
-        smsFresh: sms.fresh,
+        smsMessages: sms.health.countComplete ? sms.health.storedMessages : null,
+        newestSms: sms.health.newestMessageAt,
+        newestSmsIngest: sms.health.newestIngestAt,
+        smsFresh: sms.health.fresh === true,
+        smsCoverage: sms.health.coverage,
+        sms: {
+          connected: sms.health.connected,
+          coverage: sms.health.coverage,
+          readComplete: sms.health.readComplete,
+          partial: sms.health.partial,
+          unavailable: sms.health.unavailable,
+          pagesRead: sms.health.pagesRead,
+          pageCap: sms.health.pageCap,
+          truncated: sms.health.truncated,
+          providerError: sms.health.providerError,
+          storedMessages: sms.health.storedMessages,
+          countComplete: sms.health.countComplete,
+          newestMessageAt: sms.health.newestMessageAt,
+          newestIngestAt: sms.health.newestIngestAt,
+          newestMessageAmongRead: sms.health.newestMessageAmongRead,
+          newestIngestAmongRead: sms.health.newestIngestAmongRead,
+          invalidMessageTimestamps: sms.health.invalidMessageTimestamps,
+          invalidIngestTimestamps: sms.health.invalidIngestTimestamps,
+          checkedAt: sms.health.checkedAt,
+          staleAfterHours: sms.health.staleAfterHours,
+          detail: sms.health.detail
+        },
         rcsMessages: rcsMessages.length,
         newestRcs: rcsMessages.reduce((latest, record) => record.messageAt > latest ? record.messageAt : latest, ''),
         messageTextIncluded: false
       },
+      smsProbe: sms.health.probe,
       gmail: {
         productionWrites: false,
         historicalRowsPreserved: gmailRows,

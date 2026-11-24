@@ -4,6 +4,7 @@ import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { gmailConfigured } from '../../gmail/_lib';
 import { appsScriptRequest, syncConfigured } from '../_lib';
+import { observedTime } from '../../../../lib/sms-scan-health.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -102,11 +103,20 @@ async function smsMeta(): Promise<Record<string, unknown>> {
       };
     }
     const ingested = JSON.parse(ingest.body) as Array<{ received_at?: string }>;
-    const newestIngestAt = ingested[0]?.received_at || '';
+    const rawIngest = typeof ingested[0]?.received_at === 'string' ? ingested[0].received_at : '';
+    const newestIngestAt = observedTime(rawIngest, Date.now());
     const countMatch = ingest.contentRange.match(/\/(\d+)$/);
-    const message = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, headers);
-    const messages = message.status >= 200 && message.status < 300 ? JSON.parse(message.body) as Array<{ timestamp_ms?: number }> : [];
-    const newestMessageAt = messages[0]?.timestamp_ms ? new Date(Number(messages[0].timestamp_ms)).toISOString() : '';
+    let messageTimeNote = 'not read';
+    try {
+      const message = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, headers);
+      if (message.status >= 200 && message.status < 300) {
+        const messages = JSON.parse(message.body) as Array<{ timestamp_ms?: unknown }>;
+        if (!Array.isArray(messages) || messages.length === 0) messageTimeNote = 'none';
+        else messageTimeNote = observedTime(messages[0]?.timestamp_ms, Date.now()) || 'not a valid timestamp';
+      }
+    } catch {
+      messageTimeNote = 'not read';
+    }
     const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
     const recent = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&received_at=gte.${encodeURIComponent(cutoff)}&limit=1`, {
       ...headers,
@@ -117,6 +127,10 @@ async function smsMeta(): Promise<Record<string, unknown>> {
     const arriving = recentCount !== null && recentCount > 0;
     const examined = countMatch ? Number(countMatch[1]) : ingested.length;
     const rows = countMatch ? countMatch[1] : 'unknown';
+    const importNote = newestIngestAt || (rawIngest ? 'not a valid timestamp' : 'none');
+    const uploadDetail = !rawIngest && examined === 0
+      ? 'The SMS store answered and has no imported rows. Message text was not read.'
+      : `Newest stored import ${importNote}. Newest stored message time ${messageTimeNote}. Imports in the last 14 days: ${recentCount === null ? 'not counted' : recentCount}. ${arriving && newestIngestAt ? 'A stored row arrived within 14 days.' : arriving ? 'A recent-import query matched, but the import timestamp was not valid. That is not a successful import.' : 'No upload has arrived since the November 5 historical import.'} No server heartbeat is stored. A message timestamp is not an import. Message text was not read.`;
     return {
       database: {
         status: 'HEALTHY',
@@ -130,13 +144,11 @@ async function smsMeta(): Promise<Record<string, unknown>> {
         status: arriving ? undefined : 'UNVERIFIED',
         connected: arriving,
         lastAttempt: '',
-        lastSuccess: arriving ? newestIngestAt : '',
+        lastSuccess: arriving && newestIngestAt ? newestIngestAt : '',
         recordsExamined: examined,
         recordsCreated: 0,
         staleAfterHours: 48,
-        detail: newestIngestAt
-          ? `Newest stored import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. Imports in the last 14 days: ${recentCount === null ? 'not counted' : recentCount}. ${arriving ? 'A stored row arrived within 14 days.' : 'No upload has arrived since the November 5 historical import.'} No server heartbeat is stored. Message text was not read.`
-          : 'The SMS store answered and has no imported rows. Message text was not read.'
+        detail: uploadDetail
       }
     };
   } catch (error) {

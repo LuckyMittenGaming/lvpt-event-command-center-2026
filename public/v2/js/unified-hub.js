@@ -18,6 +18,42 @@
     return `<span class="badge ${tone}">${esc(status)}</span>`;
   }
 
+  function smsScanBlock(sms, probe) {
+    const source = probe && typeof probe === 'object' ? probe : { connected: false, detail: 'SMS scan status was not reported. No message count is shown.' };
+    const status = finance.sourceStatus(source);
+    const coverage = sms && sms.coverage === 'read-complete' ? 'Read complete' : sms && sms.coverage === 'partial' ? 'Partial' : 'Unavailable';
+    const connected = sms && sms.connected === true ? 'Connected' : 'Not connected';
+    const counted = !sms
+      ? 'Rows were not counted'
+      : sms.countComplete
+        ? `${sms.storedMessages} stored metadata rows, and that count is complete`
+        : sms.storedMessages == null
+          ? 'Rows were not counted'
+          : `${sms.storedMessages} metadata rows were read. That is not a complete count`;
+    const message = sms && sms.newestMessageAt ? sms.newestMessageAt : 'No valid message time';
+    const ingest = sms && sms.newestIngestAt ? sms.newestIngestAt : 'No valid import time';
+    const among = sms && sms.coverage === 'partial'
+      ? `<p>Newest message among rows read: ${esc(sms.newestMessageAmongRead || 'none')}. Newest import among rows read: ${esc(sms.newestIngestAmongRead || 'none')}. Those times are not the latest successful import.</p>`
+      : '';
+    return `<div class="hub-callout"><strong>SMS metadata scan</strong><p>${badge(status)} Coverage: ${esc(coverage)}. ${esc(connected)}.</p><p>${esc((sms && sms.detail) || source.detail || '')}</p><p>Latest successful import: ${esc(ingest)}. Newest message: ${esc(message)}. ${esc(counted)}.</p>${among}</div>`;
+  }
+
+  function smsScanJob(inbox) {
+    if (inbox.ok && inbox.data && inbox.data.ok === true && inbox.data.smsProbe) return inbox.data.smsProbe;
+    return {
+      name: 'SMS metadata scan',
+      connected: false,
+      partial: false,
+      lastAttempt: '',
+      lastSuccess: '',
+      recordsExamined: null,
+      recordsCreated: 0,
+      duplicates: null,
+      unmatched: null,
+      detail: (inbox.data && (inbox.data.reason || inbox.data.message)) || 'The SMS metadata scan did not load. No count was taken.'
+    };
+  }
+
   function syncKey() {
     return localStorage.getItem(KEY) || '';
   }
@@ -145,14 +181,20 @@
 
   async function renderHealth(view) {
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', '<p class="muted">Checking sources…</p>');
-    const picture = await loadLedger();
+    const [picture, inbox] = await Promise.all([
+      loadLedger(),
+      readJson('/api/sync/action-inbox', false, 55000)
+    ]);
     const jobs = picture.ok && picture.data && Array.isArray(picture.data.jobs) ? picture.data.jobs : [];
     const namedJobs = jobs.length ? jobs : [
       { name: 'Financial source sync', schedule: 'This page read', owner: 'Command Center sheet', connected: false, detail: (picture.data && picture.data.message) || 'The sheet ledger did not load.' },
       { name: 'Gmail ingestion', schedule: 'Not scheduled here', owner: 'No ingestion cursor', connected: false, detail: 'No mailbox read was recorded.' },
       { name: 'SMS ingestion', schedule: 'Android staging import', owner: 'Encrypted store', connected: false, detail: 'An audit response is not a message sync.' }
     ];
-    const body = `<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Job</th><th>Status</th><th>Last attempt</th><th>Last success</th><th>Examined</th><th>Created</th><th>Duplicates</th><th>Review</th><th>Evidence</th></tr></thead><tbody>${namedJobs.map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.lastAttempt || '—')}</td><td>${esc(job.lastSuccess || '—')}</td><td>${esc(job.recordsExamined ?? '—')}</td><td>${esc(job.recordsCreated ?? '—')}</td><td>${esc(job.duplicates ?? '—')}</td><td>${esc(job.unmatched ?? '—')}</td><td>${esc(job.detail || '')}</td></tr>`).join('')}</tbody></table></div><p class="muted">A historical import is not a current ingestion. A job with no readable history stays Not observable. No customer message was sent by this check.</p>`;
+    const scan = smsScanJob(inbox);
+    const listed = namedJobs.concat([scan]);
+    const sms = inbox.ok && inbox.data && inbox.data.sources ? inbox.data.sources.sms : null;
+    const body = `${smsScanBlock(sms, scan)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Job</th><th>Status</th><th>Last attempt</th><th>Last success</th><th>Examined</th><th>Created</th><th>Duplicates</th><th>Review</th><th>Evidence</th></tr></thead><tbody>${listed.map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.lastAttempt || '—')}</td><td>${esc(job.lastSuccess || '—')}</td><td>${esc(job.recordsExamined ?? '—')}</td><td>${esc(job.recordsCreated ?? '—')}</td><td>${esc(job.duplicates ?? '—')}</td><td>${esc(job.unmatched ?? '—')}</td><td>${esc(job.detail || '')}</td></tr>`).join('')}</tbody></table></div><p class="muted">A historical import is not a current ingestion. A database response is not a phone upload. A partial metadata scan is not a complete import. A job with no readable history stays Not observable. No customer message was sent by this check.</p>`;
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', body);
   }
 
@@ -196,14 +238,17 @@
         ['all', 'All']
       ];
       const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Drafts with a recipient</span><strong>${esc(counts.readyForApproval || 0)}</strong></div><div><span>Vendor, excluded from leads</span><strong>${esc(counts.vendorExcluded || 0)}</strong></div></div>`;
-      const freshness = `<p class="muted">Sheet events ${esc(sources.events || 0)}. Stored Gmail rows ${esc(sources.gmailRows || 0)}, newest ${esc(sources.newestGmail || 'none')}, ${sources.gmailFresh ? 'fresh' : 'stale or not dated'}. SMS metadata ${esc(sources.smsMessages || 0)}, newest message ${esc(sources.newestSms || 'none')}, ${sources.smsFresh ? 'fresh' : 'stale'}. RCS metadata ${esc(sources.rcsMessages || 0)}, newest message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS. Message text was not included in this list.</p><div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved || 0)}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
+      const freshness = `<p class="muted">Sheet events ${esc(sources.events ?? 'not counted')}. Stored Gmail rows ${esc(sources.gmailRows ?? 'not counted')}, newest stored row ${esc(sources.newestGmail || 'none')}. ${sources.gmailFresh ? 'That stored date is within 14 days.' : 'That stored date is missing or older than 14 days.'} A stored Gmail row is not a current mailbox ingestion. RCS metadata rows returned ${esc(sources.rcsMessages ?? 'not counted')}, newest RCS message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS, and that message time is not an ingestion result. Message text was not included in this list.</p>${smsScanBlock(sources.sms, data.smsProbe)}<div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved ?? 'not counted')}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
       const cards = records.map((record, index) => {
         const info = record.qualification || {};
         const timeline = (record.timeline || []).map((item) => `<li><span>${esc(item.at || 'Time not recorded')}</span> ${esc(item.source)} ${esc(item.direction || '')} ${item.contentAvailable ? esc(item.summary) : 'Message text is not in this list. Open the authorized review only when a session can decrypt or read it.'}</li>`).join('');
         const draft = record.draft || {};
         return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}"><header><span class="badge warn">${esc(ACTION_LABELS[record.bucket] || record.bucket)}</span><span>${esc(record.source)}</span></header><h3>${esc(field(record.contact))}${record.company ? ` · ${esc(record.company)}` : ''}</h3><p>${esc(record.eventName || 'No event assigned')} · Last activity ${esc(field(record.lastActivity))}</p><p><strong>Next action:</strong> ${esc(field(record.nextAction))}</p><dl class="action-fields"><div><dt>Email</dt><dd>${esc(field(info.email))}</dd></div><div><dt>Phone</dt><dd>${esc(field(info.phone))}</dd></div><div><dt>Date</dt><dd>${esc(field(info.eventDate))}</dd></div><div><dt>Guests</dt><dd>${esc(field(info.guestCount))}</dd></div><div><dt>Type</dt><dd>${esc(field(info.eventType))}</dd></div><div><dt>Budget</dt><dd>${esc(field(info.budget))}</dd></div><div><dt>Venue</dt><dd>${esc(field(info.venue))}</dd></div><div><dt>Source</dt><dd>${esc(field(info.leadSource || record.source))}</dd></div><div><dt>Value</dt><dd>${esc(moneyCents(info.estimatedValueCents))}</dd></div><div><dt>Stage</dt><dd>${esc(field(info.stage))}</dd></div></dl><p class="muted">${info.missing && info.missing.length ? `Not recorded: ${esc(info.missing.join(', '))}.` : 'The recorded qualification fields are present.'}</p><details><summary>Conversation timeline</summary><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul></details><details><summary>Draft reply</summary><form class="action-draft" data-draft="${index}"><label>Recipient<input readonly value="${esc(draft.recipient || '')}" data-recipient></label><textarea readonly rows="8" data-body>${esc(draft.body || '')}</textarea><div class="review-actions"><button type="button" data-decision="approve">Approve</button><button type="button" data-decision="make_changes">Make Changes</button><button type="button" data-decision="deny">Deny</button><button type="button" data-decision="edit_myself">Edit Myself</button></div><p class="action-result" data-result>Sending is disabled. A draft is not a sent message.</p></form></details></article>`;
       }).join('');
-      view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', `${summary}<div class="review-actions action-filters">${filters.map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`).join('')}</div>${freshness}<div class="action-list">${cards || '<p>No records were returned.</p>'}</div>`);
+      const empty = sources.sms && sources.sms.coverage === 'read-complete'
+        ? 'No lead or follow-up records were returned.'
+        : 'No records are listed. This is not proof that the inbox is empty.';
+      view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', `${summary}<div class="review-actions action-filters">${filters.map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`).join('')}</div>${freshness}<div class="action-list">${cards || `<p>${empty}</p>`}</div>`);
       const applyFilter = (name) => {
         view.querySelectorAll('.action-card').forEach((card) => {
           const bucket = card.getAttribute('data-bucket');

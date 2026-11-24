@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildActionInbox, collapseDuplicateIds, prepareDraft } from '../lib/action-inbox.mjs';
+import { buildActionInbox, collapseDuplicateIds, openTasks, prepareDraft } from '../lib/action-inbox.mjs';
 import { contactHash, matchThreads } from '../lib/sms-bridge.mjs';
 
 const today = '2026-11-22';
@@ -321,6 +321,14 @@ const dueSplit = buildActionInbox({
     { id: 'task-clash', eventId: 'evt-due', title: 'Other', dueDate: '2026-11-20', status: 'Open' }
   ]
 });
+const splitTask = openTasks([
+  { id: 'task-split', eventId: 'evt-due', title: 'Confirm', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open' },
+  { id: 'task-split', eventId: 'evt-due', title: 'Confirm', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Completed' },
+  { id: 'task-owned', eventId: 'evt-due', title: 'Call', owner: 'Synthetic Owner', dueDate: '2026-11-22', status: 'Open' }
+]);
+assert.deepEqual(splitTask.conflicts, ['task-split']);
+assert.equal(splitTask.rows.some((row) => row.id === 'task-split'), false);
+assert.equal(splitTask.rows.find((row) => row.id === 'task-owned').owner, 'Synthetic Owner');
 assert.equal(dueSplit.pipeline.dueFollowUps, 1);
 assert.equal(dueSplit.pipeline.overdueFollowUps, 1);
 assert.deepEqual(dueSplit.pipeline.taskConflicts, ['task-clash']);

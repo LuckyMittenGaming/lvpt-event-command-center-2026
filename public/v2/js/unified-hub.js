@@ -117,28 +117,33 @@
       return `<div class="hub-callout"><strong>Every-invoice source is not deployed.</strong><p>The live Apps Script response did not include one row per Payments entry. This screen will not invent totals from the first invoice on an event.</p>${badge('NOT CONNECTED')}</div>`;
     }
     const report = data.report;
+    const incomplete = new Set(report.money.incompleteFields || []);
+    const shown = (field, cents) => incomplete.has(field) ? 'Incomplete' : dollars(cents);
     const cards = [
       ['Payment rows read', report.counts.payments],
       ['Client invoices', report.counts.clientInvoices],
       ['Vendor bills', report.counts.vendorBills],
       ['Unclassified, excluded', report.counts.unclassified],
-      ['Verified client receipts', dollars(report.money.verifiedClientReceiptsCents)],
-      ['Initiated, not settled', dollars(report.money.initiatedNotSettledCents)],
-      ['Vendor committed', dollars(report.money.vendorCommittedCents)],
-      ['Owner paid', dollars(report.money.ownerPaidCents)],
-      ['Owner planned', dollars(report.money.ownerPlannedCents)],
-      ['Profit', dollars(report.money.forecastMarginCents)]
+      ['Verified client receipts', shown('verifiedClientReceipts', report.money.verifiedClientReceiptsCents)],
+      ['Initiated, not settled', shown('initiatedNotSettled', report.money.initiatedNotSettledCents)],
+      ['Vendor committed', shown('vendorCommitted', report.money.vendorCommittedCents)],
+      ['Owner paid', shown('ownerPaid', report.money.ownerPaidCents)],
+      ['Owner planned', shown('ownerPlanned', report.money.ownerPlannedCents)],
+      ['Forecast margin', report.money.forecastMarginCents == null ? 'Unavailable' : dollars(report.money.forecastMarginCents)],
+      ['Drawable cash', report.money.drawableCashCents == null ? 'Unavailable' : dollars(report.money.drawableCashCents)]
     ].map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
     const rows = report.payments.map((row) => {
-      const meaning = row.duplicateTreatment === 'duplicate_copy' ? 'Identical copy, counted once' : row.duplicateTreatment === 'conflict_excluded' ? 'Conflicting id, excluded from totals' : row.settlement.replaceAll('_', ' ');
+      const meaning = row.duplicateTreatment === 'duplicate_copy' ? 'Identical copy, counted once' : row.duplicateTreatment === 'conflict_excluded' ? 'Conflicting id, excluded from totals' : row.duplicateTreatment === 'missing_id_excluded' ? 'No stable id, excluded from totals' : row.settlement.replaceAll('_', ' ');
       return `<tr><td>${esc(eventName(row.eventId))}</td><td>${esc(row.invoiceNumber || row.paymentId)}</td><td>${esc(row.role.replaceAll('_', ' '))}</td><td>${esc(row.paymentStatus)}</td><td>${esc(meaning)}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${esc(dollars(row.amountPaidCents))}</td><td>${esc(dollars(row.balanceDueCents))}</td></tr>`;
     }).join('');
     const payoutRows = report.payouts.map((row) => {
-      const treatment = row.duplicateTreatment === 'conflict_excluded' ? 'Conflicting payout id, excluded' : row.duplicateTreatment === 'duplicate_copy' ? 'Identical copy, counted once' : row.duplicatesPayment ? 'Excluded — linked to the same payment id' : row.amountOverlap ? 'Same amount, kept as its own record' : row.role === 'owner_distribution' ? (/^paid\b/i.test(row.status) ? 'Paid distribution' : 'Planned, not paid') : 'Separate obligation';
+      const treatment = row.duplicateTreatment === 'conflict_excluded' ? 'Conflicting payout id, excluded' : row.duplicateTreatment === 'missing_id_excluded' ? 'No stable id, excluded from totals' : row.duplicateTreatment === 'duplicate_copy' ? 'Identical copy, counted once' : row.duplicatesPayment ? 'Excluded — same-event included vendor bill' : row.linkUnresolved ? 'Link does not match an included vendor bill, so the cost stays' : row.amountOverlap ? 'Same amount, kept as its own record' : row.role === 'owner_distribution' ? (/^paid\b/i.test(row.status) ? 'Paid distribution' : 'Planned, not paid') : 'Separate obligation';
       return `<tr><td>${esc(eventName(row.eventId))}</td><td>${esc(row.payee)}</td><td>${esc(row.payoutType)}</td><td>${esc(row.status)}</td><td>${esc(dollars(row.amountCents))}</td><td>${esc(treatment)}</td></tr>`;
     }).join('');
     const duplicateNote = ` Identical payment ids counted once: ${(report.duplicatePaymentIds || []).length}. Conflicting payment ids excluded: ${(report.conflictPaymentIds || []).length}. Identical payout ids counted once: ${(report.duplicatePayoutIds || []).length}. Conflicting payout ids excluded: ${(report.conflictPayoutIds || []).length}. A missing amount stays unavailable.`;
-    return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. Unclassified rows stay out of both revenue and expenses. Client receipts, vendor bills, and owner draws stay in separate totals.</div><div class="lifecycle-summary hub-metrics">${cards}</div><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Invoice</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th></tr></thead><tbody>${rows || '<tr><td colspan="8">No payment rows returned.</td></tr>'}</tbody></table></div><h3>Event payouts, kept separate</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Payee</th><th>Type</th><th>Status</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${payoutRows || '<tr><td colspan="6">No payout rows returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) share a payment id and were not counted twice. ${report.counts.amountOverlapsNotMerged} same-amount row(s) stayed separate.${duplicateNote} Server time ${esc(data.serverTime || 'not provided')}.</p>`;
+    const incompleteNote = report.money.coverage === 'incomplete' ? ` ${report.money.incompleteReason}` : '';
+    const marginNote = report.money.profitReason ? ` ${report.money.profitReason}` : '';
+    return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. Unclassified rows stay out of both revenue and expenses. Client receipts, vendor bills, and owner draws stay in separate totals. Forecast margin does not subtract owner draws. Drawable cash is not a bank balance.${esc(incompleteNote)}${esc(marginNote)}</div><div class="lifecycle-summary hub-metrics">${cards}</div><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Invoice</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th></tr></thead><tbody>${rows || '<tr><td colspan="8">No payment rows returned.</td></tr>'}</tbody></table></div><h3>Event payouts, kept separate</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Payee</th><th>Type</th><th>Status</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${payoutRows || '<tr><td colspan="6">No payout rows returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) share a payment id and were not counted twice. ${report.counts.amountOverlapsNotMerged} same-amount row(s) stayed separate.${duplicateNote} Server time ${esc(data.serverTime || 'not provided')}.</p>`;
   }
 
   function communicationsBody(session) {

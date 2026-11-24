@@ -11,6 +11,7 @@
   }
 
   function money(cents) {
+    if (cents === 'Incomplete') return 'Incomplete';
     if (cents === null || cents === undefined || !Number.isFinite(Number(cents))) return 'Unavailable';
     return (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   }
@@ -28,7 +29,9 @@
         grid.innerHTML = card('Sheet ledger', 'Unavailable', pictureError || 'The last read failed. Browser estimates are not shown as actuals.');
       } else {
         const report = picture.report.money || {};
-        const collected = report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents;
+        const incomplete = new Set(report.incompleteFields || []);
+        const shown = (field, cents) => incomplete.has(field) ? 'Incomplete' : (cents == null ? null : cents);
+        const collected = shown('verifiedClientReceipts', report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents);
         const named = ['evt-nium-2026', 'evt-neo-reunion-2026', 'evt-lineaje-2026'].map((id) => {
           const row = (picture.report.byEvent || []).find((item) => item.eventId === id);
           const label = id === 'evt-nium-2026' ? 'NIUM' : id === 'evt-neo-reunion-2026' ? 'NEO' : 'Lineaje';
@@ -37,13 +40,14 @@
           return card(label, money(row.collectedCents), `Outstanding ${money(row.outstandingCents)}. Invoice ${money(row.invoiceTotalCents)}. ${unresolved}`);
         });
         grid.innerHTML = [
-          card('Client invoices', money(report.clientInvoiceTotalCents), 'Every client Payments row on the sheet.'),
-          card('Ledger collected', money(collected), 'Paid in full on the sheet. Not bank-verified.'),
-          card('Outstanding', money(report.openClientExposureCents), 'Open balances only. A received final is not outstanding.'),
+          card('Client invoices', money(shown('clientInvoiceTotal', report.clientInvoiceTotalCents)), 'Every included client Payments row on the sheet.'),
+          card('Ledger collected', money(collected), 'Paid in full on the sheet. Not bank-verified. Incomplete means a conflicting or unidentified row was excluded.'),
+          card('Outstanding', money(shown('openClientExposure', report.openClientExposureCents)), 'Open balances only. A received final is not outstanding.'),
           ...named,
-          card('Owner paid', money(report.ownerPaidCents), 'Distributions marked Paid.'),
-          card('Owner planned', money(report.ownerPlannedCents), 'Planned draws are not expenses already paid.'),
-          card('Profit', money(report.forecastMarginCents), report.profitReason === 'vendor_ledger_incomplete' ? 'Unavailable until vendor bills are a complete ledger.' : 'From the same sheet ledger.')
+          card('Owner paid', money(shown('ownerPaid', report.ownerPaidCents)), 'Distributions marked Paid. Draws are not operating expenses.'),
+          card('Owner planned', money(shown('ownerPlanned', report.ownerPlannedCents)), 'Planned draws are not expenses already paid.'),
+          card('Forecast margin', money(report.forecastMarginCents), report.profitReason || 'Client invoices minus vendor bills and unlinked vendor payouts. Owner draws are not subtracted.'),
+          card('Drawable cash', money(report.drawableCashCents), report.profitReason || 'Collected receipts minus paid vendor costs, before owner draws. Not a bank balance.')
         ].join('');
       }
     }
@@ -80,11 +84,13 @@
     const reportGrid = document.querySelector('#generatedReportOutput .generated-report-metrics');
     if (reportGrid && picture && picture.report) {
       const report = picture.report.money;
+      const incomplete = new Set(report.incompleteFields || []);
+      const labelMoney = (field, cents) => incomplete.has(field) ? 'Incomplete' : money(cents);
       const values = [
-        ['Client invoices', money(report.clientInvoiceTotalCents)],
-        ['Ledger collected', money(report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents)],
-        ['Outstanding', money(report.openClientExposureCents)],
-        ['Profit', money(report.forecastMarginCents)]
+        ['Client invoices', labelMoney('clientInvoiceTotal', report.clientInvoiceTotalCents)],
+        ['Ledger collected', labelMoney('verifiedClientReceipts', report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents)],
+        ['Outstanding', labelMoney('openClientExposure', report.openClientExposureCents)],
+        ['Forecast margin', money(report.forecastMarginCents)]
       ];
       const cards = reportGrid.querySelectorAll(':scope > div');
       values.forEach(([label, value], index) => {

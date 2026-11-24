@@ -167,7 +167,8 @@ export async function GET(request: Request) {
         eventId: text(event.id, 120),
         title: text(task.title, 180),
         dueDate: text(task.dueDate, 20),
-        status: text(task.status, 40)
+        status: text(task.status, 40),
+        owner: text(task.owner, 80)
       }));
     });
 

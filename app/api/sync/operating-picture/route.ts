@@ -296,9 +296,10 @@ export async function GET(request: Request) {
       const rows = Array.isArray(event.tasks) ? event.tasks as Raw[] : [];
       return rows.map((task) => {
         const status = text(task.status, 40);
-        if (!text(task.id, 80) || closed(status)) return null;
+        const id = text(task.id, 80);
+        if (!id) return null;
         return {
-          id: text(task.id, 80),
+          id,
           eventId,
           title: text(task.title, 180),
           owner: text(task.owner, 40),
@@ -308,7 +309,7 @@ export async function GET(request: Request) {
       }).filter((row): row is NonNullable<typeof row> => Boolean(row));
     });
     const taskLedger = collapseDuplicateIds(taskRows, ['eventId', 'title', 'owner', 'dueDate', 'status']);
-    const tasks = taskLedger.rows.slice(0, 200);
+    const tasks = taskLedger.rows.filter((row) => !closed(String(row.status || ''))).slice(0, 200);
     const taskConflicts = taskLedger.conflicts;
 
     let gmailRows = 0;

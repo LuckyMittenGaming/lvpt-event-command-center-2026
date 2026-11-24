@@ -5,3 +5,5 @@ This document is a non-production fixture to verify the event-driven AI↔Cursor
 It contains no application code, personal data, credentials, or instructions to merge or deploy.
 
 Expected behavior: after a valid GitHub event, the disabled relay does nothing; after a Preview-only dry-run is expressly configured, it evaluates safely without posting GitHub comments, calling OpenAI, or launching Cursor.
+
+Second harmless fixture revision to generate a signed `pull_request.synchronize` delivery for the Preview-only dry-run test. No application behavior is changed.

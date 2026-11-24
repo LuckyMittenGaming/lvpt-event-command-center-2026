@@ -59,8 +59,13 @@
   }
 
   async function pullCloudEvents(showToast = true) {
+    if (typeof window.lvptReloadSheetSnapshot === 'function') {
+      const ok = await window.lvptReloadSheetSnapshot();
+      if (showToast) toast(ok ? 'Sheet refresh requested' : 'Sheet refresh did not complete');
+      return ok;
+    }
     if (!appSyncKey()) {
-      if (showToast) toast('Enter the LVPT app sync key in the System tab first');
+      if (showToast) toast('Owner sign-in is required. The sync key is not stored in this browser.');
       return false;
     }
     try {

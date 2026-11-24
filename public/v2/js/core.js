@@ -67,5 +67,5 @@ function ensureEventShape(event){
   event.postEvent={clientFeedback:'',whatWentWell:'',painPoints:'',changesForNextTime:'',reviewRequested:false,reviewReceived:false,rebookingLikelihood:'Medium',...(event.postEvent||{})};
   return event;
 }
-function loadEvents(){ try { const stored=JSON.parse(localStorage.getItem(STORAGE_KEY)); return (stored||seedEvents).map(ensureEventShape); } catch { return seedEvents.map(ensureEventShape); } }
-function saveEvents(message='Saved to this browser'){ events=events.map(ensureEventShape); localStorage.setItem(STORAGE_KEY,JSON.stringify(events)); if(message) toast(message); }
+function loadEvents(){ return []; }
+function saveEvents(message){ if(message) toast('This preview is read only. The sheet was not changed.'); }

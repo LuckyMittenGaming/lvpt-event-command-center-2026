@@ -44,7 +44,23 @@
   function openTaskCount(event) { return (event.tasks || []).filter(task => !taskIsComplete(task)).length; }
   function dateLabel(value) { if(!value) return 'Date TBD'; const date=new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime())?value:date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
   function ageInDays(value) { if(!value) return Infinity; return Math.floor((Date.now()-new Date(value).getTime())/86400000); }
-  function proposalForEvent(event) { return proposals.find(item => item.eventId === event.id || item.url === event.proposalUrl || item.client.toLowerCase() === String(event.company||'').toLowerCase()); }
+  function proposalForEvent(event) { return proposals.find(item => item.eventId && item.eventId === event.id); }
+  function snapshotBlocks(view, eyebrow, title) {
+    const snap = window.lvptSheetSnapshot;
+    if (snap && snap.state === 'ready') return false;
+    const retry = snap && snap.state === 'unavailable';
+    const empty = snap && snap.state === 'empty';
+    const message = !snap || snap.state === 'loading'
+      ? 'Reading the authoritative sheet…'
+      : snap.state === 'auth-required'
+        ? 'Owner sign-in required. The sheet was not read.'
+        : empty
+          ? 'The sheet returned no events.'
+          : 'The sheet is unavailable. This is not an empty list.';
+    view.innerHTML = `<div class="command-view-shell">${viewHeader(eyebrow, title, 'Authoritative sheet')}<div class="command-view-body"><p>${escapeHtml(message)}</p>${snap && snap.state === 'auth-required' ? '<p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>' : ''}${retry ? '<p><button type="button" class="btn" id="retrySnapshotBtn">Retry</button></p>' : ''}</div></div>`;
+    view.querySelector('#retrySnapshotBtn')?.addEventListener('click', () => window.lvptReloadSheetSnapshot && window.lvptReloadSheetSnapshot());
+    return true;
+  }
 
   function ensureShell() {
     if ($('#commandNav')) return;
@@ -54,7 +70,7 @@
     nav.setAttribute('aria-label','Command Center sections');
     nav.innerHTML = [
       ['overview','Overview'],['action','Action Required'],['pipeline','Pipeline'],['active','Active Events'],['archive','Past Events'],['proposals','Proposals'],['followup','Client Follow-Up'],['finance','Event Finance'],['communications','Communications'],['health','Source Health']
-    ].map(([view,label]) => `<button type="button" data-command-view="${view}">${label}</button>`).join('');
+    ].map(([view,label]) => `<button type="button" data-command-view="${view}">${label}</button>`).join('') + '<a class="btn small" href="/sms-review/index.html">Owner sign-in</a>';
     $('.hero-card').after(nav);
     const view = document.createElement('section');
     view.id = 'commandView';
@@ -115,6 +131,7 @@
   }
 
   function renderPipeline(view) {
+    if (snapshotBlocks(view, 'Sales Pipeline', 'Present & Future Opportunities')) return;
     const items = events.filter(isPipeline);
     const columns = pipelineGroups.map(group => {
       const matches = items.filter(event => group.statuses.includes(event.status));
@@ -130,6 +147,7 @@
   }
 
   function renderPortfolio(view, mode) {
+    if (snapshotBlocks(view, mode === 'active' ? 'Present & Future' : 'Past', mode === 'active' ? 'Booked & Active Events' : 'Past Event Archive')) return;
     const items = events.filter(mode === 'active' ? isActive : isArchive).sort((a,b)=>String(b.eventDate||'').localeCompare(String(a.eventDate||'')));
     const title = mode === 'active' ? 'Booked & Active Events' : 'Past Event Archive';
     const copy = mode === 'active' ? 'Confirmed experiences moving through planning, production and event day.' : 'Completed, lost and historical opportunities with their financials, documents, proposals and follow-up history intact.';
@@ -139,13 +157,26 @@
 
   function portfolioCard(event) {
     const proposal = proposalForEvent(event);
-    return `<article class="portfolio-card"><p class="eyebrow small">${escapeHtml(event.status)}</p><h3>${escapeHtml(event.eventName)}</h3><p>${escapeHtml(event.company)} · ${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p><div class="portfolio-card-grid"><div><span>Value</span><strong>${money(eventValue(event))}</strong></div><div><span>Collected</span><strong>${money(event.payment?.amountPaid)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong>${proposal ? proposal.status : event.proposalUrl ? 'Linked' : 'Not linked'}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${proposal ? `<button class="btn small" data-preview-proposal="${proposal.id}">Preview Proposal</button>` : ''}</div></article>`;
+    const pastNote = isPastDate(event) && !archiveStatuses.includes(event.status) ? '<p>Past date. The recorded status was not changed to completed.</p>' : '';
+    return `<article class="portfolio-card"><p class="eyebrow small">${escapeHtml(event.status)}</p><h3>${escapeHtml(event.eventName)}</h3><p>${escapeHtml(event.company)} · ${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}<div class="portfolio-card-grid"><div><span>Value</span><strong>${money(eventValue(event))}</strong></div><div><span>Collected</span><strong>${money(event.payment?.amountPaid)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong>${proposal ? proposal.status : event.proposalUrl ? 'Linked' : 'Not linked'}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${proposal ? `<button class="btn small" data-preview-proposal="${proposal.id}">Preview Proposal</button>` : ''}</div></article>`;
   }
 
+  function explicitProposalUrl(event) {
+    const raw = String(event.proposalUrl || '').trim();
+    if (!raw || /\s/.test(raw)) return '';
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return '';
+      return url.toString();
+    } catch { return ''; }
+  }
   function renderProposals(view) {
+    if (snapshotBlocks(view, 'Design & Sales Library', 'Proposal Library')) return;
+    const linked = events.filter(event => explicitProposalUrl(event)).map(event => ({ id:`event-${event.id}`, client:event.company || 'Recorded client', title:event.eventName || event.id, project:'Authoritative event link', url:explicitProposalUrl(event), status:'Recorded on the event', updated:'', eventId:event.id, tags:['Sheet'], notes:'This link is the proposal URL stored on the event. It was not inferred from the company name.' }));
+    const historical = proposals.map(item => ({ ...item, status:'Historical reference, not verified' }));
     const query = proposalQuery.toLowerCase();
-    const filtered = proposals.filter(item => [item.client,item.title,item.project,item.status,item.tags.join(' '),item.notes].join(' ').toLowerCase().includes(query));
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Design & Sales Library','Proposal Library','Live proposals pulled from the LVPT Vercel portfolio, organized for fast comparison, reuse and event lookup.')}<div class="command-view-body"><div class="proposal-toolbar"><input class="input" id="proposalSearch" placeholder="Search clients, venues, layouts, assets..." value="${escapeHtml(proposalQuery)}"><span class="badge hot">${filtered.length} proposal${filtered.length===1?'':'s'}</span></div><div class="proposal-grid">${filtered.map(proposalCard).join('') || '<div class="command-empty">No matching proposals.</div>'}</div></div></div>`;
+    const filtered = historical.filter(item => [item.client,item.title,item.project,item.notes].join(' ').toLowerCase().includes(query));
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Design & Sales Library','Proposal Library','Authoritative links come only from a proposal URL stored on the event. The older six cards are a historical reference and are not marked active.')}<div class="command-view-body"><h3>Recorded on the sheet</h3><div class="proposal-grid">${linked.map(proposalCard).join('') || '<div class="command-empty">No event has a validated proposal link.</div>'}</div><h3>Historical reference, not verified</h3><div class="proposal-toolbar"><input class="input" id="proposalSearch" placeholder="Search the historical reference..." value="${escapeHtml(proposalQuery)}"></div><div class="proposal-grid">${filtered.map(proposalCard).join('')}</div></div></div>`;
     $('#proposalSearch')?.addEventListener('input', event => { proposalQuery = event.target.value; renderProposals(view); $('#proposalSearch')?.focus(); });
     bindProposalOpeners(view);
     bindEventOpeners(view);
@@ -174,33 +205,28 @@
     $('#proposalPreviewDialog').showModal();
   }
 
+  function taskStillOpen(task) {
+    const status = String(task && task.status || '').trim().toLowerCase();
+    if (!status) return true;
+    return !['complete','completed','resolved','done','cancelled','canceled','closed','closed won','closed lost','declined'].includes(status);
+  }
   function deriveFollowUps() {
     const items=[];
     events.forEach(event=>{
-      (event.tasks||[]).filter(task=>!taskIsComplete(task)).forEach(task=>{
+      (event.tasks||[]).filter(taskStillOpen).forEach(task=>{
         const days=daysFromToday(task.dueDate);
-        if(days<=7) items.push({id:task.id,eventId:event.id,eventName:event.eventName,title:task.title,detail:`${task.owner||'Unassigned'} · ${task.priority||'Medium'} priority`,due:task.dueDate||'',days,kind:'Task'});
+        if(days<=7) items.push({id:task.id,eventId:event.id,eventName:event.eventName,title:task.title,detail:`${task.owner||'Unassigned'} · recorded status ${task.status||'Open'}`,due:task.dueDate||'',days,kind:'Task'});
       });
-      const activity=(event.emailActivity||[]).slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
-      const last=activity[activity.length-1];
-      if(last && last.direction==='received' && ageInDays(last.date)>=1) items.push({id:`reply-${last.id}`,eventId:event.id,eventName:event.eventName,title:`Client reply may be waiting: ${last.subject||'No subject'}`,detail:last.snippet||`From ${last.from||'client'}`,due:'',days:-ageInDays(last.date),kind:'Email'});
-      if(isArchive(event)) {
-        if(!event.postEvent?.thankYouSent) items.push({id:`thank-${event.id}`,eventId:event.id,eventName:event.eventName,title:'Post-event thank-you not recorded',detail:'Confirm the client and venue thank-you has been sent.',due:event.eventDate||'',days:-1,kind:'Post-Event'});
-        if(!event.postEvent?.reviewRequested) items.push({id:`review-${event.id}`,eventId:event.id,eventName:event.eventName,title:'Client review request not recorded',detail:'Request feedback or mark this follow-up as not needed.',due:event.postEvent?.followUpDate||'',days:0,kind:'Post-Event'});
-      }
     });
-    (automationState.items||[]).filter(item=>item.status==='Open'||!item.status).forEach(item=>items.push({id:item.reviewId||item.id,eventId:item.eventId||'',eventName:item.eventName||item.suggestedCompany||'Unmatched client email',title:item.action||item.subject||'Review client email',detail:item.snippet||item.from||'',due:item.messageDate||'',days:0,kind:item.category||'Automation',review:true}));
     return items.sort((a,b)=>(a.days??0)-(b.days??0));
   }
 
   function renderFollowUp(view) {
+    if (snapshotBlocks(view, 'Email Intelligence', 'Client Follow-Up')) return;
     const items=deriveFollowUps();
-    const action=`<div class="actions"><button class="btn" id="refreshAutomationBtn">Refresh</button><button class="btn primary" id="runAutomationBtn">Run Email Review</button><button class="btn" id="installAutomationBtn">Schedule 2× Daily</button></div>`;
+    const action='';
     const stats=automationState.stats||{};
-    view.innerHTML=`<div class="command-view-shell">${viewHeader('Email Intelligence','Client Follow-Up','Unhandled client items across leads, future events and past-event relationships. Ambiguous email findings stay in review until a person confirms them.',action)}<div class="command-view-body"><div class="automation-status"><div><span>Connection</span><strong>${automationState.loading?'Working…':automationState.configured?'Ready':'Check setup'}</strong></div><div><span>Last Scan</span><strong>${automationState.lastScanAt?new Date(automationState.lastScanAt).toLocaleString():'Not yet run'}</strong></div><div><span>Matched Messages</span><strong>${stats.matchedMessages||0}</strong></div><div><span>Needs Attention</span><strong>${items.length}</strong></div></div><div class="followup-grid">${items.map(followUpCard).join('')||'<div class="command-empty">No currently identified client follow-ups.</div>'}</div></div></div>`;
-    $('#refreshAutomationBtn')?.addEventListener('click',()=>loadAutomationStatus(true));
-    $('#runAutomationBtn')?.addEventListener('click',()=>runAutomation('scan'));
-    $('#installAutomationBtn')?.addEventListener('click',()=>runAutomation('install'));
+    view.innerHTML=`<div class="command-view-shell">${viewHeader('Email Intelligence','Client Follow-Up','Open tasks recorded on the sheet. A past event date does not complete a task. Schedule review is off in this preview.',action)}<div class="command-view-body"><p class="muted">Needs attention: ${items.length}. These are recorded tasks, not a generated follow-up list.</p><div class="followup-grid">${items.map(followUpCard).join('')||'<div class="command-empty">No open sheet task is due within seven days.</div>'}</div></div></div>`;
     bindEventOpeners(view);
     all('[data-review-item]').forEach(button=>button.addEventListener('click',()=>reviewAutomationItem(button.dataset.reviewItem,button.dataset.reviewStatus)));
   }
@@ -259,5 +285,4 @@
   render=function(){ baseRender(); renderCommandView(); };
   ensureShell();
   renderCommandView();
-  loadAutomationStatus(false);
 })();

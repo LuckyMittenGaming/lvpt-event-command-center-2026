@@ -1,5 +1,6 @@
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../_lib';
 import { appsScriptRequest, syncConfigured } from '../../../sync/_lib';
+import { denyPrivateRead } from '../../../sync/_owner-read';
 import { matchThreads } from '../../../../../lib/sms-bridge.mjs';
 
 export const runtime = 'nodejs';
@@ -63,6 +64,8 @@ async function messageMeta(): Promise<Array<{ contact_hash: string; direction: s
 }
 
 export async function GET(request: Request) {
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
   if (productionBlocked()) return jsonNoStore({ ok: false, reason: 'production_ingest_disabled', threads: [], sendEnabled: false }, 403);
   if (!sameOrigin(request)) return jsonNoStore({ ok: false, reason: 'same_origin_required', threads: [] }, 403);
   if (!ready()) return jsonNoStore({ ok: false, reason: 'staging_unconfigured', threads: [] }, 503);

@@ -6,7 +6,7 @@ Decision: **Hold production.** Draft PR #19 is the staging candidate. Do not mer
 
 | Capability | Status | Evidence in this repo |
 | --- | --- | --- |
-| V2 navigation | STAGING | `public/v2/js/lifecycle-command-center.js` renders Overview, Action Required, Pipeline, Active Events, Past Events, Proposals, Client Follow-Up, Event Finance, Communications, and Source Health. `public/v2/app.js` loads that file. |
+| V2 navigation | STAGING | Ten views stay in `lifecycle-command-center.js`. Pipeline, Active, Past, Proposals, and Follow-Up read the owner-session sheet snapshot. A failed read is unavailable, not zero. The browser roster scripts are no longer loaded. |
 | Auth entry | STAGING | Private reads call `denyPrivateRead` before Apps Script. `lib/owner-read-guard.mjs` requires the existing HttpOnly review session. A missing cookie is 401. A foreign Origin is 403. The session signer was not changed. |
 | Dashboard overview | STAGING | Overview keeps the existing event workspace. Source badges come from the same `sourceStatus` helper as Source Health. Browser roster files are still loaded and are not the sheet ledger. |
 | Action Required / CRM | STAGING | `lib/action-inbox.mjs` keeps stage, acquisition, and channel separate. Duplicate event ids count once. Conflicting ids are excluded. The hub draft is read-only. |
@@ -58,4 +58,8 @@ Rollback: do not merge. Production stays on its current release. Revert this bra
 - The hub still cannot record an approval or prove exactly-once delivery.
 - Android heartbeat, RCS pairing, Gmail full threads, and a confirmed TaskSync run are still owner prerequisites.
 
-COMMAND_CENTER_INTEGRATED_ACCEPTANCE_READY
+The roster files under `public/v2/js/roster-*.js` and `nium-profit-lineaje-neo-update.js` are still deployed as static files and contain client contact fields. The command center no longer loads them. Removing those public files is an owner decision and was not done in this pass.
+
+Local browser evidence is `tests/command-center-browser.test.mjs` against a synthetic fixture and system Chrome. It is not a live sheet or a deployed preview.
+
+COMMAND_CENTER_BROWSER_REGRESSION_READY

@@ -1,4 +1,5 @@
 import { jsonNoStore, supabaseEndpoint, supabaseHeaders } from '../_lib';
+import { denyPrivateRead } from '../../../sync/_owner-read';
 import { collectorHealth, publicRcsRecord } from '../../../../../lib/rcs-staging.mjs';
 import { RCS_HEARTBEAT_PREREQUISITE } from '../../../../../lib/source-reliability.mjs';
 
@@ -19,6 +20,8 @@ function sameOrigin(request: Request): boolean {
 }
 
 export async function GET(request: Request) {
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
   if (process.env.VERCEL_ENV === 'production') {
     return jsonNoStore({ ok: false, reason: 'preview_only', pairing: 'unpaired', sendEnabled: false }, 403);
   }

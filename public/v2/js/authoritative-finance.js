@@ -194,8 +194,8 @@
 
   window.lvptLoadOperatingPicture = function () {
     if (window.lvptOperatingPicturePromise) return window.lvptOperatingPicturePromise;
-    window.lvptOperatingPicturePromise = fetch('/api/sync/operating-picture', { cache: 'no-store' })
-      .then((response) => response.json().then((data) => ({ ok: response.ok, data })).catch(() => ({ ok: false, data: {} })))
+    const request = fetch('/api/sync/operating-picture', { credentials: 'same-origin', cache: 'no-store' })
+      .then((response) => response.json().then((data) => ({ ok: response.ok, status: response.status, data })).catch(() => ({ ok: false, status: response.status, data: {} })))
       .then((result) => {
         loading = false;
         if (result.ok && result.data && result.data.ok) {
@@ -203,7 +203,10 @@
           pictureError = '';
         } else {
           picture = null;
-          pictureError = (result.data && result.data.message) || 'The sheet ledger is unavailable.';
+          window.lvptOperatingPicturePromise = null;
+          pictureError = result.status === 401
+            ? 'Owner sign-in required. The ledger was not read.'
+            : ((result.data && (result.data.message || result.data.reason)) || 'The sheet ledger is unavailable.');
         }
         paint();
         return picture;
@@ -211,11 +214,18 @@
       .catch(() => {
         loading = false;
         picture = null;
-        pictureError = 'The sheet ledger did not respond.';
+        window.lvptOperatingPicturePromise = null;
+        pictureError = 'The sheet ledger did not respond. This is not an empty ledger.';
         paint();
         return null;
       });
-    return window.lvptOperatingPicturePromise;
+    window.lvptOperatingPicturePromise = request;
+    return request;
+  };
+  window.lvptReloadOperatingPicture = function () {
+    window.lvptOperatingPicturePromise = null;
+    loading = true;
+    return window.lvptLoadOperatingPicture();
   };
 
   const observer = new MutationObserver((records) => {

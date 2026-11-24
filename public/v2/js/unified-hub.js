@@ -109,8 +109,11 @@
   }
 
   function financeBody(result) {
+    if (result.status === 401) {
+      return `<div class="hub-callout"><strong>Owner sign-in required.</strong><p>The ledger was not read. This is not an empty sheet.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p></div>`;
+    }
     if (!result.ok || !result.data || result.data.ok !== true || !result.data.report) {
-      return `<div class="hub-callout">${esc((result.data && result.data.message) || 'The sheet ledger is unavailable.')} <p>Status: ${badge('NOT CONNECTED')}</p><p>Browser copies stay off this screen.</p></div>`;
+      return `<div class="hub-callout">${esc((result.data && (result.data.message || result.data.reason)) || 'The sheet ledger is unavailable.')} <p>Status: ${badge('NOT CONNECTED')}</p><p>This is not an empty ledger. Browser copies stay off this screen.</p></div>`;
     }
     const data = result.data;
     if (data.paymentSourceStatus !== 'command_center_all_payments') {
@@ -148,7 +151,7 @@
   }
 
   function communicationsBody(session) {
-    const sessionLabel = session.status === 401 || session.status === 503 ? 'NOT CONNECTED' : session.data && session.data.authenticated === true ? 'NOT VERIFIED' : 'NOT CONNECTED';
+    const sessionLabel = session.status === 401 ? 'AUTH REQUIRED' : session.status === 503 ? 'NOT CONNECTED' : session.data && session.data.authenticated === true ? 'NOT VERIFIED' : 'NOT CONNECTED';
     return `<div class="hub-split"><section><h3>Approval queue</h3><p>Approve, Make Changes, Deny, and Edit Myself are recorded only in the protected review workspace. That workspace checks the exact recipient. This page does not send and does not record those decisions.</p><div class="actions"><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a><a class="btn" href="/sms-review/index.html#paymentAuditTitle">Open invoice exceptions</a></div><p class="muted">Exactly-once delivery is enforced on the send route, which stays disabled until a separate owner test. A button on this page is not that proof. The four-times-daily email approval automation stays disabled.</p></section><section><h3>Session</h3><p>SMS review keeps its seven-day HttpOnly session. This page does not ask for the device token again and does not store message bodies.</p>${badge(sessionLabel)}<p class="muted">${esc(session.data.reason || (session.status === 401 ? 'The owner review session is missing or expired. Open the approval workspace to sign in.' : 'An audit response does not mean SMS is synchronized.'))}</p></section></div>`;
   }
 
@@ -197,7 +200,7 @@
           ? 'The bounded domain header read finished with no new threads. This is not a full mailbox scan.'
           : 'The header read is unavailable. No header count was taken. This is not an empty mailbox.';
     const stored = picture.ok && picture.data ? `${picture.data.gmailActivityCount || 0} Gmail Activity rows are already stored. Threads already on the sheet are skipped. A thread is not assigned to an event from this page.` : 'The sheet did not load, so stored mail counts are hidden.';
-    const threads = conversations.ok && conversations.data && Array.isArray(conversations.data.threads) ? conversations.data.threads : [];
+    const threads = conversations.status === 401 ? [] : (conversations.ok && conversations.data && Array.isArray(conversations.data.threads) ? conversations.data.threads : []);
     const rcsData = rcs.ok && rcs.data ? rcs.data : null;
     const rcsRecords = rcsData && Array.isArray(rcsData.records) ? rcsData.records : [];
     const collectorLabel = rcsData && rcsData.collectorLabel ? rcsData.collectorLabel : 'Not paired';
@@ -208,9 +211,11 @@
     const rcsNote = rcsData
       ? `${collectorBadge} Last stored RCS ingestion ${esc(rcsData.lastIngestionAt || 'none')}. Newest RCS message ${esc(rcsData.newestMessageAt || 'none')}. Read only. Sending is off. Mark-read is off. A stored row is not a live collector. ${esc(rcsData.verificationPrerequisite || 'Collector heartbeat was not verified.')} ${rcsRecords.length} Google Messages rows were returned. Existing SMS rows were not rewritten. The staging server validates AES-GCM ciphertext with its storage key. That is not end-to-end encryption.`
       : `Google Messages collector status did not load (${esc((rcs.data && rcs.data.reason) || 'unavailable')}).`;
-    const smsNote = conversations.ok
+    const smsNote = conversations.status === 401
+      ? 'Owner sign-in required. SMS metadata was not read.'
+      : conversations.ok
       ? `${conversations.data.storedMessages || 0} stored SMS metadata rows. Message text stays encrypted. Exact matches use the event contact phone. Ambiguous and unmatched threads stay in review. Outgoing SMS is disabled.`
-      : `SMS conversations did not load (${esc((conversations.data && conversations.data.reason) || 'unavailable')}). Ciphertext was not shown.`;
+      : `SMS conversations did not load (${esc((conversations.data && conversations.data.reason) || 'unavailable')}). Ciphertext was not shown. This is not an empty inbox.`;
     const heartbeatJob = jobs.find((job) => job.id === 'sms-heartbeat') || null;
     const heartbeatStatus = heartbeatJob ? finance.sourceStatus(heartbeatJob) : 'NOT VERIFIED';
     view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'Approve, Make Changes, Deny, and Edit Myself stay in the review workspace. This page does not send.', `${communicationsBody(session)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Source</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${evidence || '<tr><td colspan="3">Connection evidence did not load.</td></tr>'}</tbody></table></div><h3>Gmail review queue</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Domain</th><th>Newest header</th><th>Direction</th><th>Match</th><th>Subject</th></tr></thead><tbody>${queueRows || `<tr><td colspan="5">${esc(queueEmpty)}</td></tr>`}</tbody></table></div><p class="muted">${gmailJob ? badge(finance.sourceStatus(gmailJob)) : badge('NOT CONNECTED')} Bounded header coverage: ${esc(gmailCoverage || 'unavailable')}. Metadata only. Full threads were not opened.</p><p class="muted">${esc(stored)}</p><h3>SMS and RCS timeline</h3><div class="hub-table-wrap" style="max-width:100%;overflow-x:auto"><table class="hub-table"><thead><tr><th>Source</th><th>Direction</th><th>Message time</th><th>Ingested</th><th>Match</th><th>Sync</th><th>Pairing</th><th>Access</th><th>Provider ID</th></tr></thead><tbody>${rcsTimeline}${smsRows}${(smsRows || rcsTimeline) ? '' : '<tr><td colspan="9">No SMS or RCS conversation metadata was returned.</td></tr>'}</tbody></table></div><p class="muted">${smsNote}</p><h3>Google Messages collector</h3><p class="muted">${rcsNote}</p><h3>Android heartbeat</h3><p>${badge(heartbeatStatus)} ${esc((heartbeatJob && heartbeatJob.detail) || 'No phone heartbeat is stored. A stored SMS row cannot certify that the approved handset is collecting. Local verification requires the owner to run the LVPT SMS bridge on the approved handset and confirm a bridge status whose last_success_at is current. This server does not read that report.')}</p><p class="muted">Sending stays off.</p>`);
@@ -222,6 +227,10 @@
       loadLedger(),
       readJson('/api/sync/action-inbox', false, 55000)
     ]);
+    if (picture.status === 401 || inbox.status === 401) {
+      view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'Sign-in is separate from provider health.', `<p>${badge('AUTH REQUIRED')} Owner session required.</p><p>Provider status was not read. A blocked read is not a disconnected provider and not an empty source.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>`);
+      return;
+    }
     const jobs = picture.ok && picture.data && Array.isArray(picture.data.jobs) ? picture.data.jobs : [];
     const namedJobs = jobs.length ? jobs : [
       { name: 'Financial source sync', schedule: 'This page read', owner: 'Command Center sheet', connected: false, detail: (picture.data && picture.data.message) || 'The sheet ledger did not load.' },
@@ -267,6 +276,10 @@
   function renderAction(view) {
     view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', '<p class="muted">Reading the sheet, mailbox headers, and SMS metadata…</p>');
     readJson('/api/sync/action-inbox', false, 55000).then((result) => {
+      if (result.status === 401) {
+        view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups.', '<p class="hub-callout">Owner sign-in required. Action Required was not read. This is not an empty inbox.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>');
+        return;
+      }
       if (!result.ok || !result.data || result.data.ok !== true) {
         view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups.', `<p class="hub-callout">${esc((result.data && result.data.reason) || 'The inbox did not load.')}</p>`);
         return;

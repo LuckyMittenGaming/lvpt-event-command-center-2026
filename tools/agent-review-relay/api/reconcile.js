@@ -1,4 +1,4 @@
-import { assertReconcileReady, loadConfig } from '../src/config.mjs';
+import { loadConfig, reconcileGateReport } from '../src/config.mjs';
 import { createRuntime } from '../src/runtime.mjs';
 import { handleReconcile } from '../src/reconcile.mjs';
 
@@ -26,7 +26,7 @@ export async function handleNodeRequest(req, res, deps = {}) {
       console.info('lvpt_relay_reconcile_signature', JSON.stringify(rich.diagnostic));
     }
     if (rich.transition === 'reconcile_unavailable') {
-      console.info('lvpt_relay_reconcile_readiness', JSON.stringify({ problems: assertReconcileReady(runtime.config) }));
+      console.info('lvpt_relay_reconcile_readiness', JSON.stringify(reconcileGateReport(runtime.config, runtime)));
     }
     res.statusCode = rich.httpStatus;
     res.setHeader('content-type', 'application/json');

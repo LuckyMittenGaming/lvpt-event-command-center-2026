@@ -116,6 +116,20 @@ export function pilotDispatchReady(config) {
     && assertReconcileReady(config).length === 0;
 }
 
+export function reconcileGateReport(config, runtime = {}) {
+  const kind = runtime.store && runtime.store.kind === 'redis' ? 'redis' : 'memory';
+  return {
+    assertLiveReady: assertLiveReady(config),
+    cursorApi: config.cursorApi === true,
+    cursorSpendAuthorized: config.cursorSpendAuthorized === true,
+    cursorKeyAllowed: cursorKeyAllowed(config.cursorApiKey),
+    maxIterationsIsOne: config.maxIterations === 1,
+    spendCapIsPilot: config.spendCapUsd === 0.25,
+    vercelEnvPreview: config.vercelEnv === 'preview',
+    storeKind: kind,
+  };
+}
+
 export function simulationConfig() {
   const config = loadConfig({});
   config.enabled = true;

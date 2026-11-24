@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertReconcileReady, cursorApiReady, loadConfig, simulationConfig } from '../src/config.mjs';
+import { assertReconcileReady, cursorApiReady, loadConfig, reconcileGateReport, simulationConfig } from '../src/config.mjs';
 import { RELAY_BASE, RELAY_REPO } from '../src/constants.mjs';
 import { estimateCostUsd, maxCallCostUsd, spendOverageUsd } from '../src/cost.mjs';
 import { coordinate } from '../src/coordinate.mjs';
@@ -787,4 +787,69 @@ test('observed overage is added once, in microdollars, on both spend paths', asy
   assert.equal(settled.transition, 'pass_stopped');
   assert.deepEqual(schedulerAdded, [expected]);
   assert.equal(await schedulerStore.readSpendMicro(), Math.round(maxCallCostUsd(scheduler.config) * 1e6) + expected);
+});
+
+test('an unavailable reconcile logs the failed gate and not the credential', async () => {
+  const secret = 'reconcile_test_secret_value_01';
+  const github = `github_pat_${'abcDEF123'.repeat(4)}`;
+  const storeToken = 'upstashTokenForLocalTest01';
+  const env = {
+    AGENT_RELAY_ENABLED: 'true',
+    AGENT_RELAY_DRY_RUN: 'false',
+    AGENT_RELAY_LIVE: 'true',
+    AGENT_RELAY_MAX_ITERATIONS: '1',
+    AGENT_RELAY_SPEND_CAP_USD: '0.25',
+    VERCEL_ENV: 'preview',
+    AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+    AGENT_RELAY_RECONCILE_SECRET: secret,
+    GITHUB_WEBHOOK_SECRET: 'local-test-webhook-secret-32',
+    GITHUB_TOKEN: github,
+    OPENAI_API_KEY: 'sk-livepathsimulationkey01',
+    UPSTASH_REDIS_REST_URL: 'https://relay-test.upstash.io',
+    UPSTASH_REDIS_REST_TOKEN: storeToken,
+    AGENT_RELAY_CURSOR_API: 'true',
+    AGENT_RELAY_CURSOR_SPEND_AUTHORIZED: 'true',
+  };
+  const config = loadConfig(env);
+  const report = reconcileGateReport(config, { live: true, store: { kind: 'redis' } });
+  assert.deepEqual(report.assertLiveReady, []);
+  assert.equal(report.cursorApi, true);
+  assert.equal(report.cursorSpendAuthorized, true);
+  assert.equal(report.cursorKeyAllowed, false);
+  assert.equal(report.maxIterationsIsOne, true);
+  assert.equal(report.spendCapIsPilot, true);
+  assert.equal(report.vercelEnvPreview, true);
+  assert.equal(report.storeKind, 'redis');
+
+  const logs = [];
+  const original = console.info;
+  console.info = (...args) => logs.push(args.map((item) => String(item)).join(' '));
+  const body = '{"gate":"cursor-key"}';
+  const res = { statusCode: 0, body: '', setHeader() {}, end(payload) { this.body = payload; } };
+  try {
+    await handleNodeRequest({
+      method: 'POST',
+      headers: { 'x-relay-reconcile-signature': signReconcileBody(body, secret) },
+      async *[Symbol.asyncIterator]() { yield Buffer.from(body); },
+    }, res, {
+      env,
+      createRuntime(loaded) {
+        return createRuntime(loaded, { store: createMemoryStore() });
+      },
+    });
+  } finally {
+    console.info = original;
+  }
+  assert.equal(JSON.parse(res.body).transition, 'reconcile_unavailable');
+  const line = logs.find((entry) => entry.includes('lvpt_relay_reconcile_readiness'));
+  const logged = JSON.parse(line.slice(line.indexOf('{')));
+  assert.equal(logged.cursorKeyAllowed, false);
+  assert.equal(logged.cursorApi, true);
+  assert.equal(logged.storeKind, 'memory');
+  assert.equal(line.includes(secret), false);
+  assert.equal(line.includes(github), false);
+  assert.equal(line.includes(storeToken), false);
+  assert.equal(line.includes('sk-live'), false);
+  assert.equal(res.body.includes(secret), false);
+  assert.equal(res.body.includes('cursorKeyAllowed'), false);
 });

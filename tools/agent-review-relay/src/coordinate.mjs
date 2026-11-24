@@ -1,8 +1,9 @@
 import { cursorApiReady } from './config.mjs';
-import { estimateCostUsd, maxCallCostUsd, round6 } from './cost.mjs';
+import { estimateCostUsd, maxCallCostUsd } from './cost.mjs';
 import { renderComment } from './comment.mjs';
 import { classifyFiles, evidenceKind } from './sanitize.mjs';
 import { applyEvidencePolicy, fixedHuman, hasConcreteFindings, normalizeDecision } from './policy.mjs';
+import { claimGraceMs, persistConfirmedRun, reconcileOne } from './reconcile.mjs';
 
 function toMicro(usd) {
   return Math.max(0, Math.round(usd * 1e6));
@@ -67,8 +68,8 @@ export async function coordinate(ctx, runtime) {
     });
   };
 
-  const commit = async (next) => {
-    const saved = await store.commitPr(ctx.pr, record.version, next);
+  const commit = async (next, options) => {
+    const saved = await store.commitPr(ctx.pr, record.version, next, options);
     if (!saved) {
       const error = new Error('relay state conflict');
       error.code = 'conflict';
@@ -77,7 +78,7 @@ export async function coordinate(ctx, runtime) {
     record = { ...next, version: record.version + 1 };
   };
 
-  const finish = async (transition, decision, { sealSha = true, comment = true, tokens = 0, costUsd = 0, ok = true, handoff = 'mention', agentId = '', runId = '', skipFreshness = false, reserveAlready = false, keepLaunch = false } = {}) => {
+  const finish = async (transition, decision, { sealSha = true, comment = true, tokens = 0, costUsd = 0, ok = true, handoff = 'mention', agentId = '', runId = '', skipFreshness = false, reserveAlready = false, keepLaunch = false, reserved = false } = {}) => {
     const next = {
       ...record,
       reviewed: [...record.reviewed],
@@ -102,10 +103,11 @@ export async function coordinate(ctx, runtime) {
     if (decision && decision.decision !== 'REQUEST_CHANGES' && !['evidence_pending', 'duplicate_sha', 'rejected_stale', 'stale_head', 'access_denied', 'state_conflict'].includes(transition)) {
       next.stopped = transition;
     }
-    if (costUsd > 0) await store.addSpendMicro(toMicro(costUsd));
+    if (costUsd > 0 && !reserved) await store.addSpendMicro(toMicro(costUsd));
     try {
       const launchChanged = JSON.stringify(next.cursorLaunch || null) !== JSON.stringify(record.cursorLaunch || null);
-      if (next.iterations !== record.iterations || next.stopped !== record.stopped || next.reviewed.join() !== record.reviewed.join() || next.firstSeen !== record.firstSeen || next.capReviewed !== record.capReviewed || launchChanged) {
+      const holdChanged = JSON.stringify(next.reviewHold || null) !== JSON.stringify(record.reviewHold || null);
+      if (next.iterations !== record.iterations || next.stopped !== record.stopped || next.reviewed.join() !== record.reviewed.join() || next.firstSeen !== record.firstSeen || next.capReviewed !== record.capReviewed || launchChanged || holdChanged) {
         await commit(next);
       }
     } catch (error) {
@@ -120,6 +122,10 @@ export async function coordinate(ctx, runtime) {
     if (comment && decision) {
       try {
         plannedComment = await publish(runtime, ctx, decision, record.iterations, dryRun, nowMs, { handoff, agentId, runId });
+        if (record.cursorLaunch && record.cursorLaunch.state !== 'active' && record.cursorLaunch.state !== 'claiming' && record.cursorLaunch.notified !== true) {
+          record.cursorLaunch = { ...record.cursorLaunch, notified: true };
+          await commit({ ...record }, { pending: 'remove' });
+        }
       } catch {
         if (!keepLaunch) {
           const stopped = { ...record, stopped: 'comment_failed_stopped' };
@@ -147,21 +153,30 @@ export async function coordinate(ctx, runtime) {
     return finish('already_stopped', null, { sealSha: false, comment: false });
   }
 
-  if (record.cursorLaunch && (record.cursorLaunch.state === 'active' || record.cursorLaunch.state === 'claiming')) {
-    if (record.cursorLaunch.state === 'active' && record.cursorLaunch.agentId && record.cursorLaunch.runId && runtime.readCursorRun) {
-      const status = await runtime.readCursorRun(record.cursorLaunch);
-      if (status?.terminal) {
-        try {
-          await commit({ ...record, cursorLaunch: { ...record.cursorLaunch, state: 'terminal' } });
-        } catch {
-          return outcome('cursor_run_active', { dryRun, iterations: record.iterations });
-        }
-      } else {
-        return outcome('cursor_run_active', { dryRun, iterations: record.iterations });
-      }
-    } else {
-      return outcome('cursor_launch_ambiguous', { ok: false, dryRun, iterations: record.iterations });
+  if (record.cursorLaunch && (
+    record.cursorLaunch.state === 'active'
+    || record.cursorLaunch.state === 'claiming'
+    || (record.stopped && record.cursorLaunch.notified !== true)
+  )) {
+    const result = await reconcileOne(runtime, ctx.pr, nowMs, {
+      deliveryId: ctx.deliveryId,
+      event: ctx.event,
+      action: ctx.action,
+      repo: ctx.repo,
+    });
+    let latest = record;
+    try {
+      latest = await store.loadPr(ctx.pr);
+    } catch {
+      latest = record;
     }
+    record = latest;
+    return outcome(result.transition, {
+      ok: result.ok !== false,
+      dryRun,
+      iterations: latest.iterations || 0,
+      decision: result.decision || null,
+    });
   }
 
   const age = nowMs - Date.parse(ctx.updatedAt);
@@ -223,9 +238,11 @@ export async function coordinate(ctx, runtime) {
     return finish('already_stopped', null, { sealSha: false, comment: false });
   }
 
+  const reserveMicro = toMicro(maxCallCostUsd(config));
   try {
-    await commit({ ...record, reviewed: [...record.reviewed, sha] });
+    await commit({ ...record, reviewed: [...record.reviewed, sha] }, { reserveMicro, capMicro: toMicro(config.spendCapUsd) });
   } catch (error) {
+    if (error && error.code === 'spend_cap') return finish('spend_cap_stopped', fixedHuman('spend_cap'));
     if (error && error.code === 'conflict') {
       const latest = await store.loadPr(ctx.pr);
       if (latest.reviewed.includes(sha) || latest.stopped) {
@@ -241,7 +258,7 @@ export async function coordinate(ctx, runtime) {
   try {
     reviewed = await runtime.review({ evidence, untrusted: ctx.untrusted, config });
   } catch {
-    return finish('api_failure_stopped', fixedHuman('api_failure'));
+    return finish('api_failure_stopped', fixedHuman('api_failure'), { reserved: true });
   }
 
   const usage = reviewed.usage || {};
@@ -257,29 +274,41 @@ export async function coordinate(ctx, runtime) {
   if (finalReview && decision.decision === 'REQUEST_CHANGES') {
     decision = fixedHuman('max_iterations');
   }
-  if (decision.decision === 'PASS') return finish('pass_stopped', decision, { tokens, costUsd });
+  if (decision.decision === 'PASS') return finish('pass_stopped', decision, { tokens, costUsd, reserved: true });
   if (decision.decision === 'HUMAN_APPROVAL_REQUIRED') {
     const transition = decision.reason === 'max_iterations' ? 'max_iterations_stopped' : 'human_stopped';
-    return finish(transition, decision, { tokens, costUsd });
+    return finish(transition, decision, { tokens, costUsd, reserved: true });
   }
   if (config.cursorApi === true) {
     if (!runtime.live) {
-      return finish('dry_run_planned', decision, { tokens, costUsd, handoff: 'api' });
+      return finish('dry_run_planned', decision, { tokens, costUsd, handoff: 'api', reserved: true });
     }
     if (!cursorApiReady(config)) {
-      return finish('cursor_api_unavailable', fixedHuman('cursor_api_unavailable'), { tokens, costUsd, handoff: 'blocked' });
+      return finish('cursor_api_unavailable', fixedHuman('cursor_api_unavailable'), { tokens, costUsd, handoff: 'blocked', reserved: true });
     }
     if (!hasConcreteFindings(decision, evidence)) {
-      return finish('human_stopped', fixedHuman('evidence_missing'), { tokens, costUsd, handoff: 'blocked' });
+      return finish('human_stopped', fixedHuman('evidence_missing'), { tokens, costUsd, handoff: 'blocked', reserved: true });
     }
+    const launchedAt = new Date(nowMs).toISOString();
     try {
       await commit({
         ...record,
         iterations: record.iterations + 1,
-        cursorLaunch: { state: 'claiming', agentId: '', runId: '', sha, launchedAt: new Date(nowMs).toISOString(), attempts: 0 },
-      });
-      await store.markPending(ctx.pr);
+        cursorLaunch: {
+          state: 'claiming',
+          agentId: '',
+          runId: '',
+          sha,
+          launchedAt,
+          claimUntil: new Date(nowMs + claimGraceMs(config)).toISOString(),
+          attempts: 0,
+          notified: false,
+        },
+      }, { pending: 'add' });
     } catch (error) {
+      if (error && error.code === 'pending_full') {
+        return finish('pending_full', fixedHuman('pending_full'), { tokens, costUsd, handoff: 'blocked', reserveAlready: true, reserved: true });
+      }
       if (error && error.code === 'conflict') {
         const latest = await store.loadPr(ctx.pr);
         record = latest;
@@ -289,9 +318,8 @@ export async function coordinate(ctx, runtime) {
     }
     const again = await runtime.confirmHead(ctx);
     if (!again.ok) {
-      record.cursorLaunch = { state: 'failed', agentId: '', runId: '', sha, launchedAt: record.cursorLaunch?.launchedAt || '', attempts: 0 };
-      await store.clearPending(ctx.pr);
-      return finish(again.transition || 'stale_head', fixedHuman('cursor_launch_failed'), { tokens, costUsd, handoff: 'blocked', reserveAlready: true, comment: true });
+      record.cursorLaunch = { state: 'failed', agentId: '', runId: '', sha, launchedAt: record.cursorLaunch?.launchedAt || '', attempts: 0, notified: false, claimUntil: '' };
+      return finish(again.transition || 'stale_head', fixedHuman('cursor_launch_failed'), { tokens, costUsd, handoff: 'blocked', reserveAlready: true, comment: true, reserved: true, skipFreshness: true });
     }
     try {
       const launched = await runtime.launchCursor({
@@ -301,15 +329,19 @@ export async function coordinate(ctx, runtime) {
           decision.cursorTask,
         ].join('\n'),
       });
-      record.cursorLaunch = {
+      const confirmed = {
         state: 'active',
         agentId: launched.agentId,
         runId: launched.runId,
         sha,
         launchedAt: record.cursorLaunch?.launchedAt || new Date(nowMs).toISOString(),
+        claimUntil: '',
         attempts: 0,
+        notified: false,
       };
-      await commit({ ...record });
+      const stored = await persistConfirmedRun(runtime, ctx.pr, record, confirmed);
+      if (!stored) return outcome('cursor_launch_ambiguous', { ok: false, dryRun, iterations: record.iterations });
+      record = await store.loadPr(ctx.pr);
       return finish('cursor_dispatched', decision, {
         tokens,
         costUsd,
@@ -319,14 +351,14 @@ export async function coordinate(ctx, runtime) {
         skipFreshness: true,
         reserveAlready: true,
         keepLaunch: true,
+        reserved: true,
       });
     } catch (error) {
       const ambiguous = error?.ambiguous !== false;
-      record.cursorLaunch = { state: ambiguous ? 'ambiguous' : 'failed', agentId: '', runId: '', sha, launchedAt: record.cursorLaunch?.launchedAt || '', attempts: 0 };
-      await store.clearPending(ctx.pr);
+      record.cursorLaunch = { state: ambiguous ? 'ambiguous' : 'failed', agentId: '', runId: '', sha, launchedAt: record.cursorLaunch?.launchedAt || '', attempts: 0, notified: false, claimUntil: '' };
       const reason = ambiguous ? 'cursor_launch_ambiguous' : 'cursor_launch_failed';
-      return finish(reason, fixedHuman(reason), { tokens, costUsd, handoff: 'blocked', reserveAlready: true });
+      return finish(reason, fixedHuman(reason), { tokens, costUsd, handoff: 'blocked', reserveAlready: true, reserved: true });
     }
   }
-  return finish(dryRun ? 'dry_run_planned' : 'comment_posted', decision, { tokens, costUsd });
+  return finish(dryRun ? 'dry_run_planned' : 'comment_posted', decision, { tokens, costUsd, reserved: true });
 }

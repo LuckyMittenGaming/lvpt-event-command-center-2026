@@ -1,4 +1,4 @@
-import { loadConfig } from '../src/config.mjs';
+import { assertReconcileReady, loadConfig } from '../src/config.mjs';
 import { createRuntime } from '../src/runtime.mjs';
 import { handleReconcile } from '../src/reconcile.mjs';
 
@@ -22,6 +22,9 @@ export async function handleNodeRequest(req, res, deps = {}) {
     const runtime = (deps.createRuntime || createRuntime)((deps.loadConfig || loadConfig)(deps.env || process.env));
     const rich = await handleReconcile({ rawBody, headers: req.headers || {}, runtime });
     console.info('lvpt_relay_reconcile', JSON.stringify({ status: rich.httpStatus, transition: rich.transition, count: rich.results.length }));
+    if (rich.transition === 'reconcile_unavailable') {
+      console.info('lvpt_relay_reconcile_readiness', JSON.stringify({ problems: assertReconcileReady(runtime.config) }));
+    }
     res.statusCode = rich.httpStatus;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ ok: rich.ok, transition: rich.transition, count: rich.results.length }));

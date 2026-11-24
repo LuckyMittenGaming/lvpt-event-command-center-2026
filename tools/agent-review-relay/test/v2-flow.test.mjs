@@ -307,10 +307,13 @@ test('redis clients share claims and a deleted record cannot lower the floor', a
     } else if (command[0] === 'EVAL' && command[1].includes('relay:claim')) {
       result = kv.has(command[3]) ? 0 : (kv.set(command[3], '1'), 1);
     } else if (command[0] === 'EVAL' && command[1].includes('relay:commit')) {
-      const prKey = command[3];
-      const floorKey = command[4];
-      const expected = Number(command[5]);
-      const next = JSON.parse(command[6]);
+      const nkeys = Number(command[2]);
+      const keys = command.slice(3, 3 + nkeys);
+      const args = command.slice(3 + nkeys);
+      const prKey = keys[0];
+      const floorKey = keys[1];
+      const expected = Number(args[0]);
+      const next = JSON.parse(args[1]);
       const raw = kv.get(prKey);
       const current = raw ? JSON.parse(raw) : { version: 0, iterations: 0 };
       const floor = Number(kv.get(floorKey) || 0);

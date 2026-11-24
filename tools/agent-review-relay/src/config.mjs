@@ -90,6 +90,8 @@ export function loadConfig(env = {}) {
     qstashCurrentKey: cleanSecret(env.QSTASH_CURRENT_SIGNING_KEY),
     qstashNextKey: cleanSecret(env.QSTASH_NEXT_SIGNING_KEY),
     reconcileTimeoutMs: intEnv(env.AGENT_RELAY_RECONCILE_TIMEOUT_MS, 20 * 60 * 1000, 60 * 1000, 2 * 60 * 60 * 1000),
+    vercelEnv: env.VERCEL_ENV === 'preview' || env.VERCEL_ENV === 'production' || env.VERCEL_ENV === 'development' ? env.VERCEL_ENV : '',
+    reconcileUrl: reconcileUrlAllowed(cleanSecret(env.AGENT_RELAY_RECONCILE_URL)) ? cleanSecret(env.AGENT_RELAY_RECONCILE_URL) : '',
   };
 }
 
@@ -121,7 +123,45 @@ export function simulationConfig() {
   config.cursorApi = false;
   config.cursorApiKey = '';
   config.cursorSpendAuthorized = false;
+  config.reconcileSecret = '';
+  config.qstashCurrentKey = '';
+  config.qstashNextKey = '';
+  config.vercelEnv = '';
+  config.reconcileUrl = '';
   return config;
+}
+
+export function reconcileUrlAllowed(value) {
+  if (typeof value !== 'string' || !value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:'
+      && parsed.username === ''
+      && parsed.password === ''
+      && parsed.pathname === '/api/reconcile'
+      && parsed.search === ''
+      && parsed.hash === ''
+      && parsed.hostname.includes('.')
+      && !parsed.hostname.includes('..');
+  } catch {
+    return false;
+  }
+}
+
+export function assertReconcileReady(config) {
+  const problems = [];
+  if (!config.enabled) problems.push('disabled');
+  if (config.killSwitch) problems.push('killed');
+  if (config.vercelEnv === 'production') problems.push('production');
+  if (config.vercelEnv !== 'preview') problems.push('not_preview');
+  if (!reconcileUrlAllowed(config.reconcileUrl)) problems.push('reconcile_url');
+  const hmac = typeof config.reconcileSecret === 'string'
+    && config.reconcileSecret.length >= 24
+    && !hasBlockedMarker(config.reconcileSecret);
+  const qstash = (typeof config.qstashCurrentKey === 'string' && config.qstashCurrentKey.length >= 16 && !hasBlockedMarker(config.qstashCurrentKey))
+    || (typeof config.qstashNextKey === 'string' && config.qstashNextKey.length >= 16 && !hasBlockedMarker(config.qstashNextKey));
+  if (!hmac && !qstash) problems.push('scheduler_auth');
+  return [...new Set(problems)];
 }
 
 export function upstashUrlAllowed(value) {

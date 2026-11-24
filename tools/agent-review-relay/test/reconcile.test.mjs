@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cursorApiReady, loadConfig, simulationConfig } from '../src/config.mjs';
+import { assertReconcileReady, cursorApiReady, loadConfig, simulationConfig } from '../src/config.mjs';
 import { RELAY_BASE, RELAY_REPO } from '../src/constants.mjs';
 import { launchCursorRun } from '../src/cursor-api.mjs';
 import { createRuntime } from '../src/runtime.mjs';
-import { handleReconcile, reconcilePending } from '../src/reconcile.mjs';
+import { handleReconcile, persistConfirmedRun, reconcileOne, reconcilePending } from '../src/reconcile.mjs';
 import { reconcileAuthorized, signQstashRequest, signReconcileBody } from '../src/reconcile-auth.mjs';
-import { createMemoryStore } from '../src/store.mjs';
+import { PENDING_LIMIT, RELAY_COMMIT_SCRIPT, createMemoryStore } from '../src/store.mjs';
+import { handleNodeRequest } from '../api/reconcile.js';
 import { handleSignedDelivery } from '../src/webhook.mjs';
 import { FIXED_NOW, buildPayload, signedHeaders } from './helpers.mjs';
 
@@ -49,6 +50,7 @@ function runtimeFor(store, { status = 'FINISHED', head = NEW, evidence, review, 
       ok: true,
       ctx: {
         repo: RELAY_REPO,
+        headRepo: RELAY_REPO,
         pr: 21,
         sha: head,
         base: RELAY_BASE,
@@ -68,6 +70,12 @@ function runtimeFor(store, { status = 'FINISHED', head = NEW, evidence, review, 
   runtime.live = true;
   runtime.config.reconcileTimeoutMs = 20 * 60 * 1000;
   runtime.config.maxIterations = 1;
+  runtime.config.spendCapUsd = 0.25;
+  runtime.config.enabled = true;
+  runtime.config.killSwitch = false;
+  runtime.config.vercelEnv = 'preview';
+  runtime.config.reconcileUrl = 'https://preview.example/api/reconcile';
+  runtime.config.reconcileSecret = 'reconcile_test_secret_value_01';
   return { runtime, comments };
 }
 
@@ -101,7 +109,11 @@ test('QStash signatures authorize reconciliation and a finished unchanged head d
   await seed(store);
   const { runtime } = runtimeFor(store, { head: OLD });
   runtime.config.qstashCurrentKey = key;
-  assert.equal(reconcileAuthorized(raw, { 'upstash-signature': signature }, runtime.config, FIXED_NOW), true);
+  assert.equal(reconcileAuthorized(raw, { 'upstash-signature': signature }, runtime.config, FIXED_NOW).ok, true);
+  const wrong = signQstashRequest({ rawBody: raw, key, url: 'https://evil.example/api/reconcile', now: FIXED_NOW });
+  assert.equal(reconcileAuthorized(raw, { 'upstash-signature': wrong }, runtime.config, FIXED_NOW).ok, false);
+  const none = `eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.${Buffer.from('{}').toString('base64url')}.`;
+  assert.equal(reconcileAuthorized(raw, { 'upstash-signature': none }, runtime.config, FIXED_NOW).ok, false);
   const result = await handleReconcile({ rawBody: raw, headers: { 'upstash-signature': signature }, runtime, now: FIXED_NOW });
   assert.equal(result.results[0].transition, 'cursor_finished_unchanged');
   assert.equal((await store.listPending()).length, 0);
@@ -250,6 +262,7 @@ test('a comment failure keeps the run id, and a stale head after the reserve doe
   });
   const fetchImpl = async (url) => {
     if (String(url).includes('/pulls/21')) return { ok: true, json: async () => buildPayload().pull_request };
+    if (String(url).includes('/comments')) return { ok: true, json: async () => ({ id: 1 }) };
     throw new Error(String(url));
   };
   const runtime = createRuntime(cfg, {
@@ -310,4 +323,231 @@ test('a comment failure keeps the run id, and a stale head after the reserve doe
   });
   assert.equal(moved.transition, 'stale_head');
   assert.equal((await stale.store.loadPr(21)).iterations, 1);
+});
+
+test('preview reconciliation is refused in production and a signature cannot be replayed', async () => {
+  const preview = loadConfig({
+    AGENT_RELAY_ENABLED: 'true',
+    AGENT_RELAY_DRY_RUN: 'false',
+    AGENT_RELAY_LIVE: 'true',
+    AGENT_RELAY_MAX_ITERATIONS: '1',
+    AGENT_RELAY_SPEND_CAP_USD: '0.25',
+    VERCEL_ENV: 'preview',
+    AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+    AGENT_RELAY_RECONCILE_SECRET: 'reconcile_test_secret_value_01',
+    GITHUB_WEBHOOK_SECRET: 'local-test-webhook-secret-32',
+    GITHUB_TOKEN: `github_pat_${'abcDEF123'.repeat(4)}`,
+    OPENAI_API_KEY: 'sk-livepathsimulationkey01',
+    UPSTASH_REDIS_REST_URL: 'https://relay-test.upstash.io',
+    UPSTASH_REDIS_REST_TOKEN: 'upstashTokenForLocalTest01',
+  });
+  assert.deepEqual(assertReconcileReady(preview), []);
+  assert.equal(preview.maxIterations, 1);
+  assert.equal(preview.spendCapUsd, 0.25);
+  const production = loadConfig({ ...{
+    AGENT_RELAY_ENABLED: 'true',
+    VERCEL_ENV: 'production',
+    AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+    AGENT_RELAY_RECONCILE_SECRET: 'reconcile_test_secret_value_01',
+  } });
+  assert.equal(assertReconcileReady(production).includes('production'), true);
+  assert.equal(assertReconcileReady(loadConfig({})).includes('not_preview'), true);
+  assert.match(RELAY_COMMIT_SCRIPT, /SCARD/);
+  assert.match(RELAY_COMMIT_SCRIPT, /return -2/);
+  assert.match(RELAY_COMMIT_SCRIPT, /return -3/);
+
+  const store = createMemoryStore();
+  await seed(store);
+  const { runtime } = runtimeFor(store);
+  let reviews = 0;
+  runtime.review = async () => {
+    reviews += 1;
+    return {
+      decision: { decision: 'PASS', rationale: 'Checks passed for this commit.', findings: [], cursorTask: null },
+      usage: { inputTokens: 1, outputTokens: 1 },
+    };
+  };
+  const raw = '{}';
+  const headers = { 'x-relay-reconcile-signature': signReconcileBody(raw, runtime.config.reconcileSecret) };
+  const first = await handleReconcile({ rawBody: raw, headers, runtime, now: FIXED_NOW });
+  const second = await handleReconcile({ rawBody: raw, headers, runtime, now: FIXED_NOW });
+  assert.equal(first.transition, 'reconciled');
+  assert.equal(second.transition, 'rejected_replay');
+  assert.equal(reviews, 1);
+  runtime.config.killSwitch = true;
+  const killedBody = '{"tick":"killed"}';
+  const killed = await handleReconcile({
+    rawBody: killedBody,
+    headers: { 'x-relay-reconcile-signature': signReconcileBody(killedBody, runtime.config.reconcileSecret) },
+    runtime,
+    now: FIXED_NOW,
+  });
+  assert.equal(killed.transition, 'killed');
+  runtime.config.killSwitch = false;
+  runtime.config.enabled = false;
+  const disabledBody = '{"tick":"disabled"}';
+  const disabled = await handleReconcile({
+    rawBody: disabledBody,
+    headers: { 'x-relay-reconcile-signature': signReconcileBody(disabledBody, runtime.config.reconcileSecret) },
+    runtime,
+    now: FIXED_NOW,
+  });
+  assert.equal(disabled.transition, 'disabled');
+
+  const res = { statusCode: 0, body: '', setHeader() {}, end(body) { this.body = body; } };
+  await handleNodeRequest({
+    method: 'POST',
+    headers: { 'x-relay-reconcile-signature': signReconcileBody('{}', 'reconcile_test_secret_value_01') },
+    async *[Symbol.asyncIterator]() { yield Buffer.from('{}'); },
+  }, res, {
+    env: {
+      AGENT_RELAY_ENABLED: 'true',
+      VERCEL_ENV: 'production',
+      AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+      AGENT_RELAY_RECONCILE_SECRET: 'reconcile_test_secret_value_01',
+    },
+  });
+  assert.equal(JSON.parse(res.body).transition, 'reconcile_unavailable');
+});
+
+test('a finished failure is not reviewed, and the scheduler does not drop an in-flight launch', async () => {
+  const store = createMemoryStore();
+  await seed(store);
+  let reviews = 0;
+  const failed = runtimeFor(store, { status: 'ERROR' }).runtime;
+  failed.review = async () => { reviews += 1; throw new Error('should not review'); };
+  assert.equal((await reconcilePending(failed, FIXED_NOW))[0].transition, 'cursor_run_terminal_failed');
+  assert.equal(reviews, 0);
+  assert.equal((await store.loadPr(21)).cursorLaunch.agentId, AGENT);
+
+  const cfg = loadConfig({
+    AGENT_RELAY_ENABLED: 'true',
+    AGENT_RELAY_DRY_RUN: 'false',
+    AGENT_RELAY_LIVE: 'true',
+    AGENT_RELAY_CURSOR_API: 'true',
+    AGENT_RELAY_CURSOR_SPEND_AUTHORIZED: 'true',
+    AGENT_RELAY_MAX_ITERATIONS: '1',
+    GITHUB_WEBHOOK_SECRET: 'local-test-webhook-secret-32',
+    GITHUB_TOKEN: `github_pat_${'abcDEF123'.repeat(4)}`,
+    OPENAI_API_KEY: 'sk-livepathsimulationkey01',
+    UPSTASH_REDIS_REST_URL: 'https://relay-test.upstash.io',
+    UPSTASH_REDIS_REST_TOKEN: 'upstashTokenForLocalTest01',
+    CURSOR_API_KEY: 'cursor_live_test_key_value_01',
+  });
+  const live = createMemoryStore();
+  let raced = '';
+  const runtime = createRuntime(cfg, {
+    fetchImpl: async (url) => {
+      if (String(url).includes('/pulls/21')) return { ok: true, json: async () => buildPayload().pull_request };
+      if (String(url).includes('/comments')) return { ok: true, json: async () => ({ id: 1 }) };
+      throw new Error(String(url));
+    },
+    store: live,
+    now: () => FIXED_NOW,
+    evidence: async () => ({ testSummary: 'FAIL tests/sample.test.mjs', changedFiles: ['lib/sample.mjs'] }),
+    review: async () => ({
+      decision: {
+        decision: 'REQUEST_CHANGES',
+        rationale: 'The sample check failed.',
+        findings: [{ path: 'lib/sample.mjs', line: 4, summary: 'Check failed.' }],
+        cursorTask: 'Fix only lib/sample.mjs.',
+      },
+      usage: { inputTokens: 1, outputTokens: 1 },
+    }),
+    launchCursor: async () => {
+      raced = (await reconcileOne(runtime, 21, FIXED_NOW)).transition;
+      return { agentId: AGENT, runId: RUN, status: 'CREATING' };
+    },
+  });
+  const raw = JSON.stringify(buildPayload());
+  const sent = await handleSignedDelivery({
+    rawBody: raw,
+    headers: signedHeaders(raw, cfg.webhookSecret, 'delivery-race-launch'),
+    runtime,
+  });
+  assert.equal(raced, 'cursor_run_active');
+  assert.equal(sent.transition, 'cursor_dispatched');
+  assert.equal((await live.loadPr(21)).cursorLaunch.agentId, AGENT);
+  let reviewsAfter = 0;
+  runtime.review = async () => { reviewsAfter += 1; throw new Error('should not review'); };
+  runtime.readCursorRun = async () => ({ terminal: true, status: 'ERROR' });
+  const failedRaw = JSON.stringify(buildPayload({ head: { sha: NEW } }));
+  const webhookFailed = await handleSignedDelivery({
+    rawBody: failedRaw,
+    headers: signedHeaders(failedRaw, cfg.webhookSecret, 'delivery-terminal-fail'),
+    runtime,
+  });
+  assert.equal(webhookFailed.transition, 'cursor_run_terminal_failed');
+  assert.equal(reviewsAfter, 0);
+
+  const expired = createMemoryStore();
+  await expired.commitPr(21, 0, {
+    iterations: 1,
+    stopped: '',
+    reviewed: [OLD],
+    firstSeen: new Date(FIXED_NOW).toISOString(),
+    cursorLaunch: { state: 'claiming', agentId: '', runId: '', sha: OLD, launchedAt: new Date(FIXED_NOW - 10 * 60 * 1000).toISOString(), claimUntil: new Date(FIXED_NOW - 60 * 1000).toISOString(), attempts: 0 },
+  });
+  await expired.markPending(21);
+  const late = runtimeFor(expired).runtime;
+  assert.equal((await reconcilePending(late, FIXED_NOW))[0].transition, 'cursor_launch_ambiguous');
+  const revived = await persistConfirmedRun(late, 21, await expired.loadPr(21), {
+    agentId: AGENT,
+    runId: RUN,
+    sha: OLD,
+    launchedAt: new Date(FIXED_NOW).toISOString(),
+  });
+  assert.equal(revived, true);
+  assert.equal((await expired.loadPr(21)).cursorLaunch.agentId, AGENT);
+  assert.equal((await expired.loadPr(21)).cursorLaunch.state, 'active');
+});
+
+test('unsafe paths, spend, stale publication, and a full pending set do not dispatch another run', async () => {
+  const unsafeStore = createMemoryStore();
+  await seed(unsafeStore);
+  let reviews = 0;
+  const unsafe = runtimeFor(unsafeStore, { evidence: { testSummary: 'FAIL app/api/sms/send', changedFiles: ['app/api/sms/send/route.js'] } }).runtime;
+  unsafe.review = async () => { reviews += 1; throw new Error('should not review'); };
+  assert.equal((await reconcilePending(unsafe, FIXED_NOW))[0].transition, 'sensitive_path_stopped');
+  assert.equal(reviews, 0);
+
+  const spent = createMemoryStore();
+  await seed(spent);
+  await spent.addSpendMicro(250_000);
+  const capped = runtimeFor(spent).runtime;
+  capped.config.spendCapUsd = 0.25;
+  capped.review = async () => { reviews += 1; throw new Error('should not review'); };
+  assert.equal((await reconcilePending(capped, FIXED_NOW))[0].transition, 'spend_cap_stopped');
+  assert.equal(reviews, 0);
+
+  const staleStore = createMemoryStore();
+  await seed(staleStore);
+  const stale = runtimeFor(staleStore).runtime;
+  stale.confirmHead = async () => ({ ok: false, transition: 'stale_head' });
+  let staleReviews = 0;
+  stale.review = async () => {
+    staleReviews += 1;
+    return {
+      decision: { decision: 'PASS', rationale: 'Checks passed for this commit.', findings: [], cursorTask: null },
+      usage: { inputTokens: 1, outputTokens: 1 },
+    };
+  };
+  const comments = [];
+  stale.postComment = async (input) => { comments.push(input.body); return { id: 1 }; };
+  assert.equal((await reconcilePending(stale, FIXED_NOW))[0].transition, 'stale_head');
+  assert.equal(staleReviews, 1);
+  assert.equal(comments.length, 0);
+  assert.equal((await reconcilePending(stale, FIXED_NOW))[0].transition, 'stale_head');
+  assert.equal(staleReviews, 1);
+
+  const full = createMemoryStore();
+  for (let id = 1; id <= PENDING_LIMIT; id += 1) {
+    assert.equal(await full.commitPr(1000 + id, 0, { iterations: 0, stopped: '', reviewed: [], firstSeen: '' }, { pending: 'add' }), true);
+  }
+  await assert.rejects(() => full.commitPr(21, 0, { iterations: 1, stopped: '', reviewed: [], firstSeen: '' }, { pending: 'add' }), /pending full/);
+  const pageA = await full.listPending(10);
+  const pageB = await full.listPending(10);
+  assert.equal(pageA.length, 10);
+  assert.equal(pageB.length, 10);
+  assert.equal(pageA[0] === pageB[0], false);
 });

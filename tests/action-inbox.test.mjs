@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildActionInbox, prepareDraft } from '../lib/action-inbox.mjs';
+import { contactHash, matchThreads } from '../lib/sms-bridge.mjs';
 
 const today = '2026-11-22';
 
@@ -129,6 +130,97 @@ assert.equal(inbox.counts.vendorExcluded, 1);
 const blank = prepareDraft({ qualification: coach.qualification });
 assert.equal(blank.sent, false);
 assert.equal(blank.sendEnabled, false);
+assert.equal(blank.recipientVerified, false);
+assert.equal(blank.readyToApprove, false);
+assert.equal(blank.readyToSend, false);
+assert.equal(corp.acquisitionKind, 'recorded');
+assert.equal(corp.acquisitionLabel, 'Website');
+assert.equal(corp.source, 'Website');
+assert.equal(corp.channel, 'Gmail');
+assert.equal(inbox.counts.readyForApproval, 0);
+
+const decisions = buildActionInbox({
+  today,
+  events: [
+    { id: 'evt-unknown', status: 'Considering', leadSource: '', contactEmail: 'only@example.test' },
+    { id: 'evt-declined', status: 'Declined', leadSource: 'Referral from a partner' },
+    { id: 'evt-invoice', status: 'Invoice sent', leadSource: 'Organic' },
+    { id: 'evt-booked-explicit', status: 'Booked', leadSource: 'Contact form', proposalUrl: 'https://example.test/proposal', utmSource: '' },
+    { id: 'evt-utm', status: 'New Lead', utmSource: 'spring', utmCampaign: 'poker', leadSource: 'Phone' }
+  ],
+  tasks: [
+    { id: 'task-overdue', eventId: 'evt-unknown', title: 'Call back', dueDate: '2026-11-01', status: 'Open' }
+  ],
+  gmailThreads: [],
+  smsThreads: [
+    { threadKey: 'sms-old', match: 'exact', eventId: 'evt-invoice', newestAt: '2026-11-21T00:00:00.000Z', newestDirection: 'outgoing', incoming: 4, outgoing: 1 }
+  ],
+  rcsMessages: [
+    { googleMessageId: 'gm-same', conversationId: 'conv-1', direction: 'incoming', messageAt: '2026-11-21T01:00:00.000Z' },
+    { googleMessageId: 'gm-same', conversationId: 'conv-1', direction: 'outgoing', messageAt: '2026-11-21T02:00:00.000Z' },
+    { googleMessageId: 'gm-other', conversationId: 'conv-1', direction: 'incoming', messageAt: '2026-11-21T03:00:00.000Z' }
+  ]
+});
+const byId = (id) => decisions.records.find((row) => row.id === id);
+assert.equal(byId('event:evt-unknown').pipelineStage, 'unknown');
+assert.notEqual(byId('event:evt-unknown').bucket, 'booked');
+assert.equal(byId('event:evt-unknown').acquisitionKind, 'unknown');
+assert.equal(byId('event:evt-declined').pipelineStage, 'declined');
+assert.equal(byId('event:evt-declined').bucket, 'declined');
+assert.equal(byId('event:evt-declined').acquisitionKind, 'referral');
+assert.equal(byId('event:evt-invoice').pipelineStage, 'invoice_sent');
+assert.notEqual(byId('event:evt-invoice').bucket, 'booked');
+assert.equal(byId('event:evt-invoice').acquisitionKind, 'organic');
+assert.equal(byId('event:evt-booked-explicit').pipelineStage, 'booked');
+assert.equal(byId('event:evt-booked-explicit').bucket, 'booked');
+assert.equal(byId('event:evt-booked-explicit').acquisitionKind, 'form');
+assert.equal(byId('event:evt-booked-explicit').proposalLink, 'https://example.test/proposal');
+assert.equal(byId('event:evt-utm').acquisitionKind, 'utm');
+assert.equal(byId('event:evt-utm').acquisitionLabel.includes('Phone'), false);
+const invoiceSms = byId('event:evt-invoice').timeline.find((item) => item.source === 'SMS');
+assert.equal(invoiceSms.direction, 'outbound');
+assert.equal(decisions.counts.readyForApproval, 0);
+assert.equal(byId('event:evt-unknown').draft.recipientRecorded, true);
+assert.equal(byId('event:evt-unknown').draft.recipientVerified, false);
+const rcs = byId('rcs:conv-1');
+assert.equal(rcs.timeline.length, 2);
+assert.deepEqual(rcs.providerIds, ['gm-same', 'gm-other']);
+assert.equal(decisions.pipeline.denominator, 5);
+assert.equal(decisions.pipeline.stages.booked, 1);
+assert.equal(decisions.pipeline.stages.invoiceSent, 1);
+assert.equal(decisions.pipeline.stages.declined, 1);
+assert.equal(decisions.pipeline.stages.unknown, 1);
+assert.equal(decisions.pipeline.conversion.numerator, 1);
+assert.equal(decisions.pipeline.conversion.denominator, 5);
+assert.equal(decisions.pipeline.excluded.ambiguous, 0);
+assert.equal(decisions.pipeline.overdueFollowUps, 1);
+const ambiguousOnly = buildActionInbox({
+  today,
+  events: [],
+  smsThreads: [{ threadKey: 'amb', match: 'ambiguous', candidateEventIds: ['evt-a', 'evt-b'], newestAt: '2026-11-02T00:00:00.000Z', incoming: 3, outgoing: 0 }]
+});
+assert.equal(ambiguousOnly.records[0].timeline[0].direction, '');
+assert.equal(ambiguousOnly.pipeline.excluded.ambiguous, 1);
+assert.equal(ambiguousOnly.pipeline.denominator, 0);
+assert.equal(ambiguousOnly.pipeline.conversion, null);
+
+const bridgeKey = Buffer.alloc(32, 4);
+const phone = '7025550199';
+const hash = contactHash(bridgeKey, phone);
+const matched = matchThreads([
+  { contact_hash: hash, direction: 'incoming', timestamp_ms: 1000 },
+  { contact_hash: hash, direction: 'incoming', timestamp_ms: 2000 },
+  { contact_hash: hash, direction: 'outgoing', timestamp_ms: 3000 }
+], [{ id: 'evt-1', contactPhone: phone }], bridgeKey);
+assert.equal(matched[0].incoming, 2);
+assert.equal(matched[0].outgoing, 1);
+assert.equal(matched[0].newestDirection, 'outgoing');
+
+const hub = readFileSync(new URL('../public/v2/js/unified-hub.js', import.meta.url), 'utf8');
+assert.equal(hub.includes('data-decision="approve"'), false);
+assert.match(hub, /Draft preview, not an approval/);
+assert.match(hub, /Recorded email, not verified/);
+assert.match(hub, /Lead pipeline/);
 
 const route = readFileSync(new URL('../app/api/sync/action-inbox/route.ts', import.meta.url), 'utf8');
 assert.match(route, /productionWrites: false/);

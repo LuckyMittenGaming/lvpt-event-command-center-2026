@@ -86,3 +86,4 @@ assert(!JSON.stringify(decisions).includes('Need receipt'), 'No excerpts in revi
 console.log('SMS event matching, redaction and grouped-case tests passed.');
 await import('./source-reliability.test.mjs');
 await import('./owner-read-guard.test.mjs');
+await import('./action-inbox.test.mjs');

@@ -235,8 +235,11 @@
     new_activity: 'New activity',
     follow_up_due: 'Follow-up due',
     unassigned: 'Unassigned',
-    booked: 'Booked event',
-    resolved: 'Resolved',
+    booked: 'Booked',
+    invoice_sent: 'Invoice sent, not booked',
+    declined: 'Declined',
+    resolved: 'Completed',
+    unknown: 'Stage unknown',
     vendor: 'Vendor, not a sales lead'
   };
 
@@ -268,13 +271,20 @@
         ['vendor', 'Vendor'],
         ['all', 'All']
       ];
-      const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Drafts with a recipient</span><strong>${esc(counts.readyForApproval || 0)}</strong></div><div><span>Vendor, excluded from leads</span><strong>${esc(counts.vendorExcluded || 0)}</strong></div></div>`;
+      const pipe = data.pipeline || {};
+      const stages = pipe.stages || {};
+      const acquired = pipe.sources || {};
+      const excluded = pipe.excluded || {};
+      const conversion = pipe.conversion;
+      const proposalLinks = Array.isArray(pipe.proposalLinks) ? pipe.proposalLinks : [];
+      const pipeline = `<section class="hub-callout"><h3>Lead pipeline</h3><p>Denominator: ${esc(pipe.denominator == null ? 'not counted' : pipe.denominator)} events with a stable id. Unknown and excluded records stay visible and are not counted as booked.</p><p>Stages: open ${esc(stages.open || 0)}, booked ${esc(stages.booked || 0)}, invoice sent ${esc(stages.invoiceSent || 0)}, declined ${esc(stages.declined || 0)}, completed ${esc(stages.completed || 0)}, unknown ${esc(stages.unknown || 0)}.</p><p>Acquisition: organic ${esc(acquired.organic || 0)}, referral ${esc(acquired.referral || 0)}, form ${esc(acquired.form || 0)}, UTM ${esc(acquired.utm || 0)}, other recorded ${esc(acquired.recorded || 0)}, unknown ${esc(acquired.unknown || 0)}. A Gmail or SMS row is a channel, not an acquisition source.</p><p>Outside the prospect list: vendor ${esc(excluded.vendor || 0)}, unassigned ${esc(excluded.unassigned || 0)}, ambiguous links ${esc(excluded.ambiguous || 0)}.</p><p>Qualification gaps: ${esc(pipe.qualificationGaps || 0)}. Overdue follow-ups: ${esc(pipe.overdueFollowUps || 0)}.</p><p>${conversion ? esc(`${conversion.numerator} explicit booked / ${conversion.denominator} events. ${conversion.label}`) : 'No conversion rate. There is no event denominator.'}</p>${proposalLinks.length ? `<ul>${proposalLinks.map((link) => `<li><a href="${esc(link.url)}">${esc(link.eventId)}</a></li>`).join('')}</ul>` : '<p>No validated proposal link was supplied.</p>'}</section>`;
+      const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Recorded email, not verified</span><strong>${esc(counts.recordedRecipientUnverified || 0)}</strong></div><div><span>Vendor, excluded from leads</span><strong>${esc(counts.vendorExcluded || 0)}</strong></div></div>${pipeline}`;
       const freshness = `<p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p><p class="muted">Approve, Make Changes, Deny, and Edit Myself there. Buttons on this page do not record a decision, do not prove the recipient, and do not send exactly once.</p><p class="muted">Sheet events ${esc(sources.events ?? 'not counted')}. RCS metadata rows returned ${esc(sources.rcsMessages ?? 'not counted')}, newest RCS message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS. A stored RCS message time is not a collector heartbeat. Message text was not included in this list.</p>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved ?? 'not counted')}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
       const cards = records.map((record, index) => {
         const info = record.qualification || {};
         const timeline = (record.timeline || []).map((item) => `<li><span>${esc(item.at || 'Time not recorded')}</span> ${esc(item.source)} ${esc(item.direction || '')} ${item.contentAvailable ? esc(item.summary) : 'Message text is not in this list. Open the authorized review only when a session can decrypt or read it.'}</li>`).join('');
         const draft = record.draft || {};
-        return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}"><header><span class="badge warn">${esc(ACTION_LABELS[record.bucket] || record.bucket)}</span><span>${esc(record.source)}</span></header><h3>${esc(field(record.contact))}${record.company ? ` · ${esc(record.company)}` : ''}</h3><p>${esc(record.eventName || 'No event assigned')} · Last activity ${esc(field(record.lastActivity))}</p><p><strong>Next action:</strong> ${esc(field(record.nextAction))}</p><dl class="action-fields"><div><dt>Email</dt><dd>${esc(field(info.email))}</dd></div><div><dt>Phone</dt><dd>${esc(field(info.phone))}</dd></div><div><dt>Date</dt><dd>${esc(field(info.eventDate))}</dd></div><div><dt>Guests</dt><dd>${esc(field(info.guestCount))}</dd></div><div><dt>Type</dt><dd>${esc(field(info.eventType))}</dd></div><div><dt>Budget</dt><dd>${esc(field(info.budget))}</dd></div><div><dt>Venue</dt><dd>${esc(field(info.venue))}</dd></div><div><dt>Source</dt><dd>${esc(field(info.leadSource || record.source))}</dd></div><div><dt>Value</dt><dd>${esc(moneyCents(info.estimatedValueCents))}</dd></div><div><dt>Stage</dt><dd>${esc(field(info.stage))}</dd></div></dl><p class="muted">${info.missing && info.missing.length ? `Not recorded: ${esc(info.missing.join(', '))}.` : 'The recorded qualification fields are present.'}</p><details><summary>Conversation timeline</summary><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul></details><details><summary>Draft reply</summary><form class="action-draft" data-draft="${index}"><label>Recipient<input readonly value="${esc(draft.recipient || '')}" data-recipient></label><textarea readonly rows="8" data-body>${esc(draft.body || '')}</textarea><div class="review-actions"><button type="button" data-decision="approve">Approve</button><button type="button" data-decision="make_changes">Make Changes</button><button type="button" data-decision="deny">Deny</button><button type="button" data-decision="edit_myself">Edit Myself</button></div><p class="action-result" data-result>Sending is disabled. A draft is not a sent message.</p></form></details></article>`;
+        return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}"><header><span class="badge warn">${esc(ACTION_LABELS[record.bucket] || record.bucket)}</span><span>${esc(record.source)}</span></header><h3>${esc(field(record.contact))}${record.company ? ` · ${esc(record.company)}` : ''}</h3><p>${esc(record.eventName || 'No event assigned')} · Last activity ${esc(field(record.lastActivity))}</p><p><strong>Next action:</strong> ${esc(field(record.nextAction))}</p><dl class="action-fields"><div><dt>Email</dt><dd>${esc(field(info.email))}</dd></div><div><dt>Phone</dt><dd>${esc(field(info.phone))}</dd></div><div><dt>Date</dt><dd>${esc(field(info.eventDate))}</dd></div><div><dt>Guests</dt><dd>${esc(field(info.guestCount))}</dd></div><div><dt>Type</dt><dd>${esc(field(info.eventType))}</dd></div><div><dt>Budget</dt><dd>${esc(field(info.budget))}</dd></div><div><dt>Venue</dt><dd>${esc(field(info.venue))}</dd></div><div><dt>Acquisition</dt><dd>${esc(record.acquisitionLabel || 'Unknown')}</dd></div><div><dt>Channel</dt><dd>${esc(record.channel || 'unknown')}</dd></div><div><dt>Value</dt><dd>${esc(moneyCents(info.estimatedValueCents))}</dd></div><div><dt>Stage</dt><dd>${esc(field(info.stage))}</dd></div></dl><p class="muted">${info.missing && info.missing.length ? `Not recorded: ${esc(info.missing.join(', '))}.` : 'The recorded qualification fields are present.'}</p><details><summary>Conversation timeline</summary><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul></details><details><summary>Draft preview, not an approval</summary><p>Recorded recipient: ${esc(draft.recipient || 'None')}. Not verified. Not ready to approve or send.</p><textarea readonly rows="8">${esc(draft.body || '')}</textarea><p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p></details></article>`;
       }).join('');
       const empty = sources.sms && sources.sms.coverage === 'read-complete'
         ? 'No lead or follow-up records were returned.'
@@ -287,38 +297,13 @@
             || (name === 'review' && card.getAttribute('data-review') === 'yes')
             || (name === 'vendor' && card.getAttribute('data-vendor') === 'yes')
             || (name === 'resolved' && bucket === 'resolved')
-            || (name === 'action' && bucket !== 'resolved' && card.getAttribute('data-vendor') !== 'yes');
+            || (name === 'action' && !['resolved', 'declined'].includes(bucket) && card.getAttribute('data-vendor') !== 'yes');
           card.hidden = !show;
         });
       };
       applyFilter('action');
       view.querySelectorAll('[data-action-filter]').forEach((button) => {
         button.addEventListener('click', () => applyFilter(button.getAttribute('data-action-filter')));
-      });
-      view.querySelectorAll('.action-draft').forEach((form) => {
-        const result = form.querySelector('[data-result]');
-        const body = form.querySelector('[data-body]');
-        const recipient = form.querySelector('[data-recipient]');
-        form.querySelectorAll('[data-decision]').forEach((button) => {
-          button.addEventListener('click', () => {
-            const decision = button.getAttribute('data-decision');
-            if (decision === 'edit_myself' || decision === 'make_changes') {
-              body.removeAttribute('readonly');
-              body.focus();
-              result.textContent = 'The draft is editable in this browser. Nothing was sent.';
-              return;
-            }
-            if (decision === 'deny') {
-              result.textContent = 'Denied for now. Nothing was sent, and no task was created.';
-              return;
-            }
-            if (!recipient.value.trim() || !body.value.trim()) {
-              result.textContent = 'The exact recipient and the final message both have to be recorded before approval. Nothing was sent.';
-              return;
-            }
-            result.textContent = 'Nothing was sent and no approval was recorded. Open the protected approval workspace to check the exact recipient. This page does not prove exactly-once delivery.';
-          });
-        });
       });
     });
   }

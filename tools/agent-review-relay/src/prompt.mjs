@@ -66,6 +66,10 @@ export function buildPrompt({ config, evidence, untrusted }) {
   return truncate(data, config.maxInputChars);
 }
 
+export function requestOverheadChars() {
+  return SYSTEM.length + JSON.stringify(REVIEW_SCHEMA).length + 800;
+}
+
 export function buildOpenAiRequest(config, evidence, untrusted) {
   return {
     model: config.model,

@@ -26,6 +26,7 @@ const HUMAN_RATIONALE = {
   cursor_finished_unchanged: 'The Cursor run finished without a new commit. No further correction was started.',
   cursor_evidence_timeout: 'Check evidence for the corrected commit did not arrive. No further correction was started.',
   pending_full: 'The relay already has the maximum number of open runs. No new correction was started.',
+  reconcile_unavailable: 'The preview scheduler is not ready, so no Cursor run was started.',
   spend_cap: 'The configured spend cap was reached. The loop stopped before another paid review.',
   api_failure: 'The reviewer did not return a usable result. The loop stopped.',
   comment_failed: 'The status comment could not be posted. The loop stopped.',

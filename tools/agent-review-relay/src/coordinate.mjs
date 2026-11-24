@@ -1,5 +1,5 @@
-import { cursorApiReady } from './config.mjs';
-import { estimateCostUsd, maxCallCostUsd } from './cost.mjs';
+import { cursorApiReady, pilotDispatchReady } from './config.mjs';
+import { maxCallCostUsd, spendOverageUsd } from './cost.mjs';
 import { renderComment } from './comment.mjs';
 import { classifyFiles, evidenceKind } from './sanitize.mjs';
 import { applyEvidencePolicy, fixedHuman, hasConcreteFindings, normalizeDecision } from './policy.mjs';
@@ -104,6 +104,10 @@ export async function coordinate(ctx, runtime) {
       next.stopped = transition;
     }
     if (costUsd > 0 && !reserved) await store.addSpendMicro(toMicro(costUsd));
+    if (reserved) {
+      const reservedUsd = maxCallCostUsd(config);
+      if (costUsd > reservedUsd) await store.addSpendMicro(toMicro(Math.round((costUsd - reservedUsd) * 1e6)));
+    }
     try {
       const launchChanged = JSON.stringify(next.cursorLaunch || null) !== JSON.stringify(record.cursorLaunch || null);
       const holdChanged = JSON.stringify(next.reviewHold || null) !== JSON.stringify(record.reviewHold || null);
@@ -265,9 +269,9 @@ export async function coordinate(ctx, runtime) {
   const charged = usage.inputTokens == null || usage.outputTokens == null
     ? (dryRun
       ? { inputTokens: 0, outputTokens: 0 }
-      : { inputTokens: Math.ceil(config.maxInputChars / 4), outputTokens: config.maxOutputTokens })
+      : { inputTokens: Math.ceil((config.maxInputChars) / 4), outputTokens: config.maxOutputTokens })
     : usage;
-  const costUsd = estimateCostUsd(config, charged);
+  const costUsd = spendOverageUsd(config, charged).actual;
   const tokens = (charged.inputTokens || 0) + (charged.outputTokens || 0);
   let decision = applyEvidencePolicy(normalizeDecision(reviewed.decision || reviewed), evidence);
   if (finalReview) record.capReviewed = true;
@@ -285,6 +289,9 @@ export async function coordinate(ctx, runtime) {
     }
     if (!cursorApiReady(config)) {
       return finish('cursor_api_unavailable', fixedHuman('cursor_api_unavailable'), { tokens, costUsd, handoff: 'blocked', reserved: true });
+    }
+    if (!pilotDispatchReady(config)) {
+      return finish('reconcile_unavailable', fixedHuman('reconcile_unavailable'), { tokens, costUsd, handoff: 'blocked', reserved: true });
     }
     if (!hasConcreteFindings(decision, evidence)) {
       return finish('human_stopped', fixedHuman('evidence_missing'), { tokens, costUsd, handoff: 'blocked', reserved: true });

@@ -1,3 +1,5 @@
+import { requestOverheadChars } from './prompt.mjs';
+
 export function round6(value) {
   return Math.round(value * 1e6) / 1e6;
 }
@@ -10,6 +12,13 @@ export function estimateCostUsd(config, usage) {
 }
 
 export function maxCallCostUsd(config) {
-  const inputTokens = Math.ceil(config.maxInputChars / 4);
+  // Estimate, not an invoice. It covers the system prompt, the JSON schema, the request envelope, the full user budget, and the full output budget.
+  const inputTokens = Math.ceil((requestOverheadChars() + config.maxInputChars) / 4);
   return estimateCostUsd(config, { inputTokens, outputTokens: config.maxOutputTokens });
+}
+
+export function spendOverageUsd(config, usage) {
+  const actual = estimateCostUsd(config, usage);
+  const reserved = maxCallCostUsd(config);
+  return { actual, reserved, overage: round6(Math.max(0, actual - reserved)) };
 }

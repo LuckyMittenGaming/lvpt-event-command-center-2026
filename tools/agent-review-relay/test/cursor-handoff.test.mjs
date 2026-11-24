@@ -18,6 +18,10 @@ function config(extra = {}) {
     AGENT_RELAY_CURSOR_API: 'true',
     AGENT_RELAY_CURSOR_SPEND_AUTHORIZED: 'true',
     AGENT_RELAY_MAX_ITERATIONS: '1',
+    AGENT_RELAY_SPEND_CAP_USD: '0.25',
+    VERCEL_ENV: 'preview',
+    AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+    AGENT_RELAY_RECONCILE_SECRET: 'reconcile_test_secret_value_01',
     GITHUB_WEBHOOK_SECRET: secret,
     GITHUB_TOKEN: `github_pat_${'abcDEF123'.repeat(4)}`,
     OPENAI_API_KEY: 'sk-livepathsimulationkey01',
@@ -127,6 +131,13 @@ test('a live handoff uses the fixed Cursor host and does not mention the bot or 
   assert.match(comment, /bc-11111111-1111-1111-1111-111111111111/);
   assert.equal(JSON.stringify(box.store.audits).includes(KEY), false);
   assert.equal(box.posts().every((call) => call.url === `${CURSOR_API_ORIGIN}/v1/agents`), true);
+});
+
+test('a launch is refused unless the preview scheduler and the pilot caps are ready', async () => {
+  const box = harness(config({ AGENT_RELAY_RECONCILE_URL: '', VERCEL_ENV: 'production' }));
+  const blocked = await deliver(box.runtime, { deliveryId: 'delivery-nopreview1' });
+  assert.equal(blocked.transition, 'reconcile_unavailable');
+  assert.equal(box.posts().length, 0);
 });
 
 test('missing authorization, the wrong base, and a stale head do not launch', async () => {

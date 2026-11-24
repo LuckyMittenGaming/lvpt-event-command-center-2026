@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertReconcileReady, cursorApiReady, loadConfig, simulationConfig } from '../src/config.mjs';
 import { RELAY_BASE, RELAY_REPO } from '../src/constants.mjs';
+import { maxCallCostUsd, spendOverageUsd } from '../src/cost.mjs';
 import { launchCursorRun } from '../src/cursor-api.mjs';
 import { createRuntime } from '../src/runtime.mjs';
 import { handleReconcile, persistConfirmedRun, reconcileOne, reconcilePending } from '../src/reconcile.mjs';
@@ -76,6 +77,9 @@ function runtimeFor(store, { status = 'FINISHED', head = NEW, evidence, review, 
   runtime.config.vercelEnv = 'preview';
   runtime.config.reconcileUrl = 'https://preview.example/api/reconcile';
   runtime.config.reconcileSecret = 'reconcile_test_secret_value_01';
+  runtime.config.cursorApi = true;
+  runtime.config.cursorSpendAuthorized = true;
+  runtime.config.cursorApiKey = 'cursor_live_test_key_value_01';
   return { runtime, comments };
 }
 
@@ -169,6 +173,10 @@ test('a failed check with no in-diff finding is not dispatched, and a concrete f
     AGENT_RELAY_CURSOR_API: 'true',
     AGENT_RELAY_CURSOR_SPEND_AUTHORIZED: 'true',
     AGENT_RELAY_MAX_ITERATIONS: '1',
+    AGENT_RELAY_SPEND_CAP_USD: '0.25',
+    VERCEL_ENV: 'preview',
+    AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+    AGENT_RELAY_RECONCILE_SECRET: 'reconcile_test_secret_value_01',
     GITHUB_WEBHOOK_SECRET: 'local-test-webhook-secret-32',
     GITHUB_TOKEN: `github_pat_${'abcDEF123'.repeat(4)}`,
     OPENAI_API_KEY: 'sk-livepathsimulationkey01',
@@ -253,6 +261,10 @@ test('a comment failure keeps the run id, and a stale head after the reserve doe
     AGENT_RELAY_CURSOR_API: 'true',
     AGENT_RELAY_CURSOR_SPEND_AUTHORIZED: 'true',
     AGENT_RELAY_MAX_ITERATIONS: '1',
+    AGENT_RELAY_SPEND_CAP_USD: '0.25',
+    VERCEL_ENV: 'preview',
+    AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+    AGENT_RELAY_RECONCILE_SECRET: 'reconcile_test_secret_value_01',
     GITHUB_WEBHOOK_SECRET: 'local-test-webhook-secret-32',
     GITHUB_TOKEN: `github_pat_${'abcDEF123'.repeat(4)}`,
     OPENAI_API_KEY: 'sk-livepathsimulationkey01',
@@ -427,6 +439,10 @@ test('a finished failure is not reviewed, and the scheduler does not drop an in-
     AGENT_RELAY_CURSOR_API: 'true',
     AGENT_RELAY_CURSOR_SPEND_AUTHORIZED: 'true',
     AGENT_RELAY_MAX_ITERATIONS: '1',
+    AGENT_RELAY_SPEND_CAP_USD: '0.25',
+    VERCEL_ENV: 'preview',
+    AGENT_RELAY_RECONCILE_URL: 'https://preview.example/api/reconcile',
+    AGENT_RELAY_RECONCILE_SECRET: 'reconcile_test_secret_value_01',
     GITHUB_WEBHOOK_SECRET: 'local-test-webhook-secret-32',
     GITHUB_TOKEN: `github_pat_${'abcDEF123'.repeat(4)}`,
     OPENAI_API_KEY: 'sk-livepathsimulationkey01',
@@ -550,4 +566,130 @@ test('unsafe paths, spend, stale publication, and a full pending set do not disp
   assert.equal(pageA.length, 10);
   assert.equal(pageB.length, 10);
   assert.equal(pageA[0] === pageB[0], false);
+});
+
+test('the scheduler refuses a memory runtime, and a failed PASS comment is retried as PASS', async () => {
+  const offline = createRuntime(simulationConfig(), { store: createMemoryStore(), now: () => FIXED_NOW });
+  offline.config.reconcileSecret = 'reconcile_test_secret_value_01';
+  offline.config.vercelEnv = 'preview';
+  offline.config.reconcileUrl = 'https://preview.example/api/reconcile';
+  offline.config.cursorApi = true;
+  offline.config.cursorSpendAuthorized = true;
+  offline.config.cursorApiKey = 'cursor_live_test_key_value_01';
+  offline.config.maxIterations = 1;
+  offline.config.spendCapUsd = 0.25;
+  let reviews = 0;
+  offline.review = async () => { reviews += 1; throw new Error('should not review'); };
+  const raw = '{"offline":true}';
+  const refused = await handleReconcile({
+    rawBody: raw,
+    headers: { 'x-relay-reconcile-signature': signReconcileBody(raw, offline.config.reconcileSecret) },
+    runtime: offline,
+    now: FIXED_NOW,
+  });
+  assert.equal(refused.transition, 'reconcile_unavailable');
+  assert.equal(reviews, 0);
+  assert.equal(offline.live, false);
+
+  const reserved = maxCallCostUsd(offline.config);
+  const bareTokens = Math.ceil(offline.config.maxInputChars / 4);
+  assert.equal(reserved > spendOverageUsd(offline.config, { inputTokens: bareTokens, outputTokens: offline.config.maxOutputTokens }).actual, true);
+  const settled = spendOverageUsd(offline.config, { inputTokens: 5_000_000, outputTokens: 0 });
+  assert.equal(settled.overage > 0, true);
+
+  const store = createMemoryStore();
+  await store.commitPr(21, 0, {
+    iterations: 1,
+    stopped: 'pass_stopped',
+    reviewed: [OLD, NEW],
+    firstSeen: new Date(FIXED_NOW).toISOString(),
+    cursorLaunch: {
+      state: 'terminal',
+      agentId: AGENT,
+      runId: RUN,
+      sha: OLD,
+      launchedAt: new Date(FIXED_NOW).toISOString(),
+      notified: false,
+      notice: 'checks_passed',
+      noticeDecision: 'PASS',
+      noticeRationale: 'Checks passed for this commit.',
+      noticeSha: NEW,
+    },
+  });
+  await store.markPending(21);
+  const { runtime } = runtimeFor(store, { head: NEW });
+  const comments = [];
+  let failedOnce = false;
+  runtime.postComment = async (input) => {
+    if (!failedOnce) {
+      failedOnce = true;
+      throw new Error('GitHub comment failed (503)');
+    }
+    comments.push(input.body);
+    return { id: 1 };
+  };
+  await reconcileOne(runtime, 21, FIXED_NOW);
+  assert.equal(comments.length, 0);
+  assert.equal((await store.loadPr(21)).cursorLaunch.notified, false);
+  await reconcileOne(runtime, 21, FIXED_NOW);
+  assert.match(comments[0], /LVPT agent relay — PASS/);
+  assert.equal(comments[0].includes('HUMAN_APPROVAL_REQUIRED'), false);
+
+  const raced = createMemoryStore();
+  await raced.commitPr(21, 0, {
+    iterations: 1,
+    stopped: 'pass_stopped',
+    reviewed: [OLD, NEW],
+    firstSeen: new Date(FIXED_NOW).toISOString(),
+    cursorLaunch: {
+      state: 'terminal',
+      agentId: AGENT,
+      runId: RUN,
+      sha: OLD,
+      launchedAt: new Date(FIXED_NOW).toISOString(),
+      notified: false,
+      noticeDecision: 'PASS',
+      noticeRationale: 'Checks passed for this commit.',
+      noticeSha: NEW,
+    },
+  });
+  await raced.markPending(21);
+  const raceRuntime = runtimeFor(raced, { head: NEW }).runtime;
+  let posts = 0;
+  let second;
+  raceRuntime.postComment = async () => {
+    posts += 1;
+    if (posts === 1) second = reconcileOne(raceRuntime, 21, FIXED_NOW);
+    if (second) await second;
+    return { id: 1 };
+  };
+  await reconcileOne(raceRuntime, 21, FIXED_NOW);
+  await second;
+  assert.equal(posts, 1);
+
+  const moved = createMemoryStore();
+  await moved.commitPr(21, 0, {
+    iterations: 1,
+    stopped: 'pass_stopped',
+    reviewed: [OLD, NEW],
+    firstSeen: new Date(FIXED_NOW).toISOString(),
+    cursorLaunch: {
+      state: 'terminal',
+      agentId: AGENT,
+      runId: RUN,
+      sha: OLD,
+      launchedAt: new Date(FIXED_NOW).toISOString(),
+      notified: false,
+      noticeDecision: 'PASS',
+      noticeRationale: 'Checks passed for this commit.',
+      noticeSha: NEW,
+    },
+  });
+  await moved.markPending(21);
+  const movedRuntime = runtimeFor(moved, { head: OLD }).runtime;
+  let wrong = 0;
+  movedRuntime.postComment = async () => { wrong += 1; return { id: 1 }; };
+  await reconcileOne(movedRuntime, 21, FIXED_NOW);
+  assert.equal(wrong, 0);
+  assert.equal((await moved.loadPr(21)).cursorLaunch.notified, true);
 });

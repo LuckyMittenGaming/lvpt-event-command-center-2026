@@ -108,6 +108,14 @@ export function cursorApiReady(config) {
     && cursorKeyAllowed(config.cursorApiKey);
 }
 
+export function pilotDispatchReady(config) {
+  return cursorApiReady(config)
+    && config.vercelEnv === 'preview'
+    && config.maxIterations === 1
+    && config.spendCapUsd === 0.25
+    && assertReconcileReady(config).length === 0;
+}
+
 export function simulationConfig() {
   const config = loadConfig({});
   config.enabled = true;

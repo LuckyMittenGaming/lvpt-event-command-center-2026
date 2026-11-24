@@ -1,8 +1,8 @@
 import { RELAY_REPO } from './constants.mjs';
-import { assertReconcileReady } from './config.mjs';
+import { assertReconcileReady, cursorApiReady, pilotDispatchReady } from './config.mjs';
 import { reconcileAuthorized } from './reconcile-auth.mjs';
 import { renderComment } from './comment.mjs';
-import { estimateCostUsd, maxCallCostUsd } from './cost.mjs';
+import { maxCallCostUsd, spendOverageUsd } from './cost.mjs';
 import { applyEvidencePolicy, fixedHuman, normalizeDecision } from './policy.mjs';
 import { classifyFiles, evidenceKind } from './sanitize.mjs';
 import { authorizeEvent } from './event.mjs';
@@ -55,6 +55,49 @@ async function audit(runtime, pr, record, transition, extra, meta, nowMs) {
   });
 }
 
+function storedDecision(launch) {
+  if (launch?.noticeDecision === 'PASS' || launch?.noticeDecision === 'REQUEST_CHANGES' || launch?.noticeDecision === 'HUMAN_APPROVAL_REQUIRED') {
+    return {
+      decision: launch.noticeDecision,
+      rationale: launch.noticeRationale || 'Review completed.',
+      findings: [],
+      cursorTask: null,
+      reason: launch.notice || 'model_review',
+    };
+  }
+  return fixedHuman(launch?.notice || 'human_review');
+}
+
+async function claimNotify(runtime, pr, record, nowMs) {
+  const launch = record.cursorLaunch;
+  if (!launch || launch.notified === true || launch.notifyState === 'sent') return { ok: false, done: true, record };
+  const until = Date.parse(launch.notifyUntil || '');
+  if (launch.notifyState === 'claiming' && Number.isFinite(until) && nowMs < until) return { ok: false, done: false, record };
+  try {
+    const next = await save(runtime, pr, record, {
+      ...record,
+      cursorLaunch: {
+        ...launch,
+        notifyState: 'claiming',
+        notifyUntil: new Date(nowMs + 30_000).toISOString(),
+      },
+    });
+    return { ok: true, done: false, record: next };
+  } catch (error) {
+    if (error && error.code === 'conflict') return { ok: false, done: false, record };
+    throw error;
+  }
+}
+
+async function passStillCurrent(runtime, pr, sha) {
+  const loaded = await runtime.loadPull(pr);
+  if (!loaded?.ok || !loaded.ctx) return false;
+  if (authorizeEvent(loaded.ctx, runtime.config.requiredLabel) || loaded.ctx.repo !== RELAY_REPO) return false;
+  if (loaded.ctx.sha !== sha) return false;
+  const fresh = await runtime.confirmHead({ ...loaded.ctx, pr, sha });
+  return fresh?.ok === true;
+}
+
 async function notify(runtime, pr, record, decision, nowMs, sha = '') {
   const launch = record.cursorLaunch;
   if (!launch || launch.notified === true) {
@@ -65,10 +108,28 @@ async function notify(runtime, pr, record, decision, nowMs, sha = '') {
     }
     return true;
   }
+  const claimed = await claimNotify(runtime, pr, record, nowMs);
+  if (!claimed.ok) return claimed.done === true;
+  const current = claimed.record;
+  const commentSha = sha || current.cursorLaunch.noticeSha || current.cursorLaunch.sha || '0'.repeat(40);
+  if (decision.decision === 'PASS') {
+    const still = await passStillCurrent(runtime, pr, commentSha);
+    if (!still) {
+      try {
+        await save(runtime, pr, current, {
+          ...current,
+          cursorLaunch: { ...current.cursorLaunch, notified: true, notifyState: 'sent' },
+        }, { pending: 'remove' });
+      } catch {
+        return false;
+      }
+      return false;
+    }
+  }
   const body = renderComment({
     ...decision,
-    sha: sha || launch.sha || '0'.repeat(40),
-    iteration: record.iterations,
+    sha: commentSha,
+    iteration: current.iterations,
     pr,
     maxIterations: runtime.config.maxIterations,
     handoff: 'blocked',
@@ -77,12 +138,20 @@ async function notify(runtime, pr, record, decision, nowMs, sha = '') {
     if (runtime.live) await runtime.postComment({ pr, body, now: nowMs });
     else runtime.onPlan(body);
   } catch {
+    try {
+      await save(runtime, pr, current, {
+        ...current,
+        cursorLaunch: { ...current.cursorLaunch, notifyState: '', notifyUntil: '' },
+      });
+    } catch {
+      /* The claim expires, so a later tick can retry the same decision. */
+    }
     return false;
   }
   try {
-    await save(runtime, pr, record, {
-      ...record,
-      cursorLaunch: { ...launch, notified: true },
+    await save(runtime, pr, current, {
+      ...current,
+      cursorLaunch: { ...current.cursorLaunch, notified: true, notifyState: 'sent' },
     }, { pending: 'remove' });
   } catch {
     return false;
@@ -99,6 +168,8 @@ async function stopRun(runtime, pr, record, transition, decision, meta, nowMs, e
       agentId: record.cursorLaunch.agentId,
       runId: record.cursorLaunch.runId,
       notice: decision?.reason || '',
+      noticeDecision: decision?.decision || '',
+      noticeRationale: typeof decision?.rationale === 'string' ? decision.rationale.slice(0, 500) : '',
       noticeSha: extra.sha || record.cursorLaunch.noticeSha || record.cursorLaunch.sha || '',
     }
     : null;
@@ -153,7 +224,7 @@ export async function reconcileOne(runtime, pr, nowMs = Date.now(), meta = {}) {
     return { pr, transition: 'already_stopped', ok: true, iterations: record.iterations };
   }
   if (record.stopped && launch.notified !== true) {
-    const decision = fixedHuman(launch.notice || 'human_review');
+    const decision = storedDecision(launch);
     await notify(runtime, pr, record, decision, nowMs, launch.noticeSha || '');
     return { pr, transition: record.stopped, ok: true, decision: decision.decision, iterations: record.iterations };
   }
@@ -279,7 +350,9 @@ export async function reconcileOne(runtime, pr, nowMs = Date.now(), meta = {}) {
   const charged = usage.inputTokens == null || usage.outputTokens == null
     ? { inputTokens: Math.ceil(runtime.config.maxInputChars / 4), outputTokens: runtime.config.maxOutputTokens }
     : usage;
-  const costUsd = estimateCostUsd(runtime.config, charged);
+  const settled = spendOverageUsd(runtime.config, charged);
+  const costUsd = settled.actual;
+  if (settled.overage > 0) await runtime.store.addSpendMicro(toMicro(settled.overage));
   const tokens = (charged.inputTokens || 0) + (charged.outputTokens || 0);
   let decision = applyEvidencePolicy(normalizeDecision(reviewed.decision || reviewed), evidence);
   if (decision.decision === 'REQUEST_CHANGES') decision = fixedHuman('max_iterations');
@@ -393,8 +466,7 @@ export async function handleReconcile({ rawBody, headers, runtime, now = Date.no
   }
   if (!runtime.config.enabled) return { httpStatus: 200, ok: false, transition: 'disabled', results: [] };
   if (runtime.config.killSwitch) return { httpStatus: 200, ok: false, transition: 'killed', results: [] };
-  const problems = assertReconcileReady(runtime.config);
-  if (problems.some((item) => item !== 'disabled' && item !== 'killed')) {
+  if (!runtime.live || !cursorApiReady(runtime.config) || !pilotDispatchReady(runtime.config) || assertReconcileReady(runtime.config).length > 0) {
     return { httpStatus: 200, ok: false, transition: 'reconcile_unavailable', results: [] };
   }
   const results = await reconcilePending(runtime, runtime.now ? runtime.now() : now);

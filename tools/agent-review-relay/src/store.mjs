@@ -22,7 +22,11 @@ export function normalizeLaunch(value) {
     claimUntil,
     attempts,
     notified: value.notified === true,
+    notifyState: value.notifyState === 'claiming' || value.notifyState === 'sent' ? value.notifyState : '',
+    notifyUntil: typeof value.notifyUntil === 'string' && Number.isFinite(Date.parse(value.notifyUntil)) ? value.notifyUntil : '',
     notice: typeof value.notice === 'string' && /^[a-z_]{1,60}$/.test(value.notice) ? value.notice : '',
+    noticeDecision: value.noticeDecision === 'PASS' || value.noticeDecision === 'REQUEST_CHANGES' || value.noticeDecision === 'HUMAN_APPROVAL_REQUIRED' ? value.noticeDecision : '',
+    noticeRationale: typeof value.noticeRationale === 'string' ? value.noticeRationale.slice(0, 500) : '',
     noticeSha: typeof value.noticeSha === 'string' && /^[0-9a-f]{40}$/.test(value.noticeSha) ? value.noticeSha : '',
   };
 }

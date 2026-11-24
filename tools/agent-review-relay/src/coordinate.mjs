@@ -1,3 +1,4 @@
+import { cursorApiReady } from './config.mjs';
 import { estimateCostUsd, maxCallCostUsd, round6 } from './cost.mjs';
 import { renderComment } from './comment.mjs';
 import { classifyFiles, evidenceKind } from './sanitize.mjs';
@@ -20,8 +21,17 @@ function outcome(transition, extra = {}) {
   };
 }
 
-async function publish(runtime, ctx, decision, iteration, dryRun, nowMs) {
-  const comment = renderComment({ ...decision, sha: ctx.sha, iteration, pr: ctx.pr });
+async function publish(runtime, ctx, decision, iteration, dryRun, nowMs, options = {}) {
+  const comment = renderComment({
+    ...decision,
+    sha: ctx.sha,
+    iteration,
+    pr: ctx.pr,
+    maxIterations: options.maxIterations || runtime.config.maxIterations,
+    handoff: options.handoff || 'mention',
+    agentId: options.agentId || '',
+    runId: options.runId || '',
+  });
   if (dryRun) {
     runtime.onPlan(comment);
     return comment;
@@ -67,14 +77,14 @@ export async function coordinate(ctx, runtime) {
     record = { ...next, version: record.version + 1 };
   };
 
-  const finish = async (transition, decision, { sealSha = true, comment = true, tokens = 0, costUsd = 0, ok = true } = {}) => {
+  const finish = async (transition, decision, { sealSha = true, comment = true, tokens = 0, costUsd = 0, ok = true, handoff = 'mention', agentId = '', runId = '', skipFreshness = false } = {}) => {
     const next = {
       ...record,
       reviewed: [...record.reviewed],
       stopped: record.stopped,
     };
     if (sealSha && sha && !next.reviewed.includes(sha)) next.reviewed.push(sha);
-    if (comment && decision && !dryRun) {
+    if (comment && decision && !dryRun && !skipFreshness) {
       const fresh = await runtime.confirmHead(ctx);
       if (!fresh.ok) {
         await audit(fresh.transition || 'stale_head');
@@ -108,7 +118,7 @@ export async function coordinate(ctx, runtime) {
     let plannedComment = null;
     if (comment && decision) {
       try {
-        plannedComment = await publish(runtime, ctx, decision, record.iterations, dryRun, nowMs);
+        plannedComment = await publish(runtime, ctx, decision, record.iterations, dryRun, nowMs, { handoff, agentId, runId });
       } catch {
         const stopped = { ...record, stopped: 'comment_failed_stopped' };
         try {
@@ -132,6 +142,23 @@ export async function coordinate(ctx, runtime) {
 
   if (record.stopped) {
     return finish('already_stopped', null, { sealSha: false, comment: false });
+  }
+
+  if (record.cursorLaunch && (record.cursorLaunch.state === 'active' || record.cursorLaunch.state === 'claiming')) {
+    if (record.cursorLaunch.state === 'active' && record.cursorLaunch.agentId && record.cursorLaunch.runId && runtime.readCursorRun) {
+      const status = await runtime.readCursorRun(record.cursorLaunch);
+      if (status?.terminal) {
+        try {
+          await commit({ ...record, cursorLaunch: { ...record.cursorLaunch, state: 'terminal' } });
+        } catch {
+          return outcome('cursor_run_active', { dryRun, iterations: record.iterations });
+        }
+      } else {
+        return outcome('cursor_run_active', { dryRun, iterations: record.iterations });
+      }
+    } else {
+      return outcome('cursor_launch_ambiguous', { ok: false, dryRun, iterations: record.iterations });
+    }
   }
 
   const age = nowMs - Date.parse(ctx.updatedAt);
@@ -188,8 +215,9 @@ export async function coordinate(ctx, runtime) {
     return finish('evidence_pending', null, { sealSha: false, comment: false });
   }
 
-  if (record.iterations >= config.maxIterations && evidenceKind(evidence) === 'fail') {
-    return finish('max_iterations_stopped', fixedHuman('max_iterations'));
+  const finalReview = record.iterations >= config.maxIterations;
+  if (finalReview && record.capReviewed) {
+    return finish('already_stopped', null, { sealSha: false, comment: false });
   }
 
   try {
@@ -222,13 +250,57 @@ export async function coordinate(ctx, runtime) {
   const costUsd = estimateCostUsd(config, charged);
   const tokens = (charged.inputTokens || 0) + (charged.outputTokens || 0);
   let decision = applyEvidencePolicy(normalizeDecision(reviewed.decision || reviewed), evidence);
-  if (record.iterations >= config.maxIterations && decision.decision === 'REQUEST_CHANGES') {
+  if (finalReview) record.capReviewed = true;
+  if (finalReview && decision.decision === 'REQUEST_CHANGES') {
     decision = fixedHuman('max_iterations');
   }
   if (decision.decision === 'PASS') return finish('pass_stopped', decision, { tokens, costUsd });
   if (decision.decision === 'HUMAN_APPROVAL_REQUIRED') {
     const transition = decision.reason === 'max_iterations' ? 'max_iterations_stopped' : 'human_stopped';
     return finish(transition, decision, { tokens, costUsd });
+  }
+  if (config.cursorApi === true) {
+    if (!runtime.live) {
+      return finish('dry_run_planned', decision, { tokens, costUsd, handoff: 'api' });
+    }
+    if (!cursorApiReady(config)) {
+      return finish('cursor_api_unavailable', fixedHuman('cursor_api_unavailable'), { tokens, costUsd, handoff: 'blocked' });
+    }
+    const again = await runtime.confirmHead(ctx);
+    if (!again.ok) return finish(again.transition || 'stale_head', null, { sealSha: false, comment: false, ok: false });
+    try {
+      await commit({ ...record, cursorLaunch: { state: 'claiming', agentId: '', runId: '', sha } });
+    } catch (error) {
+      if (error && error.code === 'conflict') {
+        const latest = await store.loadPr(ctx.pr);
+        record = latest;
+        return outcome(latest.cursorLaunch ? 'cursor_run_active' : 'state_conflict', { ok: false, dryRun, iterations: record.iterations });
+      }
+      return outcome('state_unreadable', { ok: false, dryRun });
+    }
+    try {
+      const launched = await runtime.launchCursor({
+        pr: ctx.pr,
+        task: [
+          `Make only this bounded change on the existing staging pull request. The configured autonomous correction cap is ${config.maxIterations}. Do not open a new pull request, merge, deploy, or expand scope.`,
+          decision.cursorTask,
+        ].join('\n'),
+      });
+      record.cursorLaunch = { state: 'active', agentId: launched.agentId, runId: launched.runId, sha };
+      return finish('cursor_dispatched', decision, {
+        tokens,
+        costUsd,
+        handoff: 'api',
+        agentId: launched.agentId,
+        runId: launched.runId,
+        skipFreshness: true,
+      });
+    } catch (error) {
+      const ambiguous = error?.ambiguous !== false;
+      record.cursorLaunch = { state: ambiguous ? 'ambiguous' : 'failed', agentId: '', runId: '', sha };
+      const reason = ambiguous ? 'cursor_launch_ambiguous' : 'cursor_launch_failed';
+      return finish(reason, fixedHuman(reason), { tokens, costUsd, handoff: 'blocked' });
+    }
   }
   return finish(dryRun ? 'dry_run_planned' : 'comment_posted', decision, { tokens, costUsd });
 }

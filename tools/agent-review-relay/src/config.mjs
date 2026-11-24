@@ -83,7 +83,17 @@ export function loadConfig(env = {}) {
     model,
     inputUsdPerMillion: moneyEnv(env.AGENT_RELAY_INPUT_USD_PER_MILLION, 0.4, 100),
     outputUsdPerMillion: moneyEnv(env.AGENT_RELAY_OUTPUT_USD_PER_MILLION, 1.6, 200),
+    cursorApi: env.AGENT_RELAY_CURSOR_API === 'true',
+    cursorApiKey: cleanSecret(env.CURSOR_API_KEY),
+    cursorSpendAuthorized: env.AGENT_RELAY_CURSOR_SPEND_AUTHORIZED === 'true',
   };
+}
+
+export function cursorApiReady(config) {
+  return config.cursorApi === true
+    && config.cursorSpendAuthorized === true
+    && config.cursorApiKey.length >= 20
+    && !hasBlockedMarker(config.cursorApiKey);
 }
 
 export function simulationConfig() {
@@ -98,6 +108,9 @@ export function simulationConfig() {
   config.githubAppPrivateKey = '';
   config.upstashUrl = '';
   config.upstashToken = '';
+  config.cursorApi = false;
+  config.cursorApiKey = '';
+  config.cursorSpendAuthorized = false;
   return config;
 }
 

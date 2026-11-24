@@ -99,6 +99,18 @@ Do these steps only if you decide to run the relay. They are not done in this ch
 
 Price inputs `AGENT_RELAY_INPUT_USD_PER_MILLION` (default `0.4`) and `AGENT_RELAY_OUTPUT_USD_PER_MILLION` (default `1.6`) are estimates for the default model, not an invoice. Confirm current OpenAI prices before relying on the cap. The OpenAI dashboard budget is the real spend control. This process cap is a second, smaller brake.
 
+## Cursor Cloud Agents handoff
+
+This path is off unless `AGENT_RELAY_CURSOR_API=true`. A mention of `@cursor` in a GitHub comment did not reliably start a cloud agent, so the opt-in path calls the Cloud Agents API instead.
+
+The current public-beta contract, checked against the Cursor docs, is `POST https://api.cursor.com/v1/agents` with Basic auth (`apiKey:`), `repos[0].url`, `repos[0].prUrl` set to the existing pull request, `workOnCurrentBranch: true`, and `autoCreatePR: false`. The host is fixed. A later event may call `GET /v1/agents/{id}/runs/{runId}` once. The relay does not stream or poll in the background.
+
+The handoff runs only after the same repository, base, draft, label, author, path, and head checks, and only for a sanitized `REQUEST_CHANGES` under the configured cap. The relay claims that dispatch in the shared store before the HTTP call. A timeout, network error, or `5xx` is stored as ambiguous and is not retried. Another correction waits until the recorded run is `FINISHED`, `ERROR`, `CANCELLED`, or `EXPIRED`. After the cap, one later head can still be reviewed, and that review cannot start another run. `PASS` still requires passing checks and no material finding.
+
+`AGENT_RELAY_CURSOR_SPEND_AUTHORIZED=true` is a separate switch. It does not set or enforce a dollar amount. Cursor's API does not give this relay a hard spend cap. Before turning the switch on, set an account or team spend limit in the Cursor dashboard. `CURSOR_API_KEY` is a user or service-account key from Cursor Dashboard → API Keys. If either value is missing, the relay does not launch and does not fall back to a `@cursor` mention.
+
+When the flag is off, the GitHub comment can still mention `@cursor` once. The comment states the configured cap (`AGENT_RELAY_MAX_ITERATIONS`, ceiling 3), not a hidden constant.
+
 ## Continuing in ChatGPT
 
 Each comment tells a person to open the pull request URL in ChatGPT. The URL is built as `https://github.com/LuckyMittenGaming/lvpt-event-command-center-2026/pull/<number>`. The relay never claims it resumed a chat. Paste that URL into ChatGPT when a person should take the next step.

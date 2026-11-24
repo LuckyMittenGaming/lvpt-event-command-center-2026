@@ -1,4 +1,5 @@
 import { assertLiveReady } from './config.mjs';
+import { launchCursorRun, readCursorRun } from './cursor-api.mjs';
 import { confirmPullHead, fetchPullEvidence, findPullNumberForSha, fetchPullRequest, postIssueComment } from './github.mjs';
 import { contextFromPull } from './event.mjs';
 import { deterministicDecision } from './policy.mjs';
@@ -52,6 +53,19 @@ export function createRuntime(config, overrides = {}) {
       ? (hint) => lookupLivePull({ config, fetchImpl, cache, hint, now: now() })
       : async (hint) => lookupSuppliedPull(hint)),
     onPlan: overrides.onPlan || (() => {}),
+    launchCursor: overrides.launchCursor || ((input) => launchCursorRun({
+      config,
+      fetchImpl,
+      timeoutMs: config.timeoutMs,
+      ...input,
+    })),
+    readCursorRun: overrides.readCursorRun || ((launch) => readCursorRun({
+      config,
+      fetchImpl,
+      timeoutMs: config.timeoutMs,
+      agentId: launch.agentId,
+      runId: launch.runId,
+    })),
   };
 }
 

@@ -81,7 +81,7 @@ test('three corrections is the cap, and a later pass still stops cleanly', async
   }, failEvidence), runtime);
   assert.equal(capped.transition, 'max_iterations_stopped');
   assert.equal(capped.plannedComment.includes('@cursor'), false);
-  assert.equal(calls, 3);
+  assert.equal(calls, 4);
   const passed = await coordinate(ctxFrom({
     deliveryId: 'delivery-1004',
     head: { sha: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' },

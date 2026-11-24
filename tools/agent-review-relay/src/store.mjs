@@ -1,5 +1,15 @@
 import { buildAuditEntry } from './audit.mjs';
 
+const LAUNCH_STATES = new Set(['claiming', 'active', 'terminal', 'ambiguous', 'failed']);
+
+export function normalizeLaunch(value) {
+  if (!value || typeof value !== 'object' || !LAUNCH_STATES.has(value.state)) return null;
+  const agentId = typeof value.agentId === 'string' && /^bc-[A-Za-z0-9-]{8,80}$/.test(value.agentId) ? value.agentId : '';
+  const runId = typeof value.runId === 'string' && /^run-[A-Za-z0-9-]{8,80}$/.test(value.runId) ? value.runId : '';
+  const sha = typeof value.sha === 'string' && /^[0-9a-f]{40}$/.test(value.sha) ? value.sha : '';
+  return { state: value.state, agentId, runId, sha };
+}
+
 function blankPr() {
   return {
     version: 0,
@@ -7,6 +17,8 @@ function blankPr() {
     stopped: '',
     reviewed: [],
     firstSeen: '',
+    cursorLaunch: null,
+    capReviewed: false,
   };
 }
 
@@ -17,6 +29,20 @@ function clonePr(state) {
     stopped: state.stopped || '',
     reviewed: [...state.reviewed],
     firstSeen: state.firstSeen || '',
+    cursorLaunch: normalizeLaunch(state.cursorLaunch),
+    capReviewed: state.capReviewed === true,
+  };
+}
+
+function storedPr(version, next) {
+  return {
+    version,
+    iterations: next.iterations,
+    stopped: typeof next.stopped === 'string' ? next.stopped : '',
+    reviewed: Array.isArray(next.reviewed) ? [...new Set(next.reviewed)].slice(-100) : [],
+    firstSeen: typeof next.firstSeen === 'string' ? next.firstSeen : '',
+    cursorLaunch: normalizeLaunch(next.cursorLaunch),
+    capReviewed: next.capReviewed === true,
   };
 }
 
@@ -60,13 +86,7 @@ export function createMemoryStore() {
       const floor = floors.get(pr) || 0;
       if (!Number.isInteger(next.iterations) || next.iterations < floor || next.iterations > 3) return false;
       if (current && next.iterations < current.iterations) return false;
-      const stored = {
-        version: version + 1,
-        iterations: next.iterations,
-        stopped: typeof next.stopped === 'string' ? next.stopped : '',
-        reviewed: Array.isArray(next.reviewed) ? [...new Set(next.reviewed)].slice(-100) : [],
-        firstSeen: typeof next.firstSeen === 'string' ? next.firstSeen : '',
-      };
+      const stored = storedPr(version + 1, next);
       prs.set(pr, stored);
       if (stored.iterations > floor) floors.set(pr, stored.iterations);
       return true;
@@ -157,13 +177,7 @@ export function createRedisStore({ url, token, fetchImpl }) {
       return clonePr(parsed);
     },
     async commitPr(pr, expectedVersion, next) {
-      const stored = {
-        version: expectedVersion + 1,
-        iterations: next.iterations,
-        stopped: next.stopped || '',
-        reviewed: Array.isArray(next.reviewed) ? [...new Set(next.reviewed)].slice(-100) : [],
-        firstSeen: next.firstSeen || '',
-      };
+      const stored = storedPr(expectedVersion + 1, next);
       const result = await command([
         'EVAL',
         RELAY_COMMIT_SCRIPT,

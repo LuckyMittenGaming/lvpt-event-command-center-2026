@@ -316,9 +316,25 @@ export async function reconcileOne(runtime, pr, nowMs = Date.now(), meta = {}) {
     return stopRun(runtime, pr, record, transition, fixedHuman(sensitive ? 'sensitive_path' : 'unsafe_path'), meta, nowMs, { sha: head });
   }
   if (!evidence || evidence.noChecks || evidenceKind(evidence) === 'unknown') {
-    const attempts = (launch.attempts || 0) + 1;
-    if (attempts >= 3) return stopRun(runtime, pr, record, 'cursor_evidence_timeout', fixedHuman('cursor_evidence_timeout'), meta, nowMs, { sha: head });
-    await save(runtime, pr, record, { ...record, cursorLaunch: { ...launch, attempts } });
+    const since = Date.parse(launch.evidenceSince || '');
+    const startedWait = Number.isFinite(since) ? since : nowMs;
+    const waitMs = runtime.config.evidenceWaitMs || 15 * 60 * 1000;
+    if (nowMs - startedWait > waitMs) {
+      return stopRun(runtime, pr, record, 'cursor_evidence_timeout', fixedHuman('cursor_evidence_timeout'), meta, nowMs, { sha: head });
+    }
+    if (!Number.isFinite(since)) {
+      try {
+        await save(runtime, pr, record, {
+          ...record,
+          cursorLaunch: { ...launch, evidenceSince: new Date(nowMs).toISOString() },
+        });
+      } catch (error) {
+        if (error && error.code === 'conflict') {
+          return { pr, transition: 'evidence_pending', ok: true, iterations: record.iterations };
+        }
+        throw error;
+      }
+    }
     return { pr, transition: 'evidence_pending', ok: true, iterations: record.iterations };
   }
 

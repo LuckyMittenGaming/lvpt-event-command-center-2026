@@ -90,6 +90,7 @@ export function loadConfig(env = {}) {
     qstashCurrentKey: cleanSecret(env.QSTASH_CURRENT_SIGNING_KEY),
     qstashNextKey: cleanSecret(env.QSTASH_NEXT_SIGNING_KEY),
     reconcileTimeoutMs: intEnv(env.AGENT_RELAY_RECONCILE_TIMEOUT_MS, 20 * 60 * 1000, 60 * 1000, 2 * 60 * 60 * 1000),
+    evidenceWaitMs: intEnv(env.AGENT_RELAY_EVIDENCE_WAIT_MS, 15 * 60 * 1000, 2 * 60 * 1000, 60 * 60 * 1000),
     vercelEnv: env.VERCEL_ENV === 'preview' || env.VERCEL_ENV === 'production' || env.VERCEL_ENV === 'development' ? env.VERCEL_ENV : '',
     reconcileUrl: reconcileUrlAllowed(cleanSecret(env.AGENT_RELAY_RECONCILE_URL)) ? cleanSecret(env.AGENT_RELAY_RECONCILE_URL) : '',
   };

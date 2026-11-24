@@ -175,14 +175,68 @@ test('terminal failure, expiry, and missing evidence stop without another launch
   await seed(waiting);
   let reads = 0;
   const missing = runtimeFor(waiting, { evidence: { testSummary: 'unavailable', changedFiles: ['lib/sample.mjs'], noChecks: true } }).runtime;
+  missing.config.evidenceWaitMs = 10 * 60 * 1000;
   missing.readCursorRun = async () => {
     reads += 1;
     return { terminal: true, status: 'FINISHED' };
   };
-  assert.equal((await reconcilePending(missing, FIXED_NOW))[0].transition, 'evidence_pending');
-  assert.equal((await reconcilePending(missing, FIXED_NOW))[0].transition, 'evidence_pending');
-  assert.equal((await reconcilePending(missing, FIXED_NOW))[0].transition, 'cursor_evidence_timeout');
-  assert.equal(reads, 3);
+  const burst = await Promise.all([0, 1, 2, 3, 4].map(() => reconcileOne(missing, 21, FIXED_NOW)));
+  assert.equal(burst.every((item) => item.transition === 'evidence_pending'), true);
+  const saved = await waiting.loadPr(21);
+  assert.equal(saved.cursorLaunch.attempts, 0);
+  assert.equal(Date.parse(saved.cursorLaunch.evidenceSince), FIXED_NOW);
+  assert.equal((await reconcileOne(missing, 21, FIXED_NOW + 2 * 60 * 1000)).transition, 'evidence_pending');
+  assert.equal((await waiting.loadPr(21)).cursorLaunch.attempts, 0);
+  assert.equal((await reconcileOne(missing, 21, FIXED_NOW + 10 * 60 * 1000 + 1)).transition, 'cursor_evidence_timeout');
+  assert.equal(saved.cursorLaunch.agentId, (await waiting.loadPr(21)).cursorLaunch.agentId);
+  assert.ok(reads >= 5);
+});
+
+test('settled checks are reviewed once after the evidence wait and do not dispatch again', async () => {
+  async function settled(summary, decision) {
+    const store = createMemoryStore();
+    await seed(store);
+    let phase = 'waiting';
+    let reviews = 0;
+    const runtime = runtimeFor(store, {
+      review: async () => {
+        reviews += 1;
+        return { decision, usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    }).runtime;
+    runtime.evidence = async () => (phase === 'waiting'
+      ? { testSummary: 'unavailable', changedFiles: ['lib/sample.mjs'], noChecks: true }
+      : { testSummary: summary, changedFiles: ['lib/sample.mjs'] });
+    runtime.config.evidenceWaitMs = 10 * 60 * 1000;
+    runtime.config.maxIterations = 1;
+    assert.equal((await reconcileOne(runtime, 21, FIXED_NOW)).transition, 'evidence_pending');
+    phase = 'ready';
+    const result = await reconcileOne(runtime, 21, FIXED_NOW + 4 * 60 * 1000);
+    const saved = await store.loadPr(21);
+    return { result, reviews, saved };
+  }
+  const passed = await settled('PASS', {
+    decision: 'PASS',
+    rationale: 'Checks passed for this commit.',
+    findings: [],
+    cursorTask: null,
+  });
+  assert.equal(passed.result.transition, 'pass_stopped');
+  assert.equal(passed.reviews, 1);
+  assert.equal(passed.saved.iterations, 1);
+  assert.equal(passed.saved.cursorLaunch.state, 'terminal');
+
+  const failed = await settled('FAIL tests/sample.test.mjs', {
+    decision: 'REQUEST_CHANGES',
+    rationale: 'The sample check failed.',
+    findings: [{ path: 'lib/sample.mjs', line: 4, summary: 'Check failed.' }],
+    cursorTask: 'Fix only lib/sample.mjs.',
+  });
+  assert.equal(failed.result.transition, 'max_iterations_stopped');
+  assert.equal(failed.reviews, 1);
+  assert.equal(failed.saved.iterations, 1);
+  assert.equal(failed.saved.cursorLaunch.agentId, AGENT);
+  assert.equal(failed.saved.stopped, 'max_iterations_stopped');
 });
 
 test('a failed check with no in-diff finding is not dispatched, and a concrete finding is', async () => {

@@ -12,6 +12,7 @@ export function normalizeLaunch(value) {
   const sha = typeof value.sha === 'string' && /^[0-9a-f]{40}$/.test(value.sha) ? value.sha : '';
   const launchedAt = typeof value.launchedAt === 'string' && Number.isFinite(Date.parse(value.launchedAt)) ? value.launchedAt : '';
   const claimUntil = typeof value.claimUntil === 'string' && Number.isFinite(Date.parse(value.claimUntil)) ? value.claimUntil : '';
+  const evidenceSince = typeof value.evidenceSince === 'string' && Number.isFinite(Date.parse(value.evidenceSince)) ? value.evidenceSince : '';
   const attempts = Number.isInteger(value.attempts) && value.attempts >= 0 && value.attempts <= 20 ? value.attempts : 0;
   return {
     state: value.state,
@@ -20,6 +21,7 @@ export function normalizeLaunch(value) {
     sha,
     launchedAt,
     claimUntil,
+    evidenceSince,
     attempts,
     notified: value.notified === true,
     notifyState: value.notifyState === 'claiming' || value.notifyState === 'sent' ? value.notifyState : '',

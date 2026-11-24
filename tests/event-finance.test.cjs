@@ -125,7 +125,8 @@ const taxedExpenses = buildLedger({
   payouts: []
 });
 assert.equal(taxedExpenses.money.forecastMarginCents, 175000);
-assert.equal(taxedExpenses.money.drawableCashCents, 0);
+assert.equal(taxedExpenses.money.drawableCashCents, null);
+assert.equal(taxedExpenses.money.verifiedContributionCents, null);
 assert.equal(flow.payments.every((row) => row.bankVerified === false), true);
 
 const linked = buildLedger({
@@ -262,8 +263,26 @@ const gross = buildLedger({
 });
 assert.equal(gross.money.forecastMarginCents, 122000);
 assert.notEqual(gross.money.forecastMarginCents, 92000);
-assert.equal(gross.money.drawableCashCents, 100000);
+assert.equal(gross.money.drawableCashCents, null);
+assert.notEqual(gross.money.verifiedContributionCents, 100000);
+assert.equal(gross.money.verifiedContributionCents, null);
 assert.equal(gross.money.ownerPlannedCents, 30000);
+const settledLedger = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'inv-paid', eventId: 'evt-a', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-paid', eventId: 'evt-a', lineLabel: 'Elevated vendor', invoiceTotal: 200, amountPaid: 200, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: [
+    { payoutId: 'po-vendor-paid', eventId: 'evt-a', payoutType: 'Vendor', amount: 80, status: 'Paid' },
+    { payoutId: 'po-owner-paid', eventId: 'evt-a', payoutType: 'Owner distribution', amount: 300, status: 'Paid' }
+  ]
+});
+assert.equal(settledLedger.money.drawableCashCents, null);
+assert.equal(settledLedger.payments.every((row) => row.bankVerified === false), true);
+assert.equal(settledLedger.money.verifiedContributionCents, 42000);
+assert.notEqual(settledLedger.money.verifiedContributionCents, settledLedger.money.drawableCashCents);
 const overlapped = buildLedger({
   expensesComplete: true,
   taxEstablished: true,

@@ -111,7 +111,7 @@
     const value = items.reduce((sum,event)=>sum+eventValue(event),0);
     const profit = items.reduce((sum,event)=>sum+Math.max(eventValue(event)-quoteCost(event),0),0);
     const tasks = items.reduce((sum,event)=>sum+openTaskCount(event),0);
-    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong></div><div><span>Pipeline Value</span><strong>${money(value)}</strong></div><div><span>Projected Profit</span><strong>${money(profit)}</strong></div><div><span>Open Actions</span><strong>${tasks}</strong></div></div>`;
+    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong></div><div><span>Pipeline Value</span><strong>${money(value)}</strong></div><div><span>Quote profit estimate</span><strong>${money(profit)}</strong></div><div><span>Open Actions</span><strong>${tasks}</strong></div></div>`;
   }
 
   function renderPipeline(view) {

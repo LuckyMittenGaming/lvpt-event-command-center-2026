@@ -46,8 +46,9 @@
           ...named,
           card('Owner paid', money(shown('ownerPaid', report.ownerPaidCents)), 'Distributions marked Paid. Draws are not operating expenses.'),
           card('Owner planned', money(shown('ownerPlanned', report.ownerPlannedCents)), 'Planned draws are not expenses already paid.'),
+          card('Ledger contribution', money(report.verifiedContributionCents), 'Recorded receipts minus recorded paid costs and recorded paid draws. Not bank-verified. Not drawable cash. Unavailable while a planned or unpaid obligation remains.'),
           card('Forecast margin', money(report.forecastMarginCents), report.profitReason || 'Client invoices minus vendor bills and unlinked vendor payouts. Owner draws are not subtracted.'),
-          card('Drawable cash', money(report.drawableCashCents), report.profitReason || 'Collected receipts minus paid vendor costs, before owner draws. Not a bank balance.')
+          card('Drawable cash', 'Unavailable', report.drawableCashReason || 'Drawable cash is unavailable from the ledger.')
         ].join('');
       }
     }

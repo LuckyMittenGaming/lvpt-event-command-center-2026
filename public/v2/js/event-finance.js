@@ -207,10 +207,15 @@
     const forecastMarginCents = marginAvailable
       ? clientInvoiced.cents - vendorCommitted.cents - unlinkedVendorCommitted.cents
       : null;
-    const drawableCashCents = marginAvailable && !verified.gaps && !vendorLedgerPaid.gaps && !unlinkedVendorPaid.gaps
-      ? verified.cents - vendorLedgerPaid.cents - unlinkedVendorPaid.cents
+    const unpaidObligations = vendors.some((row) => !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement))
+      || unlinkedVendorPayouts.some((row) => !payoutPaid(row))
+      || ownerPayouts.some((row) => !payoutPaid(row));
+    const contributionGaps = verified.gaps + vendorLedgerPaid.gaps + unlinkedVendorPaid.gaps + ownerPaid.gaps;
+    const verifiedContributionCents = !unpaidObligations && !contributionGaps && marginAvailable
+      ? verified.cents - vendorLedgerPaid.cents - unlinkedVendorPaid.cents - ownerPaid.cents
       : null;
-    const verifiedContributionCents = drawableCashCents;
+    const drawableCashCents = null;
+    const drawableCashReason = 'Drawable cash is unavailable. The ledger does not verify the cash balance, bank settlement, remaining obligations, tax reserve, prior distributions, or overlap.';
 
     const incompleteFields = [];
     function qualify(field, total, affected) {
@@ -237,6 +242,7 @@
       payoutObligationCents: qualify('payoutObligation', payoutObligations, payoutUncertain((row) => !payoutPaid(row))),
       forecastMarginCents,
       drawableCashCents,
+      drawableCashReason,
       verifiedContributionCents,
       coverage: incompleteFields.length ? 'incomplete' : 'complete',
       incompleteFields,
@@ -294,7 +300,7 @@
         'A matching amount does not merge a payout into a vendor bill.',
         'A payout is left out of costs only when its linked payment is an included vendor bill on the same event.',
         'Planned owner distributions are not money already paid and are not operating expenses.',
-        'Forecast margin and drawable cash stay unavailable until expense completeness, overlap, and tax are established.',
+        'Forecast margin is a ledger estimate. Drawable cash stays unavailable until cash, settlement, obligations, tax reserve, prior distributions, and overlap are independently verified.',
         'A 3.5% tax rate is not applied unless tax treatment is explicitly established.',
         'A missing amount is unknown, not zero.',
         'A row without a stable id is excluded, and the affected total is incomplete.',

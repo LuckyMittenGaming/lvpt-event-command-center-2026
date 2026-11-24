@@ -14,7 +14,9 @@ Decision: **Hold production.** Draft PR #19 is the staging candidate. Do not mer
 | Send | DISABLED | `app/api/gmail/send/route.ts` returns 403. The SMS reply route stays `staging_only_no_production_send`. |
 | Events lifecycle | STAGING | Pipeline, active, and archive views are the existing browser lifecycle. Past dates move into the archive. This is not a new calendar writer. |
 | Sheet finance | STAGING | `public/v2/js/event-finance.js` is read-only. Bank verification stays false. A missing payment or payout id is excluded. A conflicting id makes the affected total Incomplete. A payout is dropped only when it links to an included vendor bill on the same event. |
-| Forecast margin and drawable cash | UNVERIFIED | Both stay unavailable until expense completeness, overlap, and tax are established together. Owner draws are not operating expenses. No 3.5% tax is invented. |
+| Forecast margin | UNVERIFIED | A ledger estimate of client invoices minus vendor bills and unlinked vendor payouts. Owner draws are not operating expenses. It stays unavailable until expense completeness, overlap, and tax are established. No 3.5% tax is invented. |
+| Drawable cash | UNVERIFIED | Always unavailable from the ledger. Receipts, paid costs, and planned obligations do not verify the cash balance, bank settlement, tax reserve, prior distributions, or overlap. |
+| Ledger contribution | STAGING | Recorded receipts minus recorded paid costs and recorded paid draws. Not bank-verified and not drawable cash. Unavailable while a planned or unpaid obligation remains. |
 | Tasks | STAGING | Open and completed copies of one task id are a conflict. The open copy does not survive alone. A supplied owner is kept. Due today is not overdue. |
 | Calendar sync | UNVERIFIED | Safe TaskSync shows an hourly schedule. That schedule is not proof `runLVPTSafeTaskSync` ran. The writer was not called and was not changed. |
 | Gmail headers | STAGING | A failed or partial header read is unavailable or partial, metadata only, and not a full mailbox. Production Gmail writes stay off. |
@@ -24,7 +26,7 @@ Decision: **Hold production.** Draft PR #19 is the staging candidate. Do not mer
 
 ## What the local regression covers
 
-`tests/command-center-acceptance.test.mjs` simulates one synthetic path: referral lead, one stable event id, an identical duplicate counted once, a conflicting event excluded, an owned task counted once, an open/completed task conflict, a protected draft that does not send, two client invoices, one vendor bill, one unlinked vendor payout, one owner draw, then a second ledger where a missing id, a conflicting id, and a payout linked to a client invoice leave receipts, margin, and drawable cash unavailable. It also simulates a failed Gmail header read and a stored SMS row with no heartbeat.
+`tests/command-center-acceptance.test.mjs` simulates one synthetic path: referral lead, one stable event id, an identical duplicate counted once, a conflicting event excluded, an owned task counted once, an open/completed task conflict, a protected draft that does not send, two client invoices, one vendor bill, one unlinked vendor payout, and one owner draw. Forecast margin includes the unpaid vendor bill and the planned vendor payout. Drawable cash stays null, including when the ledger shows $1,000 of receipts beside $200, $80, and $300 still unpaid or planned. A second ledger with a missing id, a conflicting id, and a payout linked to a client invoice leaves the affected totals incomplete. The test also simulates a failed Gmail header read and a stored SMS row with no heartbeat.
 
 The same test checks the navigation labels and the CSS breakpoints already in the repo (`280`, `320`, `720`, `1120`, plus horizontal overflow hidden). That is a source check. No browser was opened and no new browser service was added.
 
@@ -38,8 +40,8 @@ These are not done by the local tests:
 - Sign in to the business mailbox and confirm whether the unattended staging Apps Script header job completed. A header read is still not a full thread.
 - Confirm a current run of `runLVPTSafeTaskSync` in the approved Apps Script project.
 - Confirm the live Apps Script response includes one row per payment and one row per payout before treating sheet totals as complete.
-- Decide whether expense completeness, overlap, and tax are established before any forecast margin or drawable cash is used. Until then both stay unavailable.
-- Do not treat Pipeline “Projected Profit” as the sheet forecast. That card is the browser quote estimate.
+- Decide whether expense completeness, overlap, and tax are established before using forecast margin. Drawable cash is not available from this ledger.
+- The pipeline card is labeled “Quote profit estimate.” It is a browser quote figure, not sheet profit and not drawable cash.
 
 ## Release and rollback
 
@@ -51,7 +53,8 @@ Rollback: do not merge. Production stays on its current release. Revert this bra
 
 - No deployed browser pass was run for this package. Responsive evidence is the CSS and navigation source.
 - No live Apps Script, Gmail, SMS, RCS, or calendar call was made.
-- Forecast margin and drawable cash are intentionally unavailable on the current sheet read.
+- Forecast margin stays unavailable on the current sheet read. Drawable cash stays unavailable even after a ledger looks settled.
+- The pipeline quote estimate is not the sheet forecast.
 - The hub still cannot record an approval or prove exactly-once delivery.
 - Android heartbeat, RCS pairing, Gmail full threads, and a confirmed TaskSync run are still owner prerequisites.
 

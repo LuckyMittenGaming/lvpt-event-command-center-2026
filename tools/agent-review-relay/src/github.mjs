@@ -71,7 +71,17 @@ export function summarizeEvidence(filesPayload, checksPayload, statusPayload = n
     diff += chunk;
   }
   const runs = checksPayload && Array.isArray(checksPayload.check_runs) ? checksPayload.check_runs : [];
-  const statuses = statusPayload && Array.isArray(statusPayload.statuses) ? statusPayload.statuses : [];
+  // The isolated relay is linked to this monorepo for hosting. Its Vercel build
+  // status is unrelated to ordinary Command Center PRs and often fails because
+  // those PR branches intentionally do not contain tools/agent-review-relay.
+  // Never let that infrastructure-only status override the PR's relevant checks.
+  const irrelevantRelayContexts = new Set([
+    'Vercel – lvpt-agent-review-relay-staging',
+    'Vercel - lvpt-agent-review-relay-staging',
+  ]);
+  const statuses = statusPayload && Array.isArray(statusPayload.statuses)
+    ? statusPayload.statuses.filter((status) => status && !irrelevantRelayContexts.has(status.context))
+    : [];
   if (!runs.length && !statuses.length) {
     return { testSummary: 'unavailable', changedFiles, diff: diff || 'diff unavailable', noChecks: true };
   }

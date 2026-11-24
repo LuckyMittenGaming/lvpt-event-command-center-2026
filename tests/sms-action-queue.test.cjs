@@ -1,5 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
+const vm=require('node:vm');
+const ts=require('typescript');
 const {buildQueue,CLIENT_EVENT_IDS,sourceFingerprint,decisionApplies}=require('../public/sms-review/action-queue.js');
 const now=Date.parse('2026-11-05T20:00:00Z');
 const events=[
@@ -257,7 +259,94 @@ assert.match(inboxRoute,/authorizedReviewer\(request\)/);
 assert.match(inboxRoute,/mailboxIdentityVerified!==true/);
 assert.match(inboxRoute,/noEmailBodies:true,noGmailWrites:true/);
 assert.match(inboxRoute,/row\.relationshipHint/);
-assert.match(inboxRoute,/direction==='inbound' && hint!=='internal'/);
+// The review flag uses the post-routing classification. `hint` is only the
+// raw label; DocuSign and form-mail overlays never rewrite an internal thread.
+assert.match(inboxRoute,/needsHumanReview:direction==='inbound' && routedHint!=='internal' &&/);
+const routingJs=ts.transpileModule(fs.readFileSync(require('node:path').join(__dirname,
+  '../app/api/sms/staging/_inbox-routing.ts'),'utf8'),{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}
+}).outputText;
+const routingSandbox={module:{exports:{}},exports:{}};
+routingSandbox.exports=routingSandbox.module.exports;
+vm.runInNewContext(routingJs,routingSandbox,{timeout:1500});
+const routeJs=ts.transpileModule(inboxRoute
+  .replace(/^import .*$/gm,'')
+  .replace('function systemNotification','export function systemNotification')
+  .replace('function cleanThread','export function cleanThread'),{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}
+}).outputText;
+const reviewSandbox={
+  module:{exports:{}},exports:{},
+  isDocumentWorkflowNotice:routingSandbox.module.exports.isDocumentWorkflowNotice,
+  isAutomatedLeadNotification:routingSandbox.module.exports.isAutomatedLeadNotification
+};
+reviewSandbox.exports=reviewSandbox.module.exports;
+vm.runInNewContext(routeJs,reviewSandbox,{timeout:1500});
+const {cleanThread,systemNotification}=reviewSandbox.module.exports;
+assert.equal(typeof cleanThread,'function');
+function header(overrides){
+  return Object.assign({
+    threadId:'fedcba9876543210',subject:'TAO VENUES',senderDomain:'gmail.com',
+    lastMessageAt:'2026-11-20T12:00:00Z',lastDirection:'inbound',
+    reviewType:'inbound_review',sourceType:'email_thread',
+    relationshipHint:'internal',needsHumanReview:true,observedMessages:2
+  },overrides);
+}
+const internal=cleanThread(header({}));
+assert.equal(internal.lastDirection,'inbound');
+assert.equal(internal.relationshipHint,'internal');
+assert.equal(internal.needsHumanReview,false,
+  'Inbound internal mail stays out of the human sales review even when the source asks for review');
+const internalNotice=cleanThread(header({
+  threadId:'aaaaaaaaaaaaaaaa',senderDomain:'docusign.net',
+  subject:'Complete with Docusign: owner copy of a contract'
+}));
+assert.equal(internalNotice.relationshipHint,'internal');
+assert.equal(internalNotice.needsHumanReview,false,
+  'A document-notice subject cannot reclassify an internal thread into a client review');
+const internalForm=cleanThread(header({
+  threadId:'bbbbbbbbbbbbbbbb',senderDomain:'b.bizlyapp.com',
+  subject:'New Contact Form Submission from Thom Johnston'
+}));
+assert.equal(internalForm.relationshipHint,'internal');
+assert.equal(internalForm.needsHumanReview,false,
+  'A form-mail subject cannot reclassify an internal thread into a client review');
+const client=cleanThread(header({
+  threadId:'1122334455667788',senderDomain:'clientexample.com',
+  subject:'Corporate poker night question',relationshipHint:'unclassified'
+}));
+assert.equal(client.relationshipHint,'unclassified');
+assert.equal(client.needsHumanReview,true);
+assert.equal(cleanThread(header({
+  threadId:'1122334455667789',relationshipHint:'unclassified',needsHumanReview:false
+})).needsHumanReview,false,'A source flag of false stays false');
+const outbound=cleanThread(header({
+  threadId:'aabbccdd11223344',lastDirection:'outbound',
+  reviewType:'already_answered',relationshipHint:'outbound',needsHumanReview:true
+}));
+assert.equal(outbound.needsHumanReview,false,'Outbound mail is not an inbound review');
+const vendor=cleanThread(header({
+  threadId:'1234567890abcdef',senderDomain:'elevatedbarservices.com',
+  subject:'Elevated bar services - beverage proposal',relationshipHint:'vendor'
+}));
+assert.equal(vendor.relationshipHint,'vendor');
+assert.equal(vendor.needsHumanReview,true);
+const notice=cleanThread(header({
+  threadId:'cccccccccccccccc',senderDomain:'docusign.net',
+  subject:'Complete with Docusign: CertaPro agreement',relationshipHint:'unclassified'
+}));
+assert.equal(notice.relationshipHint,'operational_notice');
+assert.notEqual(notice.relationshipHint,'internal');
+const form=cleanThread(header({
+  threadId:'dddddddddddddddd',senderDomain:'b.bizlyapp.com',
+  subject:'New Contact Form Submission from Thom Johnston',relationshipHint:'unclassified'
+}));
+assert.equal(form.relationshipHint,'form_notification');
+assert.notEqual(form.relationshipHint,'internal');
+assert.equal(cleanThread(header({lastDirection:'sideways'})),null);
+assert.equal(systemNotification('LVPT Command Center: morning brief','pokertraininglasvegas.com'),true);
+assert.equal(systemNotification('Folder shared with you: Photos','google.com'),true);
+assert.equal(systemNotification('Corporate poker night question','clientexample.com'),false);
 assert.match(inboxRoute,/function systemNotification\(subject:string,senderDomain:string\):boolean/);
 assert.match(inboxRoute,/^  return \/\^LVPT Command Center:/m,
   'Internal Command Center notification must be filtered out');

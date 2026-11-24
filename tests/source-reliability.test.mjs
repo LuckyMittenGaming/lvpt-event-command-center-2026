@@ -31,7 +31,7 @@ assert.equal(stored.collectionLive, false);
 assert.equal(stored.uploadStatus, 'UNVERIFIED');
 assert.equal(sourceStatus(stored.upload), 'UNVERIFIED');
 assert.notEqual(stored.uploadStatus, 'LIVE');
-assert.equal(stored.heartbeatStatus, 'UNVERIFIED');
+assert.equal(stored.heartbeatStatus, 'NOT VERIFIED');
 assert.match(stored.upload.detail, /not a device heartbeat/);
 assert.match(stored.heartbeat.detail, /last_success_at/);
 assert.doesNotMatch(stored.upload.detail, /November 5/);
@@ -147,6 +147,16 @@ assert.equal(partialGmail.coverage, 'partial');
 assert.equal(partialGmail.fresh, false);
 assert.equal(partialGmail.status, 'PARTIAL');
 assert.equal(partialGmail.fullThreadAccess, false);
+
+const truncatedGmail = classifyGmailHeaderRead({
+  requested: 1,
+  reads: [{ domain: 'alpha', ok: true, providerPartial: true, threads: [{ lastMessageAt: recentImport }] }],
+  now
+});
+assert.equal(truncatedGmail.coverage, 'partial');
+assert.equal(truncatedGmail.fresh, false);
+assert.match(truncatedGmail.detail, /not a full mailbox/);
+assert.match(truncatedGmail.detail, /truncated/);
 
 const healthyGmail = classifyGmailHeaderRead({
   requested: 2,

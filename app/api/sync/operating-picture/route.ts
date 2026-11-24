@@ -4,6 +4,8 @@ import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { gmailConfigured } from '../../gmail/_lib';
 import { appsScriptRequest, syncConfigured } from '../_lib';
+import { denyPrivateRead } from '../_owner-read';
+import { jsonNoStore } from '../../sms/staging/_lib';
 import { observedTime, SMS_INGEST_STALE_HOURS } from '../../../../lib/sms-scan-health.mjs';
 import { classifyGmailHeaderRead, classifyStoredCollection } from '../../../../lib/source-reliability.mjs';
 
@@ -24,16 +26,6 @@ function ledgerApi(): { buildLedger: (input: Record<string, unknown>) => Record<
 }
 
 type Raw = Record<string, unknown>;
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return true;
-  try {
-    return new URL(origin).host.toLowerCase() === new URL(request.url).host.toLowerCase();
-  } catch {
-    return false;
-  }
-}
 
 function text(value: unknown, max: number): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -164,7 +156,7 @@ async function smsMeta(): Promise<Record<string, unknown>> {
 async function gmailProbe(knownThreadIds: Set<string>, storedNewest: string): Promise<Record<string, unknown>> {
   const keys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
   const queue: Array<Record<string, string>> = [];
-  const reads: Array<{ domain: string; ok: boolean; reason?: string; threads?: Array<{ lastMessageAt: string }> }> = [];
+  const reads: Array<{ domain: string; ok: boolean; reason?: string; providerPartial?: boolean; threads?: Array<{ lastMessageAt: string }> }> = [];
   let duplicates = 0;
   let capped = false;
   const started = Date.now();
@@ -174,14 +166,14 @@ async function gmailProbe(knownThreadIds: Set<string>, storedNewest: string): Pr
       break;
     }
     try {
-      const evidence = await appsScriptRequest<Raw>('listGmailThreadEvidence', { eventKey });
+      const evidence = await appsScriptRequest<Raw>('listGmailThreadEvidence', { eventKey }, 8000);
       const threads = Array.isArray(evidence.threads) ? evidence.threads as Raw[] : null;
       if (!threads) {
         reads.push({ domain: eventKey, ok: false, reason: 'invalid_body' });
         continue;
       }
       const headers = threads.map((thread) => ({ lastMessageAt: text(thread.lastMessageAt, 40) }));
-      reads.push({ domain: eventKey, ok: true, threads: headers });
+      reads.push({ domain: eventKey, ok: true, providerPartial: evidence.partial === true, threads: headers });
       threads.forEach((thread) => {
         const threadId = text(thread.threadId, 80);
         const when = text(thread.lastMessageAt, 40);
@@ -224,18 +216,17 @@ async function gmailProbe(knownThreadIds: Set<string>, storedNewest: string): Pr
 
 export async function GET(request: Request) {
   if (process.env.VERCEL_ENV === 'production') {
-    return Response.json({ ok: false, readOnly: true, reason: 'preview_only' }, { status: 403 });
+    return jsonNoStore({ ok: false, readOnly: true, reason: 'preview_only' }, 403);
   }
-  if (!sameOrigin(request)) {
-    return Response.json({ ok: false, readOnly: true, reason: 'same_origin_required' }, { status: 403 });
-  }
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
   if (!syncConfigured()) {
-    return Response.json({
+    return jsonNoStore({
       ok: false,
       readOnly: true,
       writesPerformed: false,
       message: 'The sheet connection is not configured on this deployment.'
-    }, { status: 503 });
+    }, 503);
   }
 
   try {
@@ -263,13 +254,13 @@ export async function GET(request: Request) {
     const payments = Array.isArray(ledger.paymentRecords) ? ledger.paymentRecords : null;
     const payouts = Array.isArray(ledger.payouts) ? ledger.payouts : null;
     if (!payments || !payouts) {
-      return Response.json({
+      return jsonNoStore({
         ok: false,
         readOnly: true,
         writesPerformed: false,
         paymentSourceStatus: 'not_connected',
         message: 'The live Apps Script response did not include every Payments row and every payout row.'
-      }, { status: 502 });
+      }, 502);
     }
 
     const finance = ledgerApi();
@@ -335,7 +326,7 @@ export async function GET(request: Request) {
     const gmailLive = await gmailProbe(knownThreadIds, newestGmail);
     const sendEnabled = process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND === 'true';
 
-    return Response.json({
+    return jsonNoStore({
       ok: true,
       readOnly: true,
       writesPerformed: false,
@@ -368,15 +359,15 @@ export async function GET(request: Request) {
         { id: 'email-approval', name: 'Email approval workflow', schedule: 'Off', nextExpected: 'Off until a supervised send test.', owner: 'Owner approval gate', disabled: true, recordsExamined: 0, recordsCreated: 0, detail: sendEnabled ? 'The send switch is on. The reminder route still returns 403.' : 'Sending is disabled. A browser confirmation is not owner approval.' },
         { id: 'financial-sync', name: 'Financial source sync', schedule: 'This page read', nextExpected: 'Each time this page reads the sheet.', owner: 'Command Center Payments and Event Payouts', connected: true, lastAttempt: serverTime, lastSuccess: serverTime, recordsExamined: payments.length + payouts.length, recordsCreated: 0, staleAfterHours: 6, detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. No financial row was written.` }
       ]
-    });
+    }, 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ledger read failed.';
-    return Response.json({
+    return jsonNoStore({
       ok: false,
       readOnly: true,
       writesPerformed: false,
       paymentSourceStatus: 'not_connected',
       message
-    }, { status: 502 });
+    }, 502);
   }
 }

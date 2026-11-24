@@ -1,4 +1,5 @@
 import { appsScriptRequest, syncConfigured } from '../_lib';
+import { denyPrivateRead } from '../_owner-read';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../../sms/staging/_lib';
 import { buildActionInbox } from '../../../../lib/action-inbox.mjs';
 import { publicRcsRecord } from '../../../../lib/rcs-staging.mjs';
@@ -11,16 +12,6 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 type Raw = Record<string, unknown>;
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return true;
-  try {
-    return new URL(origin).host.toLowerCase() === new URL(request.url).host.toLowerCase();
-  } catch {
-    return false;
-  }
-}
 
 function text(value: unknown, max: number): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -123,7 +114,8 @@ export async function GET(request: Request) {
   if (process.env.VERCEL_ENV === 'production') {
     return jsonNoStore({ ok: false, reason: 'preview_only', sendEnabled: false }, 403);
   }
-  if (!sameOrigin(request)) return jsonNoStore({ ok: false, reason: 'same_origin_required', sendEnabled: false }, 403);
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
   if (!syncConfigured()) return jsonNoStore({ ok: false, reason: 'sheet_unconfigured', sendEnabled: false }, 503);
   try {
     const listed = await appsScriptRequest<{ events?: Raw[] }>('listEvents');
@@ -181,7 +173,7 @@ export async function GET(request: Request) {
 
     const gmailThreads: Array<Record<string, string>> = [];
     const gmailKeys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
-    const gmailReads: Array<{ domain: string; ok: boolean; reason?: string; threads?: Array<{ lastMessageAt: string }> }> = [];
+    const gmailReads: Array<{ domain: string; ok: boolean; reason?: string; providerPartial?: boolean; threads?: Array<{ lastMessageAt: string }> }> = [];
     let gmailCapped = false;
     const started = Date.now();
     for (const eventKey of gmailKeys) {
@@ -190,7 +182,7 @@ export async function GET(request: Request) {
         break;
       }
       try {
-        const evidence = await appsScriptRequest<{ threads?: Raw[] }>('listGmailThreadEvidence', { eventKey });
+        const evidence = await appsScriptRequest<{ threads?: Raw[]; partial?: boolean }>('listGmailThreadEvidence', { eventKey }, 8000);
         const threads = Array.isArray(evidence.threads) ? evidence.threads : null;
         if (!threads) {
           gmailReads.push({ domain: eventKey, ok: false, reason: 'invalid_body' });
@@ -199,6 +191,7 @@ export async function GET(request: Request) {
         gmailReads.push({
           domain: eventKey,
           ok: true,
+          providerPartial: evidence.partial === true,
           threads: threads.map((thread) => ({ lastMessageAt: text(thread.lastMessageAt, 40) }))
         });
         threads.forEach((thread) => {

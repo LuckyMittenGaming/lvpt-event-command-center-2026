@@ -82,7 +82,7 @@
     const headers = {};
     if (withKey && syncKey()) headers['x-lvpt-sync-key'] = syncKey();
     try {
-      const response = await fetch(url, { headers, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+      const response = await fetch(url, { headers, credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
       const data = await response.json().catch(() => ({}));
       return { ok: response.ok, status: response.status, data };
     } catch (error) {
@@ -138,8 +138,8 @@
   }
 
   function communicationsBody(session) {
-    const sessionLabel = session.status === 503 ? 'NOT CONNECTED' : 'NOT VERIFIED';
-    return `<div class="hub-split"><section><h3>Approval queue</h3><p>The owner queue is Approve, Make Changes, Deny, and Edit Myself. Each send still needs server approval of the exact recipient and the exact message. Automatic sends stay off.</p><div class="actions"><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open communications workspace</a><a class="btn" href="/sms-review/index.html#paymentAuditTitle">Open invoice exceptions</a></div><p class="muted">The four-times-daily email approval automation stays disabled until a separate owner test proves recipient, exactly-once send, and queue movement.</p></section><section><h3>Session</h3><p>SMS review keeps its seven-day HttpOnly session. This page does not ask for the device token again and does not store message bodies.</p>${badge(sessionLabel)}<p class="muted">${esc(session.data.reason || 'An audit response does not mean SMS is synchronized.')}</p></section></div>`;
+    const sessionLabel = session.status === 401 || session.status === 503 ? 'NOT CONNECTED' : session.data && session.data.authenticated === true ? 'NOT VERIFIED' : 'NOT CONNECTED';
+    return `<div class="hub-split"><section><h3>Approval queue</h3><p>Approve, Make Changes, Deny, and Edit Myself are recorded only in the protected review workspace. That workspace checks the exact recipient. This page does not send and does not record those decisions.</p><div class="actions"><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a><a class="btn" href="/sms-review/index.html#paymentAuditTitle">Open invoice exceptions</a></div><p class="muted">Exactly-once delivery is enforced on the send route, which stays disabled until a separate owner test. A button on this page is not that proof. The four-times-daily email approval automation stays disabled.</p></section><section><h3>Session</h3><p>SMS review keeps its seven-day HttpOnly session. This page does not ask for the device token again and does not store message bodies.</p>${badge(sessionLabel)}<p class="muted">${esc(session.data.reason || (session.status === 401 ? 'The owner review session is missing or expired. Open the approval workspace to sign in.' : 'An audit response does not mean SMS is synchronized.'))}</p></section></div>`;
   }
 
   function jobRows(probes) {
@@ -167,17 +167,25 @@
 
   async function renderCommunications(view) {
     view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'The existing review workspace remains the place where a thread is opened. This hub only shows whether that session is healthy.', '<p class="muted">Checking the review session…</p>');
-    const [session, picture, conversations, bridge, rcs] = await Promise.all([
+    const [session, picture, conversations, rcs] = await Promise.all([
       readJson('/api/sms/staging/audit-health', false, 8000),
       readJson('/api/sync/operating-picture', false, 12000),
       readJson('/api/sms/staging/conversations', false, 12000),
-      readJson('/api/sms/staging/bridge-status', false, 8000),
       readJson('/api/sms/staging/rcs-collector', false, 8000)
     ]);
     const jobs = picture.ok && picture.data && Array.isArray(picture.data.jobs) ? picture.data.jobs : [];
     const evidence = jobs.filter((job) => /gmail|sms/i.test(job.name)).map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.detail || '')}</td></tr>`).join('');
     const queue = picture.ok && picture.data && Array.isArray(picture.data.gmailQueue) ? picture.data.gmailQueue : [];
+    const gmailJob = jobs.find((job) => job.id === 'gmail-production') || null;
+    const gmailCoverage = gmailJob && gmailJob.coverage;
     const queueRows = queue.map((item) => `<tr><td>${esc(item.domainKey)}</td><td>${esc(item.lastMessageAt || '')}</td><td>${esc(item.lastDirection || '')}</td><td>Needs review</td><td>${esc(item.subject || '')}</td></tr>`).join('');
+    const queueEmpty = !picture.ok
+      ? 'Gmail header status did not load. This is not an empty mailbox.'
+      : gmailCoverage === 'partial'
+        ? 'The header read is partial. A missing row is not an empty mailbox, and this is not a full mailbox scan.'
+        : gmailCoverage === 'read-complete'
+          ? 'The bounded domain header read finished with no new threads. This is not a full mailbox scan.'
+          : 'The header read is unavailable. No header count was taken. This is not an empty mailbox.';
     const stored = picture.ok && picture.data ? `${picture.data.gmailActivityCount || 0} Gmail Activity rows are already stored. Threads already on the sheet are skipped. A thread is not assigned to an event from this page.` : 'The sheet did not load, so stored mail counts are hidden.';
     const threads = conversations.ok && conversations.data && Array.isArray(conversations.data.threads) ? conversations.data.threads : [];
     const rcsData = rcs.ok && rcs.data ? rcs.data : null;
@@ -193,12 +201,9 @@
     const smsNote = conversations.ok
       ? `${conversations.data.storedMessages || 0} stored SMS metadata rows. Message text stays encrypted. Exact matches use the event contact phone. Ambiguous and unmatched threads stay in review. Outgoing SMS is disabled.`
       : `SMS conversations did not load (${esc((conversations.data && conversations.data.reason) || 'unavailable')}). Ciphertext was not shown.`;
-    const devices = bridge.ok && bridge.data && Array.isArray(bridge.data.devices) ? bridge.data.devices : [];
-    const deviceRows = devices.map((item) => `<tr><td>${esc(item.device)}</td><td>${esc(item.lastSuccessAt || 'none')}</td><td>${esc(item.reportedAt || '')}</td><td>${item.readSms ? 'granted' : 'missing'}</td><td>${item.monitoring ? 'on' : 'off'}</td><td>${item.batteryUnrestricted === true ? 'unrestricted' : item.batteryUnrestricted === false ? 'restricted' : 'unknown'}</td><td>${esc(item.lastFailure || 'none')}</td></tr>`).join('');
-    const deviceNote = devices.length
-      ? 'The phone reported this health. A database row count is not a fresh upload and is not a current heartbeat.'
-      : `No phone heartbeat was read (${esc((bridge.data && bridge.data.reason) || 'bridge status is not available on this preview')}). A stored SMS row cannot certify that the approved handset is collecting. Local verification requires the owner to run the LVPT SMS bridge on the approved handset and confirm a bridge status whose last success time is current.`;
-    view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'Approve, Make Changes, Deny, and Edit Myself stay in the review workspace. This page does not send.', `${communicationsBody(session)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Source</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${evidence || '<tr><td colspan="3">Connection evidence did not load.</td></tr>'}</tbody></table></div><h3>Gmail review queue</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Domain</th><th>Newest header</th><th>Direction</th><th>Match</th><th>Subject</th></tr></thead><tbody>${queueRows || '<tr><td colspan="5">No new header thread was waiting. Stored threads were left on the sheet.</td></tr>'}</tbody></table></div><p class="muted">${esc(stored)}</p><h3>SMS and RCS timeline</h3><div class="hub-table-wrap" style="max-width:100%;overflow-x:auto"><table class="hub-table"><thead><tr><th>Source</th><th>Direction</th><th>Message time</th><th>Ingested</th><th>Match</th><th>Sync</th><th>Pairing</th><th>Access</th><th>Provider ID</th></tr></thead><tbody>${rcsTimeline}${smsRows}${(smsRows || rcsTimeline) ? '' : '<tr><td colspan="9">No SMS or RCS conversation metadata was returned.</td></tr>'}</tbody></table></div><p class="muted">${smsNote}</p><h3>Google Messages collector</h3><p class="muted">${rcsNote}</p><h3>Android bridge</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Device</th><th>Last upload</th><th>Last report</th><th>Read SMS</th><th>Monitoring</th><th>Battery</th><th>Failure</th></tr></thead><tbody>${deviceRows || '<tr><td colspan="7">The phone has not reported health to this staging host.</td></tr>'}</tbody></table></div><p class="muted">${deviceNote} Sending stays off.</p>`);
+    const heartbeatJob = jobs.find((job) => job.id === 'sms-heartbeat') || null;
+    const heartbeatStatus = heartbeatJob ? finance.sourceStatus(heartbeatJob) : 'NOT VERIFIED';
+    view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'Approve, Make Changes, Deny, and Edit Myself stay in the review workspace. This page does not send.', `${communicationsBody(session)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Source</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${evidence || '<tr><td colspan="3">Connection evidence did not load.</td></tr>'}</tbody></table></div><h3>Gmail review queue</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Domain</th><th>Newest header</th><th>Direction</th><th>Match</th><th>Subject</th></tr></thead><tbody>${queueRows || `<tr><td colspan="5">${esc(queueEmpty)}</td></tr>`}</tbody></table></div><p class="muted">${gmailJob ? badge(finance.sourceStatus(gmailJob)) : badge('NOT CONNECTED')} Bounded header coverage: ${esc(gmailCoverage || 'unavailable')}. Metadata only. Full threads were not opened.</p><p class="muted">${esc(stored)}</p><h3>SMS and RCS timeline</h3><div class="hub-table-wrap" style="max-width:100%;overflow-x:auto"><table class="hub-table"><thead><tr><th>Source</th><th>Direction</th><th>Message time</th><th>Ingested</th><th>Match</th><th>Sync</th><th>Pairing</th><th>Access</th><th>Provider ID</th></tr></thead><tbody>${rcsTimeline}${smsRows}${(smsRows || rcsTimeline) ? '' : '<tr><td colspan="9">No SMS or RCS conversation metadata was returned.</td></tr>'}</tbody></table></div><p class="muted">${smsNote}</p><h3>Google Messages collector</h3><p class="muted">${rcsNote}</p><h3>Android heartbeat</h3><p>${badge(heartbeatStatus)} ${esc((heartbeatJob && heartbeatJob.detail) || 'No phone heartbeat is stored. A stored SMS row cannot certify that the approved handset is collecting. Local verification requires the owner to run the LVPT SMS bridge on the approved handset and confirm a bridge status whose last_success_at is current. This server does not read that report.')}</p><p class="muted">Sending stays off.</p>`);
   }
 
   async function renderHealth(view) {
@@ -264,7 +269,7 @@
         ['all', 'All']
       ];
       const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Drafts with a recipient</span><strong>${esc(counts.readyForApproval || 0)}</strong></div><div><span>Vendor, excluded from leads</span><strong>${esc(counts.vendorExcluded || 0)}</strong></div></div>`;
-      const freshness = `<p class="muted">Sheet events ${esc(sources.events ?? 'not counted')}. RCS metadata rows returned ${esc(sources.rcsMessages ?? 'not counted')}, newest RCS message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS. A stored RCS message time is not a collector heartbeat. Message text was not included in this list.</p>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved ?? 'not counted')}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
+      const freshness = `<p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p><p class="muted">Approve, Make Changes, Deny, and Edit Myself there. Buttons on this page do not record a decision, do not prove the recipient, and do not send exactly once.</p><p class="muted">Sheet events ${esc(sources.events ?? 'not counted')}. RCS metadata rows returned ${esc(sources.rcsMessages ?? 'not counted')}, newest RCS message ${esc(sources.newestRcs || 'none')}. RCS is not merged into SMS. A stored RCS message time is not a collector heartbeat. Message text was not included in this list.</p>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<div class="hub-callout"><strong>Gmail production writes are off.</strong><p>${esc(gmail.blocker || '')}</p><p>Historical Gmail rows in this read: ${esc(gmail.historicalRowsPreserved ?? 'not counted')}. Unattended staging execution: ${esc(gmail.stagingUnattended || 'not observable')}.</p></div>`;
       const cards = records.map((record, index) => {
         const info = record.qualification || {};
         const timeline = (record.timeline || []).map((item) => `<li><span>${esc(item.at || 'Time not recorded')}</span> ${esc(item.source)} ${esc(item.direction || '')} ${item.contentAvailable ? esc(item.summary) : 'Message text is not in this list. Open the authorized review only when a session can decrypt or read it.'}</li>`).join('');
@@ -311,7 +316,7 @@
               result.textContent = 'The exact recipient and the final message both have to be recorded before approval. Nothing was sent.';
               return;
             }
-            result.textContent = `Approved for ${recipient.value.trim()}. Sending is still disabled, so this was not delivered.`;
+            result.textContent = 'Nothing was sent and no approval was recorded. Open the protected approval workspace to check the exact recipient. This page does not prove exactly-once delivery.';
           });
         });
       });
@@ -334,7 +339,7 @@
       const anchor = document.getElementById('metricsGrid');
       if (anchor) anchor.before(strip);
     }
-    strip.innerHTML = `<div><span>Operations hub</span><strong>Finance, communications, and source health are in the bar above.</strong></div><div><span>Sends</span><strong>Off until you approve a specific message.</strong></div><a class="btn small" href="#" data-command-jump="health">Check source health</a>`;
+    strip.innerHTML = `<div><span>Operations hub</span><strong>Finance, communications, and source health use the same status labels. A stored row is not a heartbeat.</strong></div><div><span>Sends</span><strong>Off until you approve a specific message in the review workspace.</strong></div><a class="btn small" href="/sms-review/index.html#inboxReviewTitle">Open approvals</a><a class="btn small" href="#" data-command-jump="health">Check source health</a>`;
     strip.querySelector('[data-command-jump]').addEventListener('click', (event) => {
       event.preventDefault();
       const button = document.querySelector('[data-command-view="health"]');

@@ -85,3 +85,4 @@ assert(!JSON.stringify(decisions).includes('NIUM paid?'), 'No raw SMS excerpts i
 assert(!JSON.stringify(decisions).includes('Need receipt'), 'No excerpts in review export');
 console.log('SMS event matching, redaction and grouped-case tests passed.');
 await import('./source-reliability.test.mjs');
+await import('./owner-read-guard.test.mjs');

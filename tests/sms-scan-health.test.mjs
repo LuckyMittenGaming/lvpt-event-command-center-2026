@@ -203,7 +203,11 @@ assert.match(route, /select: 'contact_hash,direction,timestamp_ms,sms_id,receive
 assert.match(route, /classifySmsScan/);
 assert.match(route, /cursor_stalled/);
 assert.match(route, /preview_only/);
-assert.match(route, /same_origin_required/);
+assert.match(route, /denyPrivateRead/);
+const routeGet = route.slice(route.indexOf('export async function GET'));
+const ownerGate = routeGet.indexOf('denyPrivateRead');
+const providerCall = routeGet.indexOf('appsScriptRequest');
+assert.equal(ownerGate >= 0 && ownerGate < providerCall, true);
 assert.match(route, /sheet_unconfigured/);
 assert.match(route, /productionWrites: false/);
 assert.match(route, /messageTextIncluded: false/);

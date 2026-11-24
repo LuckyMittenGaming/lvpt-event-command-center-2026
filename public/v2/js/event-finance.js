@@ -67,6 +67,46 @@
     };
   }
 
+  function reported(total) {
+    return total.gaps ? null : total.cents;
+  }
+
+  function markDuplicateIds(rows, idKey, signature) {
+    const groups = new Map();
+    rows.forEach((row) => {
+      const id = row[idKey];
+      if (!id) {
+        row.includedInTotals = true;
+        return;
+      }
+      const list = groups.get(id) || [];
+      list.push(row);
+      groups.set(id, list);
+    });
+    const duplicates = [];
+    const conflicts = [];
+    groups.forEach((list, id) => {
+      if (list.length < 2) {
+        list[0].includedInTotals = true;
+        return;
+      }
+      if (new Set(list.map(signature)).size === 1) {
+        duplicates.push(id);
+        list.forEach((row, index) => {
+          row.includedInTotals = index === 0;
+          row.duplicateTreatment = index === 0 ? 'counted_once' : 'duplicate_copy';
+        });
+      } else {
+        conflicts.push(id);
+        list.forEach((row) => {
+          row.includedInTotals = false;
+          row.duplicateTreatment = 'conflict_excluded';
+        });
+      }
+    });
+    return { duplicates, conflicts };
+  }
+
   function sum(rows, pick) {
     let total = 0;
     let gaps = 0;
@@ -86,13 +126,9 @@
 
   function buildLedger(input) {
     const payments = (Array.isArray(input && input.payments) ? input.payments : []).map(normalizePayment);
-    const seen = new Set();
-    const duplicatePaymentIds = [];
-    payments.forEach((row) => {
-      if (!row.paymentId) return;
-      if (seen.has(row.paymentId)) duplicatePaymentIds.push(row.paymentId);
-      seen.add(row.paymentId);
-    });
+    const duplicateReport = markDuplicateIds(payments, 'paymentId', (row) => [row.eventId, row.role, row.settlement, row.invoiceTotalCents, row.amountPaidCents, row.balanceDueCents, row.paymentStatus].join('|'));
+    const duplicatePaymentIds = duplicateReport.duplicates;
+    const conflictPaymentIds = duplicateReport.conflicts;
 
     const paymentIds = new Set(payments.map((row) => row.paymentId).filter(Boolean));
     const payouts = (Array.isArray(input && input.payouts) ? input.payouts : []).map((row) => {
@@ -115,17 +151,20 @@
         role: payoutRole(row),
         duplicatesPayment,
         amountOverlap,
-        bankVerified: false
+        bankVerified: false,
+        includedInTotals: true
       };
     });
+    const payoutReport = markDuplicateIds(payouts, 'payoutId', (row) => [row.eventId, row.role, row.status, row.amountCents, row.linkedPaymentId].join('|'));
 
-    const clients = payments.filter((row) => row.role === 'client_receivable');
-    const vendors = payments.filter((row) => row.role === 'vendor_expense');
-    const owners = payments.filter((row) => row.role === 'owner_distribution');
-    const unclassified = payments.filter((row) => row.role === 'unclassified');
+    const countablePayments = payments.filter((row) => row.includedInTotals !== false);
+    const clients = countablePayments.filter((row) => row.role === 'client_receivable');
+    const vendors = countablePayments.filter((row) => row.role === 'vendor_expense');
+    const owners = countablePayments.filter((row) => row.role === 'owner_distribution');
+    const unclassified = countablePayments.filter((row) => row.role === 'unclassified');
     const settledClients = clients.filter((row) => row.settlement === 'ledger_settled');
     const openClients = clients.filter((row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown');
-    const countedPayouts = payouts.filter((row) => !row.duplicatesPayment);
+    const countedPayouts = payouts.filter((row) => !row.duplicatesPayment && row.includedInTotals !== false);
 
     const verified = sum(settledClients, (row) => row.amountPaidCents);
     const clientInvoiced = sum(clients.filter((row) => row.settlement !== 'not_invoiced'), (row) => row.invoiceTotalCents);
@@ -162,8 +201,8 @@
         invoiceTotalCents: invoiced.gaps ? null : invoiced.cents,
         collectedCents: collected.gaps ? null : collected.cents,
         outstandingCents: outstanding.gaps ? null : outstanding.cents,
-        ownerPaidCents: sum(eventOwner.filter(payoutPaid), (row) => row.amountCents).cents,
-        ownerPlannedCents: sum(eventOwner.filter((row) => !payoutPaid(row)), (row) => row.amountCents).cents,
+        ownerPaidCents: reported(sum(eventOwner.filter(payoutPaid), (row) => row.amountCents)),
+        ownerPlannedCents: reported(sum(eventOwner.filter((row) => !payoutPaid(row)), (row) => row.amountCents)),
         bankVerified: false
       };
     });
@@ -172,6 +211,9 @@
       payments,
       payouts,
       duplicatePaymentIds,
+      conflictPaymentIds,
+      duplicatePayoutIds: payoutReport.duplicates,
+      conflictPayoutIds: payoutReport.conflicts,
       counts: {
         payments: payments.length,
         clientInvoices: clients.length,
@@ -183,20 +225,20 @@
       },
       byEvent,
       money: {
-        verifiedClientReceiptsCents: verified.cents,
+        verifiedClientReceiptsCents: reported(verified),
         verifiedClientReceiptGaps: verified.gaps,
-        clientInvoiceTotalCents: clientInvoiced.cents,
-        openClientExposureCents: openExposure.gaps ? null : openExposure.cents,
+        clientInvoiceTotalCents: reported(clientInvoiced),
+        openClientExposureCents: reported(openExposure),
         openClientExposureGaps: openExposure.gaps,
-        initiatedNotSettledCents: sum(clients.filter((row) => row.settlement === 'initiated_not_settled'), (row) => row.invoiceTotalCents).cents,
-        vendorCommittedCents: vendorCommitted.cents,
-        vendorLedgerPaidCents: vendorLedgerPaid.cents,
-        ownerDistributionCents: ownerCommitted.cents,
-        ownerPaidCents: ownerPaid.cents,
-        ownerPlannedCents: ownerPlanned.cents,
-        payoutPaidCents: payoutPaidTotal.cents,
-        payoutPlannedCents: payoutPlanned.cents,
-        payoutObligationCents: payoutObligations.cents,
+        initiatedNotSettledCents: reported(sum(clients.filter((row) => row.settlement === 'initiated_not_settled'), (row) => row.invoiceTotalCents)),
+        vendorCommittedCents: reported(vendorCommitted),
+        vendorLedgerPaidCents: reported(vendorLedgerPaid),
+        ownerDistributionCents: reported(ownerCommitted),
+        ownerPaidCents: reported(ownerPaid),
+        ownerPlannedCents: reported(ownerPlanned),
+        payoutPaidCents: reported(payoutPaidTotal),
+        payoutPlannedCents: reported(payoutPlanned),
+        payoutObligationCents: reported(payoutObligations),
         forecastMarginCents,
         verifiedContributionCents,
         profitReason: expensesComplete ? '' : 'vendor_ledger_incomplete'
@@ -208,7 +250,9 @@
         'A matching amount does not merge a payout into a vendor bill.',
         'Planned owner distributions are not money already paid.',
         'Profit stays unavailable until vendor bills are a complete ledger.',
-        'A 3.5% tax rate is not applied unless a row already carries its own tax amount.'
+        'A 3.5% tax rate is not applied unless a row already carries its own tax amount.',
+        'A missing amount is unknown, not zero.',
+        'Duplicate payment or payout ids that disagree are excluded from totals. Identical copies are counted once.'
       ]
     };
   }

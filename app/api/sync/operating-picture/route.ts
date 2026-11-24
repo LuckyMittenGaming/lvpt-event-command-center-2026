@@ -6,6 +6,7 @@ import { gmailConfigured } from '../../gmail/_lib';
 import { appsScriptRequest, syncConfigured } from '../_lib';
 import { denyPrivateRead } from '../_owner-read';
 import { jsonNoStore } from '../../sms/staging/_lib';
+import { collapseDuplicateIds } from '../../../../lib/action-inbox.mjs';
 import { observedTime, SMS_INGEST_STALE_HOURS } from '../../../../lib/sms-scan-health.mjs';
 import { classifyGmailHeaderRead, classifyStoredCollection } from '../../../../lib/source-reliability.mjs';
 
@@ -290,7 +291,7 @@ export async function GET(request: Request) {
       };
     }).filter((event) => event.id);
 
-    const tasks = eventRows.flatMap((event) => {
+    const taskRows = eventRows.flatMap((event) => {
       const eventId = text(event.id, 120);
       const rows = Array.isArray(event.tasks) ? event.tasks as Raw[] : [];
       return rows.map((task) => {
@@ -304,8 +305,11 @@ export async function GET(request: Request) {
           dueDate: text(task.dueDate, 20),
           status
         };
-      }).filter(Boolean);
-    }).slice(0, 200);
+      }).filter((row): row is NonNullable<typeof row> => Boolean(row));
+    });
+    const taskLedger = collapseDuplicateIds(taskRows, ['eventId', 'title', 'owner', 'dueDate', 'status']);
+    const tasks = taskLedger.rows.slice(0, 200);
+    const taskConflicts = taskLedger.conflicts;
 
     let gmailRows = 0;
     let newestGmail = '';
@@ -343,9 +347,10 @@ export async function GET(request: Request) {
       exceptions,
       events,
       tasks,
+      taskConflicts,
       gmailQueue: gmailLive.queue,
       jobs: [
-        { id: 'tasksync', name: 'Safe TaskSync', schedule: 'Hourly', nextExpected: 'Hourly in Apps Script. This deployment cannot read the trigger.', owner: 'LVPT Calendar Command Center', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable from this preview. runLVPTSafeTaskSync was not called and was not changed.' },
+        { id: 'tasksync', name: 'Safe TaskSync', schedule: 'Hourly', nextExpected: 'Hourly in Apps Script. This deployment cannot read the trigger.', owner: 'LVPT Calendar Command Center', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable from this preview. The hourly schedule is configuration, not proof that runLVPTSafeTaskSync ran. The writer was not called and was not changed.' },
         { id: 'client-lifecycle', name: 'Client lifecycle scan', schedule: 'Apps Script property only', nextExpected: 'Not scheduled by this preview.', owner: 'LVPT_LAST_CLIENT_SCAN_AT', connected: scanRead === 'present', lastSuccess: scanAt, staleAfterHours: 36, recordsExamined: 0, recordsCreated: 0, detail: scanRead === 'failed' ? 'The scan property could not be read.' : scanRead === 'present' ? `Last success ${scanAt}. A separate last-attempt time is not stored.` : 'The property was read and is empty. That is not a success.' },
         { id: 'morning-review', name: 'Morning client review', schedule: '8:00 AM ET', nextExpected: '8:00 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
         { id: 'evening-review', name: 'Evening client review', schedule: '7:00 PM ET', nextExpected: '7:00 PM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildActionInbox, prepareDraft } from '../lib/action-inbox.mjs';
+import { buildActionInbox, collapseDuplicateIds, prepareDraft } from '../lib/action-inbox.mjs';
 import { contactHash, matchThreads } from '../lib/sms-bridge.mjs';
 
 const today = '2026-11-22';
@@ -216,12 +216,125 @@ assert.equal(matched[0].incoming, 2);
 assert.equal(matched[0].outgoing, 1);
 assert.equal(matched[0].newestDirection, 'outgoing');
 
+const duplicates = buildActionInbox({
+  today,
+  events: [
+    { id: 'evt-copy', status: 'Booked', eventName: 'Same' },
+    { id: 'evt-copy', status: 'Booked', eventName: 'Same' },
+    { id: 'evt-clash', status: 'Booked', eventName: 'One' },
+    { id: 'evt-clash', status: 'Declined', eventName: 'One' }
+  ]
+});
+assert.equal(duplicates.records.filter((row) => row.eventId === 'evt-copy').length, 1);
+assert.equal(duplicates.pipeline.denominator, 1);
+assert.deepEqual(duplicates.pipeline.duplicateEventsCountedOnce, ['evt-copy']);
+assert.equal(duplicates.records.some((row) => row.eventId === 'evt-clash'), false);
+assert.deepEqual(duplicates.pipeline.excluded.eventConflicts, ['evt-clash']);
+
+const closures = buildActionInbox({
+  today,
+  events: [
+    { id: 'evt-cancel', status: 'Cancelled' },
+    { id: 'evt-won', status: 'Closed won' },
+    { id: 'evt-closed', status: 'Closed' },
+    { id: 'evt-done', status: 'Completed' }
+  ],
+  smsThreads: [
+    { threadKey: 'sms-cancel', match: 'exact', eventId: 'evt-cancel', newestAt: '2026-11-21T00:00:00.000Z', newestDirection: 'incoming', incoming: 1, outgoing: 0 }
+  ]
+});
+assert.equal(closures.records.find((row) => row.id === 'event:evt-cancel').pipelineStage, 'cancelled');
+assert.equal(closures.records.find((row) => row.id === 'event:evt-cancel').bucket, 'cancelled');
+assert.equal(closures.records.find((row) => row.id === 'event:evt-won').pipelineStage, 'closed_won');
+assert.equal(closures.records.find((row) => row.id === 'event:evt-won').bucket, 'resolved');
+assert.equal(closures.records.find((row) => row.id === 'event:evt-closed').pipelineStage, 'unknown_closure');
+assert.notEqual(closures.records.find((row) => row.id === 'event:evt-closed').pipelineStage, 'completed');
+assert.equal(closures.records.find((row) => row.id === 'event:evt-done').pipelineStage, 'completed');
+assert.equal(closures.pipeline.stages.completed, 1);
+assert.equal(closures.pipeline.stages.cancelled, 1);
+assert.equal(closures.pipeline.stages.closedWon, 1);
+assert.equal(closures.pipeline.stages.unknownClosure, 1);
+
+const ordered = buildActionInbox({
+  today,
+  events: [{
+    id: 'evt-order',
+    status: 'New Lead',
+    emailActivity: [{ threadId: 'mail-1', date: '2026-11-21T12:00:00.000Z', direction: 'received', snippet: 'Question' }]
+  }],
+  smsThreads: [
+    { threadKey: 'sms-older', match: 'exact', eventId: 'evt-order', newestAt: '2026-11-18T00:00:00.000Z', newestDirection: 'outgoing', incoming: 3, outgoing: 0 },
+    { threadKey: 'sms-newer', match: 'exact', eventId: 'evt-order', newestAt: '2026-11-22T00:00:00.000Z', newestDirection: 'outgoing', incoming: 9, outgoing: 1 }
+  ]
+});
+const orderedRow = ordered.records.find((row) => row.id === 'event:evt-order');
+assert.equal(orderedRow.timeline[0].source, 'SMS');
+assert.equal(orderedRow.timeline[0].at, '2026-11-22T00:00:00.000Z');
+assert.equal(orderedRow.activityDirection, 'outbound');
+assert.notEqual(orderedRow.bucket, 'awaiting_response');
+const tied = buildActionInbox({
+  today,
+  events: [{
+    id: 'evt-tie',
+    status: 'New Lead',
+    emailActivity: [{ threadId: 'mail-tie', date: '2026-11-22T00:00:00.000Z', direction: 'received', snippet: 'Question' }]
+  }],
+  smsThreads: [
+    { threadKey: 'sms-tie', match: 'exact', eventId: 'evt-tie', newestAt: '2026-11-22T00:00:00.000Z', newestDirection: 'outgoing', incoming: 1, outgoing: 0, partial: true }
+  ]
+});
+assert.equal(tied.records[0].activityDirection, 'unknown');
+assert.notEqual(tied.records[0].bucket, 'awaiting_response');
+const directionTie = buildActionInbox({
+  today,
+  events: [{
+    id: 'evt-direction-tie',
+    status: 'New Lead',
+    emailActivity: [{ threadId: 'mail-direction', date: '2026-11-22T00:00:00.000Z', direction: 'received', snippet: 'Question' }]
+  }],
+  smsThreads: [
+    { threadKey: 'sms-direction', match: 'exact', eventId: 'evt-direction-tie', newestAt: '2026-11-22T00:00:00.000Z', newestDirection: 'outgoing', incoming: 0, outgoing: 1 }
+  ]
+});
+assert.equal(directionTie.records[0].activityDirection, 'unknown');
+assert.notEqual(directionTie.records[0].bucket, 'awaiting_response');
+const sheetTasks = collapseDuplicateIds([
+  { id: 'task-copy', eventId: 'evt-due', title: 'Call', owner: 'Matt', dueDate: '2026-11-21', status: 'Open' },
+  { id: 'task-copy', eventId: 'evt-due', title: 'Call', owner: 'Matt', dueDate: '2026-11-21', status: 'Open' },
+  { id: 'task-owner', eventId: 'evt-due', title: 'Call', owner: 'Matt', dueDate: '2026-11-21', status: 'Open' },
+  { id: 'task-owner', eventId: 'evt-due', title: 'Call', owner: 'Alex', dueDate: '2026-11-21', status: 'Open' }
+], ['eventId', 'title', 'owner', 'dueDate', 'status']);
+assert.equal(sheetTasks.rows.filter((row) => row.id === 'task-copy').length, 1);
+assert.equal(sheetTasks.rows.some((row) => row.id === 'task-owner'), false);
+assert.deepEqual(sheetTasks.conflicts, ['task-owner']);
+
+assert.equal(buildActionInbox({ today, events: [{ id: 'evt-link', status: 'New Lead', proposalUrl: 'https://user:pass@example.test/proposal' }] }).records[0].proposalLink, '');
+assert.equal(buildActionInbox({ today, events: [{ id: 'evt-link-ok', status: 'New Lead', proposalUrl: 'https://example.test/proposal' }] }).records[0].proposalLink, 'https://example.test/proposal');
+const dueSplit = buildActionInbox({
+  today: '2026-11-22',
+  events: [{ id: 'evt-due', status: 'New Lead' }],
+  tasks: [
+    { id: 'task-today', eventId: 'evt-due', title: 'Due today', dueDate: '2026-11-22', status: 'Open' },
+    { id: 'task-late', eventId: 'evt-due', title: 'Late', dueDate: '2026-11-21', status: 'Open' },
+    { id: 'task-late', eventId: 'evt-due', title: 'Late', dueDate: '2026-11-21', status: 'Open' },
+    { id: 'task-clash', eventId: 'evt-due', title: 'One', dueDate: '2026-11-21', status: 'Open' },
+    { id: 'task-clash', eventId: 'evt-due', title: 'Other', dueDate: '2026-11-20', status: 'Open' }
+  ]
+});
+assert.equal(dueSplit.pipeline.dueFollowUps, 1);
+assert.equal(dueSplit.pipeline.overdueFollowUps, 1);
+assert.deepEqual(dueSplit.pipeline.taskConflicts, ['task-clash']);
+
 const hub = readFileSync(new URL('../public/v2/js/unified-hub.js', import.meta.url), 'utf8');
 assert.equal(hub.includes('data-decision="approve"'), false);
 assert.match(hub, /Draft preview, not an approval/);
 assert.match(hub, /Recorded email, not verified/);
 assert.match(hub, /Lead pipeline/);
 
+const picture = readFileSync(new URL('../app/api/sync/operating-picture/route.ts', import.meta.url), 'utf8');
+const pictureBody = picture.slice(picture.indexOf('export async function GET'));
+assert.ok(pictureBody.indexOf('collapseDuplicateIds') < pictureBody.indexOf('taskConflicts'));
+assert.match(picture, /The hourly schedule is configuration, not proof that runLVPTSafeTaskSync ran/);
 const route = readFileSync(new URL('../app/api/sync/action-inbox/route.ts', import.meta.url), 'utf8');
 assert.match(route, /productionWrites: false/);
 assert.match(route, /preview_only/);

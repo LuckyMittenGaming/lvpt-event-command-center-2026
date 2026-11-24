@@ -119,6 +119,41 @@ const linked = buildLedger({
     { payoutId: 'po-linked', eventId: 'evt-nium-2026', payoutType: 'Vendor', amount: 2200, status: 'Planned', linkedPaymentId: 'pay-vendor' }
   ]
 });
+const samePayment = buildLedger({
+  payments: [
+    { paymentId: 'pay-copy', eventId: 'evt-copy', ledgerRole: 'client_receivable', invoiceTotal: 10, amountPaid: 10, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'pay-copy', eventId: 'evt-copy', ledgerRole: 'client_receivable', invoiceTotal: 10, amountPaid: 10, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(samePayment.money.verifiedClientReceiptsCents, 1000);
+assert.deepEqual(samePayment.duplicatePaymentIds, ['pay-copy']);
+assert.equal(samePayment.conflictPaymentIds.length, 0);
+const clashingPayment = buildLedger({
+  payments: [
+    { paymentId: 'pay-clash', eventId: 'evt-copy', ledgerRole: 'client_receivable', invoiceTotal: 10, amountPaid: 10, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'pay-clash', eventId: 'evt-copy', ledgerRole: 'client_receivable', invoiceTotal: 25, amountPaid: 25, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(clashingPayment.money.verifiedClientReceiptsCents, 0);
+assert.deepEqual(clashingPayment.conflictPaymentIds, ['pay-clash']);
+assert.equal(clashingPayment.duplicatePaymentIds.includes('pay-clash'), false);
+assert.equal(clashingPayment.payments.every((row) => row.includedInTotals === false), true);
+const unknownAmount = buildLedger({
+  payments: [
+    { paymentId: 'pay-missing', eventId: 'evt-copy', ledgerRole: 'client_receivable', invoiceTotal: 10, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(unknownAmount.money.verifiedClientReceiptsCents, null);
+const zeroAmount = buildLedger({
+  payments: [
+    { paymentId: 'pay-zero', eventId: 'evt-copy', ledgerRole: 'client_receivable', invoiceTotal: 10, amountPaid: 0, balanceDue: 10, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(zeroAmount.money.verifiedClientReceiptsCents, 0);
 assert.equal(linked.counts.payoutsExcludedAsDuplicateExpense, 1);
 assert.equal(linked.counts.amountOverlapsNotMerged, 1);
 

@@ -55,10 +55,12 @@
         bar.innerHTML = '<div><strong>Task list unavailable</strong><p>Browser reminders stay hidden.</p></div>';
       } else {
         const tasks = Array.isArray(picture.tasks) ? picture.tasks : [];
+        const conflicts = Array.isArray(picture.taskConflicts) ? picture.taskConflicts : [];
         const first = tasks[0];
-        bar.className = tasks.length ? 'attention-bar show' : 'attention-bar';
-        bar.innerHTML = tasks.length
-          ? `<div><strong>${tasks.length} open sheet task${tasks.length === 1 ? '' : 's'}</strong><p>${esc(first.title)} · ${esc(first.dueDate || 'No due date')}</p></div>`
+        const conflictNote = conflicts.length ? `${conflicts.length} task id${conflicts.length === 1 ? '' : 's'} disagreed and ${conflicts.length === 1 ? 'is' : 'are'} excluded from this count.` : '';
+        bar.className = tasks.length || conflicts.length ? 'attention-bar show' : 'attention-bar';
+        bar.innerHTML = tasks.length || conflicts.length
+          ? `<div><strong>${tasks.length} open sheet task${tasks.length === 1 ? '' : 's'}</strong><p>${tasks.length ? `${esc(first.title)} · ${esc(first.dueDate || 'No due date')}` : 'No open task survived reconciliation.'}${conflictNote ? ` ${esc(conflictNote)}` : ''}</p></div>`
           : '';
       }
     }

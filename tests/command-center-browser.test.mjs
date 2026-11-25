@@ -336,6 +336,85 @@ function overflow() {
   return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
 }
 
+async function assertCompactPresentation({ expectCurrency = true } = {}) {
+  const report = await page.evaluate(() => {
+    const styleHidden = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return true;
+      const style = getComputedStyle(el);
+      return el.hidden || style.display === 'none' || style.visibility === 'hidden' || el.getBoundingClientRect().height < 1;
+    };
+    const money = [...document.querySelectorAll('#overviewLedger strong')].map((el) => {
+      const style = getComputedStyle(el);
+      return {
+        text: (el.textContent || '').trim(),
+        fontSize: parseFloat(style.fontSize) || 0,
+        tabular: String(style.fontVariantNumeric || '').includes('tabular'),
+        wrap: style.overflowWrap,
+        color: style.color
+      };
+    });
+    const emptyGiants = [...document.querySelectorAll('#commandView .command-view-body > *')].filter((el) => {
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== 'none' && rect.height > 160 && !(el.textContent || '').trim();
+    }).length;
+    const active = document.querySelector('#commandNav [data-command-view].active');
+    const activeStyle = active ? getComputedStyle(active) : null;
+    return {
+      editorHidden: styleHidden('#eventEditorPanel'),
+      layoutHidden: styleHidden('.layout-grid'),
+      tabsHidden: styleHidden('.tab-panel'),
+      metricsHidden: styleHidden('#metricsGrid'),
+      stripHidden: styleHidden('#hubOverviewStrip'),
+      fullEditorVisible: /Full Event Editor/i.test(document.body.innerText || ''),
+      emptyGiants,
+      money,
+      activeSelected: !!(active && active.classList.contains('active')),
+      activeColor: activeStyle ? activeStyle.color : '',
+      overflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
+    };
+  });
+  assert.equal(report.editorHidden, true);
+  assert.equal(report.layoutHidden, true);
+  assert.equal(report.tabsHidden, true);
+  assert.equal(report.metricsHidden, true);
+  assert.equal(report.stripHidden, true);
+  assert.equal(report.fullEditorVisible, false);
+  assert.equal(report.emptyGiants, 0);
+  assert.equal(report.activeSelected, true);
+  assert.equal(report.overflow, true);
+  assert.notEqual(report.activeColor, 'rgba(0, 0, 0, 0)');
+  if (expectCurrency) {
+    assert.ok(report.money.length > 0, 'overview ledger currency nodes missing');
+    for (const node of report.money) {
+      assert.ok(node.fontSize >= 14, `currency/date figure too small: ${node.text} @ ${node.fontSize}`);
+      assert.equal(node.tabular, true, `currency figure missing tabular nums: ${node.text}`);
+      assert.match(node.wrap, /anywhere|break-word/);
+    }
+  }
+}
+
+async function assertCommandNavKeyboardFocus() {
+  await page.locator('#commandNav [data-command-view]').first().focus();
+  await page.keyboard.press('Tab');
+  const focus = await page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el) return null;
+    const style = getComputedStyle(el);
+    return {
+      inNav: !!(el.closest && el.closest('#commandNav')),
+      focusVisible: el.matches(':focus-visible'),
+      outlineStyle: style.outlineStyle,
+      outlineWidth: style.outlineWidth
+    };
+  });
+  assert.ok(focus && focus.inNav, 'keyboard focus left command nav');
+  assert.equal(focus.focusVisible, true);
+  assert.notEqual(focus.outlineStyle, 'none');
+  assert.notEqual(focus.outlineWidth, '0px');
+}
+
 const selectedEventReportTypes = ['pre', 'post'];
 
 async function assertSelectedEventReportIsolation(expected) {
@@ -435,6 +514,17 @@ try {
   assert.equal(await page.locator('#eventEditorPanel').isVisible(), false);
   assert.equal(await page.locator('#reportCenter').isVisible(), false);
   assert.equal(await page.locator('#ownerSignInLink').count(), 1);
+  await assertCompactPresentation({ expectCurrency: true });
+  await assertCommandNavKeyboardFocus();
+  for (const width of [1280, 375, 320, 280]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(150);
+    assert.equal(await overflow(), true, `horizontal overflow at ${width}px`);
+    assert.equal(await page.locator('#commandNav').isVisible(), true);
+    assert.equal(await page.locator('#eventEditorPanel').isVisible(), false);
+    assert.equal(await page.locator('[data-command-view="overview"].active').count(), 1);
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.evaluate(() => {
     const result = window.lvptOperatingPictureResult;
     if (!result || !result.data || !result.data.report || !result.data.report.money) throw new Error('operating picture missing');

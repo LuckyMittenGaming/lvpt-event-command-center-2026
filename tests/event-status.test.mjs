@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { classifyStatus, eventLane, normalizeEventDate, normalizeStatus, quoteCoverage } = require('../public/v2/js/event-status.js');
+const {
+  classifyStatus,
+  eventLane,
+  normalizeEventDate,
+  normalizeStatus,
+  proposalLinkState,
+  quoteCoverage,
+  redactedProposalUrl,
+  validateProposalUrl
+} = require('../public/v2/js/event-status.js');
 
 const cases = [
   ['Invoice Sent / Awaiting Deposit', 'invoice_awaiting_deposit', 'pipeline'],
@@ -86,5 +95,49 @@ assert.equal(partial.linePartial, true);
 assert.equal(partial.pricedCents, 10000);
 assert.equal(partial.costKnown, false);
 assert.equal(quoteCoverage({ quote: [{ quantity: 1, unitPrice: 100 }], setup: { targetQuote: 5000 } }).pricedCents, 10000);
+
+// R07 — proposal URL validation and portfolio lane membership
+assert.equal(validateProposalUrl('').reason, 'missing');
+assert.equal(validateProposalUrl('   ').reason, 'missing');
+assert.equal(validateProposalUrl('http://example.test/proposal').reason, 'invalid');
+assert.equal(validateProposalUrl('https://user:pass@example.test/proposal').reason, 'invalid');
+assert.equal(validateProposalUrl('not a url').reason, 'invalid');
+assert.equal(validateProposalUrl('https://example.test/lead with spaces').reason, 'invalid');
+const validProposal = validateProposalUrl('https://example.test/lead');
+assert.equal(validProposal.ok, true);
+assert.equal(validProposal.url, 'https://example.test/lead');
+assert.equal(proposalLinkState({ proposalUrl: 'https://example.test/lead' }), 'Linked');
+assert.equal(proposalLinkState({ proposalUrl: 'http://example.test/lead' }), 'Invalid link');
+assert.equal(proposalLinkState({ proposalUrl: '' }), 'Not linked');
+assert.equal(proposalLinkState({}), 'Not linked');
+const tokenUrl = 'https://example.test/proposal?access_token=synthetic-secret-token';
+assert.equal(validateProposalUrl(tokenUrl).ok, true);
+assert.equal(redactedProposalUrl(tokenUrl), 'https://example.test/proposal');
+assert.equal(redactedProposalUrl(tokenUrl).includes('synthetic-secret-token'), false);
+assert.equal(redactedProposalUrl('http://example.test/x'), '[invalid proposal url]');
+assert.equal(redactedProposalUrl(''), '');
+
+const portfolioCases = [
+  ['Booked — Payment Processing', '2026-12-10', 'payment_processing', 'active'],
+  ['Booked', '2026-12-01', 'booked', 'active'],
+  ['Client Declined', '2026-12-18', 'declined', 'past'],
+  ['Completed', '2026-11-01', 'completed', 'past'],
+  ['Outcome Unverified', '2026-12-19', 'outcome_unverified', 'review'],
+  ['Closed', '2026-12-05', 'unknown_closure', 'past'],
+  ['New Lead', '2026-01-02', 'open', 'past']
+];
+for (const [status, eventDate, stage, lane] of portfolioCases) {
+  const info = eventLane({ status, eventDate }, '2026-11-24');
+  assert.equal(info.stage, stage, status);
+  assert.equal(info.lane, lane, status);
+  if (stage === 'payment_processing') {
+    assert.notEqual(info.stage, 'booked');
+    assert.equal(info.lane, 'active');
+  }
+  if (stage === 'outcome_unverified') {
+    assert.equal(info.needsOutcomeReview, true);
+    assert.notEqual(info.lane, 'active');
+  }
+}
 
 console.log('event status classification tests passed');

@@ -94,8 +94,10 @@ const fixture = {
     { id: 'evt-partial', eventName: 'Synthetic Partial', status: 'Quote Needed', eventDate: '2026-12-18', quote: [{ quantity: 1, unitPrice: 100 }, { quantity: 1 }], tasks: [] },
     { id: 'evt-budget', eventName: 'Synthetic Budget', status: 'Needs Discovery', eventDate: '2026-12-16', setup: { budgetRange: '$10,000–$20,000', targetQuote: 0 }, tasks: [{ id: 'task-undated', title: 'Capture undated discovery', owner: 'Synthetic Owner', status: 'Open', priority: 'Low' }] },
     { id: 'evt-awaiting', eventName: 'Synthetic Awaiting', company: 'Private Client', status: 'Invoice Sent / Awaiting Deposit', eventDate: '2026-12-15', tasks: [] },
-    { id: 'evt-processing', eventName: 'Synthetic Processing', company: 'Private Client', status: 'Booked — Payment Processing', eventDate: '2026-12-10', tasks: [] },
+    { id: 'evt-processing', eventName: 'Synthetic Processing', company: 'Private Client', status: 'Booked — Payment Processing', eventDate: '2026-12-10', proposalUrl: 'https://example.test/processing?access_token=synthetic-secret-token', tasks: [] },
     { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', staff: [{ id: 'staff-floor', name: 'Floor Lead', role: 'Floor' }], tasks: [{ id: 'task-floor', title: 'Confirm the floor', owner: 'Synthetic Owner', dueDate: '2026-12-02', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-active-1', name: 'Active-Only Floor Diagram', category: 'Floor Plan' }, { id: 'doc-active-2', name: 'Active-Only Invoice Scan', category: 'Invoice' }] },
+    { id: 'evt-nium-2026', eventName: 'Synthetic NIUM Assoc', company: 'NIUM Synthetic', status: 'Booked', eventDate: '2026-12-08', venue: 'Synthetic Palms', city: 'Las Vegas', state: 'NV', tasks: [] },
+    { id: 'evt-bad-link', eventName: 'Synthetic Bad Link', company: 'Bad Link Co', status: 'Proposal Sent', eventDate: '2026-12-22', proposalUrl: 'http://insecure.example/proposal', tasks: [] },
     { id: 'evt-declined', eventName: 'Synthetic Declined', status: 'Client Declined', eventDate: '2026-12-18', tasks: [] },
     { id: 'evt-unknown', eventName: 'Synthetic Unverified', status: 'Outcome Unverified', eventDate: '2026-12-19', tasks: [] },
     { id: 'evt-closed', eventName: 'Synthetic Closed', status: 'Closed', eventDate: '2026-12-05', tasks: [] },
@@ -1254,7 +1256,34 @@ try {
   const activeText = await page.locator('#commandView').innerText();
   assert.match(activeText, /Synthetic Booked/);
   assert.match(activeText, /Synthetic Processing/);
+  assert.match(activeText, /Synthetic NIUM Assoc/);
+  assert.match(activeText, /Booked — payment processing/i);
+  assert.match(activeText, /does not establish that payment was received/i);
+  assert.equal(activeText.includes('paid-in-full booked'), false);
   assert.equal(activeText.includes('Synthetic Awaiting'), false);
+  assert.equal(activeText.includes('Synthetic Declined'), false);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-processing"][data-stage="payment_processing"][data-lane="active"]').count(), 1);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-active"][data-stage="booked"][data-lane="active"]').count(), 1);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-nium-2026"][data-stage="booked"][data-lane="active"]').count(), 1);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-processing"][data-proposal-state="Linked"]').count(), 1);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-active"][data-proposal-state="Not linked"]').count(), 1);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-nium-2026"][data-proposal-state="Not linked"]').count(), 1);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-nium-2026"] [data-proposal-label]').innerText(), 'Not linked');
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-nium-2026"][data-historical-proposal-id="proposal-nium"]').count(), 1);
+  assert.match(await page.locator('.portfolio-card[data-event-id="evt-nium-2026"] [data-historical-proposal]').innerText(), /Historical design reference on file/i);
+  assert.match(await page.locator('.portfolio-card[data-event-id="evt-nium-2026"] [data-historical-proposal]').innerText(), /Not a current proposal link/i);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-active"] [data-booked-payment-note]').count(), 1);
+  assert.match(await page.locator('.portfolio-card[data-event-id="evt-active"] [data-booked-payment-note]').innerText(), /No owner-confirmed receipt is recorded/i);
+  const bookedCardText = await page.locator('.portfolio-card[data-event-id="evt-active"]').innerText();
+  assert.match(bookedCardText, /No sheet invoice|Not recorded/i);
+  assert.equal(/paid in full|payment received|funds received/i.test(bookedCardText), false);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-active"] [data-payment-processing-note]').count(), 0);
+  await page.locator('.portfolio-card[data-event-id="evt-processing"] [data-open-event="evt-processing"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-processing"]'));
+  assert.match(await page.locator('[data-record-event="evt-processing"]').innerText(), /Synthetic Processing/);
+  assert.equal(await page.locator('[data-record-event="evt-active"]').count(), 0);
+  await page.locator('[data-back-list]').click();
+  await page.waitForFunction(() => document.querySelector('.portfolio-card[data-event-id="evt-processing"]'));
   await page.locator('[data-command-view="archive"]').click();
   await page.waitForTimeout(200);
   const past = await page.locator('#commandView').innerText();
@@ -1263,12 +1292,29 @@ try {
   assert.match(past, /Synthetic Closed/);
   assert.match(past, /Outcome needs review/);
   assert.match(past, /Past date/);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-declined"][data-stage="declined"][data-lane="past"]').count(), 1);
+  assert.equal(await page.locator('.portfolio-card[data-event-id="evt-processing"]').count(), 0);
+  const consoleLeak = [];
+  page.on('console', (msg) => consoleLeak.push(msg.text()));
   await page.locator('[data-command-view="proposals"]').click();
   await page.waitForTimeout(200);
   const proposals = await page.locator('#commandView').innerText();
   assert.match(proposals, /Recorded on the sheet/);
   assert.match(proposals, /Historical reference, not verified/);
+  assert.match(proposals, /Invalid or incomplete links/i);
+  assert.match(proposals, /Synthetic Bad Link/);
+  assert.match(proposals, /Invalid link/i);
+  assert.match(proposals, /have no proposal URL on the sheet/);
   assert.equal(proposals.includes('Proposal Active'), false);
+  assert.equal(proposals.includes('Accepted / Booked'), false);
+  assert.equal(proposals.includes('synthetic-secret-token'), false);
+  assert.equal(proposals.includes('http://insecure.example/proposal'), false);
+  assert.equal(await page.locator('.proposal-card[data-proposal-kind="sheet"][data-event-id="evt-lead"]').count(), 1);
+  assert.equal(await page.locator('.proposal-card[data-proposal-kind="sheet"][data-event-id="evt-processing"]').count(), 1);
+  assert.equal(await page.locator('.proposal-card[data-proposal-kind="invalid"][data-event-id="evt-bad-link"]').count(), 1);
+  assert.equal(await page.locator('.proposal-card[data-proposal-kind="historical"] [data-open-event="evt-nium-2026"]').count(), 1);
+  assert.equal(await page.locator('.proposal-card[data-proposal-kind="historical"] [data-open-event="evt-neo-reunion-2026"]').count(), 0);
+  assert.equal(consoleLeak.some((line) => line.includes('synthetic-secret-token')), false);
   await page.locator('#proposalSearch').fill('zzz-filter');
   await page.locator('[data-open-event="evt-lead"]').click();
   await page.locator('[data-back-list]').click();

@@ -132,5 +132,60 @@
     return { ...base, pricedCents, costCents: costKnown && !linePartial ? costCents : null, costKnown: costKnown && !linePartial, priced: true, recordedZero: false, linePartial, costPartial: missingCost };
   }
 
-  return { TIME_ZONE, normalizeStatus, classifyStatus, todayIso, normalizeEventDate, eventLane, quoteCoverage };
+  /**
+   * Authoritative proposal URLs must be https without embedded credentials.
+   * Missing stays missing; invalid stays invalid. Never invent a URL.
+   * Callers must not console-log the raw URL (query may contain tokens).
+   */
+  function validateProposalUrl(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return { ok: false, url: '', reason: 'missing', raw: '' };
+    if (/\s/.test(raw)) return { ok: false, url: '', reason: 'invalid', raw };
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) {
+        return { ok: false, url: '', reason: 'invalid', raw };
+      }
+      return { ok: true, url: url.toString(), reason: 'valid', raw };
+    } catch {
+      return { ok: false, url: '', reason: 'invalid', raw };
+    }
+  }
+
+  /** Safe label for portfolio / CRM surfaces. Does not invent links. */
+  function proposalLinkState(event) {
+    const validated = validateProposalUrl(event && event.proposalUrl);
+    if (validated.ok) return 'Linked';
+    if (validated.reason === 'invalid') return 'Invalid link';
+    return 'Not linked';
+  }
+
+  /**
+   * Redact query/hash before any diagnostic display. Never use for navigation.
+   */
+  function redactedProposalUrl(value) {
+    const validated = validateProposalUrl(value);
+    if (!validated.ok) return validated.reason === 'missing' ? '' : '[invalid proposal url]';
+    try {
+      const url = new URL(validated.url);
+      url.search = '';
+      url.hash = '';
+      return url.toString();
+    } catch {
+      return '[invalid proposal url]';
+    }
+  }
+
+  return {
+    TIME_ZONE,
+    normalizeStatus,
+    classifyStatus,
+    todayIso,
+    normalizeEventDate,
+    eventLane,
+    quoteCoverage,
+    validateProposalUrl,
+    proposalLinkState,
+    redactedProposalUrl
+  };
 });

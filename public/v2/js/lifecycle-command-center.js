@@ -255,13 +255,14 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   let recordOpen = false;
   const statusApi = () => window.LVPTEventStatus;
   const crmApi = () => window.LVPTCrmAttribution;
+  const HISTORICAL_PROPOSAL_STATUS = 'Historical reference, not verified';
   const proposals = [
-    { id:'proposal-nium', client:'NIUM', title:'NIUM VIP Casino Lounge', project:'lvpt-nium-proposal', url:'https://lvpt-nium-proposal.vercel.app/', status:'Accepted / Booked', updated:'2026-07-16', eventId:'evt-nium-2026', tags:['Palms Place','Casino Night','Custom Assets','Transportation'], notes:'Enterprise proposal with venue comparisons, custom chips/cards/felts, premium catering, open bar and transportation.' },
-    { id:'proposal-neo-2026', client:'Mosaic Events / NEO', title:'NEO Reunion 2026', project:'mosaic-neo-2026-proposal', url:'https://mosaic-neo-2026-proposal.vercel.app/', status:'Updated Proposal', updated:'2026-08-13', eventId:'evt-neo-reunion-2026', tags:['Training','Tournament','Ritz-Carlton','Repeat Client'], notes:'Year-two training and tournament proposal with premium instructor positioning and event improvements.' },
-    { id:'proposal-workato', client:'Workato', title:'Workato Poker Experience', project:'workato-poker-experience', url:'https://workato-poker-experience.vercel.app/', status:'Proposal Active', updated:'2026-08-12', eventId:'', tags:['Venue Options','Transportation','Catering','Image Gallery'], notes:'Multi-route Las Vegas proposal featuring Palms Place, Venetian poker room, Mob Museum and Allegiant Stadium.' },
-    { id:'proposal-safelease', client:'SafeLease', title:'SafeLease Poker Experience', project:'safelease-poker-experience', url:'https://safelease-poker-experience.vercel.app/', status:'Proposal Active', updated:'2026-08-05', eventId:'', tags:['Trade Show','Lead Generation','ARIA','Booth Activation'], notes:'Trade-show poker activation proposal with booth engagement and future tournament opportunity.' },
-    { id:'proposal-ownwell', client:'Ownwell', title:'Ownwell Poker Proposal', project:'ownwell-poker-proposal', url:'https://ownwell-poker-proposal.vercel.app/', status:'Past Reference', updated:'2026-08-05', eventId:'', tags:['Gallery','Visual Reference','Poker Experience'], notes:'Past proposal retained as a visual and image-gallery reference for future builds.' },
-    { id:'proposal-defending-education', client:'Defending Education', title:'Defending Education Poker Proposal', project:'defending-education-poker-proposal', url:'https://defending-education-poker-proposal.vercel.app/', status:'Past Reference', updated:'2026-07-24', eventId:'', tags:['Corporate','Training','Proposal Reference'], notes:'Past corporate poker proposal retained for layouts, copy modules and reusable presentation patterns.' },
+    { id:'proposal-nium', client:'NIUM', title:'NIUM VIP Casino Lounge', project:'lvpt-nium-proposal', url:'https://lvpt-nium-proposal.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-07-16', eventId:'evt-nium-2026', tags:['Palms Place','Casino Night','Custom Assets','Transportation'], notes:'Enterprise proposal with venue comparisons, custom chips/cards/felts, premium catering, open bar and transportation.' },
+    { id:'proposal-neo-2026', client:'Mosaic Events / NEO', title:'NEO Reunion 2026', project:'mosaic-neo-2026-proposal', url:'https://mosaic-neo-2026-proposal.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-08-13', eventId:'evt-neo-reunion-2026', tags:['Training','Tournament','Ritz-Carlton','Repeat Client'], notes:'Year-two training and tournament proposal with premium instructor positioning and event improvements.' },
+    { id:'proposal-workato', client:'Workato', title:'Workato Poker Experience', project:'workato-poker-experience', url:'https://workato-poker-experience.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-08-12', eventId:'', tags:['Venue Options','Transportation','Catering','Image Gallery'], notes:'Multi-route Las Vegas proposal featuring Palms Place, Venetian poker room, Mob Museum and Allegiant Stadium.' },
+    { id:'proposal-safelease', client:'SafeLease', title:'SafeLease Poker Experience', project:'safelease-poker-experience', url:'https://safelease-poker-experience.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-08-05', eventId:'', tags:['Trade Show','Lead Generation','ARIA','Booth Activation'], notes:'Trade-show poker activation proposal with booth engagement and future tournament opportunity.' },
+    { id:'proposal-ownwell', client:'Ownwell', title:'Ownwell Poker Proposal', project:'ownwell-poker-proposal', url:'https://ownwell-poker-proposal.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-08-05', eventId:'', tags:['Gallery','Visual Reference','Poker Experience'], notes:'Past proposal retained as a visual and image-gallery reference for future builds.' },
+    { id:'proposal-defending-education', client:'Defending Education', title:'Defending Education Poker Proposal', project:'defending-education-poker-proposal', url:'https://defending-education-poker-proposal.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-07-24', eventId:'', tags:['Corporate','Training','Proposal Reference'], notes:'Past corporate poker proposal retained for layouts, copy modules and reusable presentation patterns.' },
   ];
 
   let commandView = localStorage.getItem(VIEW_KEY) || 'overview';
@@ -294,7 +295,28 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   function openTaskCount(event) { return (event.tasks || []).filter(task => !taskIsComplete(task)).length; }
   function dateLabel(value) { if(!value) return 'Date TBD'; const date=new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime())?value:date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
   function ageInDays(value) { if(!value) return Infinity; return Math.floor((Date.now()-new Date(value).getTime())/86400000); }
-  function proposalForEvent(event) { return proposals.find(item => item.eventId && item.eventId === event.id); }
+  function historicalProposalForEvent(event) {
+    if (!event || !event.id) return null;
+    return proposals.find((item) => item.eventId && item.eventId === event.id) || null;
+  }
+  function proposalUrlState(event) {
+    return statusApi() && statusApi().proposalLinkState
+      ? statusApi().proposalLinkState(event)
+      : (String(event && event.proposalUrl || '').trim() ? 'Linked' : 'Not linked');
+  }
+  function explicitProposalUrl(event) {
+    if (statusApi() && statusApi().validateProposalUrl) {
+      const validated = statusApi().validateProposalUrl(event && event.proposalUrl);
+      return validated.ok ? validated.url : '';
+    }
+    const raw = String(event && event.proposalUrl || '').trim();
+    if (!raw || /\s/.test(raw)) return '';
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return '';
+      return url.toString();
+    } catch { return ''; }
+  }
   function snapshotBlocks(view, eyebrow, title) {
     const snap = window.lvptSheetSnapshot;
     if (snap && snap.state === 'ready') return false;
@@ -733,13 +755,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   }
 
   function pipelineCard(event) {
-    const proposal = proposalForEvent(event);
+    const sheetLinked = Boolean(explicitProposalUrl(event));
     const quote = statusApi().quoteCoverage(event);
     const value = quote.priced ? (quote.linePartial ? `Partial lines ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents)) : quote.recordedZero ? 'Recorded zero' : quote.targetState === 'recorded' ? `Recorded target ${moneyCents(quote.recordedTargetCents)}` : 'Unpriced';
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const next = String(event.nextAction || '').trim().slice(0, 90) || 'No next action recorded';
     const acquired = crmApi() ? crmApi().acquisitionChannelLines(event) : { kind: 'unknown', acquisitionText: 'Acquisition: Unknown (not recorded)' };
-    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span>${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${proposal ? ' · Proposal linked' : ''}</p></button>`;
+    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(laneOf(event).stage)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span>${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${sheetLinked ? ' · Proposal linked' : ''}</p></button>`;
   }
 
   function renderPortfolio(view, mode) {
@@ -752,39 +774,76 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   }
 
   function portfolioCard(event) {
-    const proposal = proposalForEvent(event);
+    const historical = historicalProposalForEvent(event);
     const lane = laneOf(event);
-    const pastNote = `${lane.past && !lane.completed ? '<p>Past date. The recorded status was not changed to completed.</p>' : ''}${lane.needsOutcomeReview ? '<p>Outcome needs review.</p>' : ''}`;
+    const linkState = proposalUrlState(event);
+    const proposalLabel = linkState === 'Not linked' ? 'Not linked' : linkState;
+    const historicalNote = historical
+      ? `<p class="muted" data-historical-proposal="${escapeHtml(historical.id)}">Historical design reference on file (${escapeHtml(historical.title)}). Not a current proposal link.</p>`
+      : '';
+    const paymentNote = lane.stage === 'payment_processing'
+      ? '<p data-payment-processing-note>Booked — payment processing. This status does not establish that payment was received.</p>'
+      : (lane.stage === 'booked' && !event.paymentRecorded
+        ? '<p data-booked-payment-note>Booked. No owner-confirmed receipt is recorded on this event.</p>'
+        : '');
+    const pastNote = `${lane.past && !lane.completed ? '<p>Past date. The recorded status was not changed to completed.</p>' : ''}${lane.needsOutcomeReview ? '<p>Outcome needs review.</p>' : ''}${paymentNote}`;
     const quote = statusApi().quoteCoverage(event);
     const value = quote.priced ? (quote.linePartial ? `Partial lines ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents)) : quote.recordedZero ? 'Recorded zero' : quote.targetState === 'recorded' ? `Recorded target ${moneyCents(quote.recordedTargetCents)}` : 'Unpriced';
     const collected = event.paymentRecorded ? money(event.payment.amountPaid) : 'Not recorded';
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
-    return `<article class="portfolio-card"><p class="eyebrow small">${escapeHtml(laneOf(event).raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}<div class="portfolio-card-grid"><div><span>Priced quote</span><strong>${escapeHtml(value)}</strong></div><div><span>Ledger collected</span><strong>${escapeHtml(collected)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong>${proposal ? 'Historical reference' : event.proposalUrl ? 'Linked' : 'Not linked'}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${proposal ? `<button class="btn small" data-preview-proposal="${proposal.id}">Preview Proposal</button>` : ''}</div></article>`;
+    const sheetUrl = explicitProposalUrl(event);
+    const previewId = sheetUrl ? `event-${event.id}` : (historical ? historical.id : '');
+    return `<article class="portfolio-card" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(lane.stage)}" data-lane="${escapeHtml(lane.lane)}" data-proposal-state="${escapeHtml(linkState)}"${historical ? ` data-historical-proposal-id="${escapeHtml(historical.id)}"` : ''}><p class="eyebrow small">${escapeHtml(lane.raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}${historicalNote}<div class="portfolio-card-grid"><div><span>Priced quote</span><strong>${escapeHtml(value)}</strong></div><div><span>Ledger collected</span><strong>${escapeHtml(collected)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong data-proposal-label>${escapeHtml(proposalLabel)}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${previewId ? `<button class="btn small" data-preview-proposal="${escapeHtml(previewId)}">Preview Proposal</button>` : ''}</div></article>`;
   }
 
-  function explicitProposalUrl(event) {
-    const raw = String(event.proposalUrl || '').trim();
-    if (!raw || /\s/.test(raw)) return '';
-    try {
-      const url = new URL(raw);
-      if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return '';
-      return url.toString();
-    } catch { return ''; }
-  }
   function renderProposals(view) {
     if (snapshotBlocks(view, 'Design & Sales Library', 'Proposal Library')) return;
-    const linked = events.filter(event => explicitProposalUrl(event)).map(event => ({ id:`event-${event.id}`, client:event.company || 'Recorded client', title:event.eventName || event.id, project:'Authoritative event link', url:explicitProposalUrl(event), status:'Recorded on the event', updated:'', eventId:event.id, tags:['Sheet'], notes:'This link is the proposal URL stored on the event. It was not inferred from the company name.' }));
-    const historical = proposals.map(item => ({ ...item, status:'Historical reference, not verified' }));
+    const linked = events.filter((event) => explicitProposalUrl(event)).map((event) => ({
+      id: `event-${event.id}`,
+      client: event.company || 'Recorded client',
+      title: event.eventName || event.id,
+      project: 'Authoritative event link',
+      url: explicitProposalUrl(event),
+      status: 'Recorded on the event',
+      updated: '',
+      eventId: event.id,
+      tags: ['Sheet'],
+      notes: 'This link is the proposal URL stored on the event. It was not inferred from the company name.',
+      kind: 'sheet'
+    }));
+    const invalid = events.filter((event) => proposalUrlState(event) === 'Invalid link').map((event) => ({
+      id: `invalid-${event.id}`,
+      client: event.company || 'Recorded client',
+      title: event.eventName || event.id,
+      project: 'Invalid proposal URL',
+      url: '',
+      status: 'Invalid link',
+      updated: '',
+      eventId: event.id,
+      tags: ['Sheet'],
+      notes: 'A proposal URL is recorded on this event but it is not a valid https link without credentials. The URL is not shown here and was not invented from the company name.',
+      kind: 'invalid'
+    }));
+    const missingCount = events.filter((event) => proposalUrlState(event) === 'Not linked').length;
+    const historical = proposals.map((item) => ({ ...item, status: HISTORICAL_PROPOSAL_STATUS, kind: 'historical' }));
     const query = proposalQuery.toLowerCase();
-    const filtered = historical.filter(item => [item.client,item.title,item.project,item.notes].join(' ').toLowerCase().includes(query));
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Design & Sales Library','Proposal Library','Authoritative links come only from a proposal URL stored on the event. The older six cards are a historical reference and are not marked active.')}<div class="command-view-body"><h3>Recorded on the sheet</h3><div class="proposal-grid">${linked.map(proposalCard).join('') || '<div class="command-empty">No event has a validated proposal link.</div>'}</div><h3>Historical reference, not verified</h3><div class="proposal-toolbar"><input class="input" id="proposalSearch" placeholder="Search the historical reference..." value="${escapeHtml(proposalQuery)}"></div><div class="proposal-grid">${filtered.map(proposalCard).join('')}</div></div></div>`;
-    $('#proposalSearch')?.addEventListener('input', event => { proposalQuery = event.target.value; renderProposals(view); $('#proposalSearch')?.focus(); });
+    const filtered = historical.filter((item) => [item.client, item.title, item.project, item.notes].join(' ').toLowerCase().includes(query));
+    const missingNote = `<p class="muted" data-proposal-missing-count="${missingCount}">${missingCount} event${missingCount === 1 ? '' : 's'} have no proposal URL on the sheet. Missing links stay missing; no URL was invented.</p>`;
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Design & Sales Library','Proposal Library','Authoritative links come only from a proposal URL stored on the event. The older six cards are a historical reference and are not marked active.')}<div class="command-view-body"><h3>Recorded on the sheet</h3><div class="proposal-grid">${linked.map(proposalCard).join('') || '<div class="command-empty">No event has a validated proposal link.</div>'}</div><h3>Invalid or incomplete links</h3><div class="proposal-grid">${invalid.map(proposalCard).join('') || '<div class="command-empty">No invalid proposal URLs on the current sheet snapshot.</div>'}</div>${missingNote}<h3>Historical reference, not verified</h3><div class="proposal-toolbar"><input class="input" id="proposalSearch" placeholder="Search the historical reference..." value="${escapeHtml(proposalQuery)}"></div><div class="proposal-grid">${filtered.map(proposalCard).join('')}</div></div></div>`;
+    $('#proposalSearch')?.addEventListener('input', (event) => { proposalQuery = event.target.value; renderProposals(view); $('#proposalSearch')?.focus(); });
     bindProposalOpeners(view);
     bindEventOpeners(view);
   }
 
   function proposalCard(item) {
-    return `<article class="proposal-card"><p class="eyebrow small">${escapeHtml(item.status)}</p><h3>${escapeHtml(item.title)}</h3><p><strong>${escapeHtml(item.client)}</strong><br>${escapeHtml(item.notes)}</p><div class="proposal-tags">${item.tags.map(tag=>`<span>${escapeHtml(tag)}</span>`).join('')}</div><div class="proposal-meta"><div><span>Vercel Project</span><strong>${escapeHtml(item.project)}</strong></div><div><span>Last Updated</span><strong>${dateLabel(item.updated)}</strong></div></div><div class="actions"><button class="btn small primary" data-preview-proposal="${item.id}">Preview</button><a class="btn small" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Open Live</a>${item.eventId ? `<button class="btn small" data-open-event="${item.eventId}">Event Record</button>` : ''}</div></article>`;
+    const associated = item.eventId && eventById(item.eventId) ? item.eventId : '';
+    const openLive = item.url
+      ? `<a class="btn small" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Open Live</a>`
+      : '<span class="muted">No validated link</span>';
+    const preview = item.kind === 'invalid'
+      ? ''
+      : `<button class="btn small primary" data-preview-proposal="${escapeHtml(item.id)}">Preview</button>`;
+    return `<article class="proposal-card" data-proposal-kind="${escapeHtml(item.kind || '')}" data-event-id="${escapeHtml(item.eventId || '')}"><p class="eyebrow small">${escapeHtml(item.status)}</p><h3>${escapeHtml(item.title)}</h3><p><strong>${escapeHtml(item.client)}</strong><br>${escapeHtml(item.notes)}</p><div class="proposal-tags">${(item.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div><div class="proposal-meta"><div><span>Vercel Project</span><strong>${escapeHtml(item.project)}</strong></div><div><span>Last Updated</span><strong>${dateLabel(item.updated)}</strong></div></div><div class="actions">${preview}${openLive}${associated ? `<button class="btn small" data-open-event="${escapeHtml(associated)}">Event Record</button>` : ''}</div></article>`;
   }
 
   function ensureProposalModal() {
@@ -798,11 +857,24 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   }
 
   function previewProposal(id) {
-    const item=proposals.find(proposal=>proposal.id===id); if(!item) return;
-    $('#proposalPreviewTitle').textContent=item.title;
-    $('#proposalPreviewMeta').textContent=`${item.client} · ${item.project} · ${item.status}`;
-    $('#proposalPreviewOpen').href=item.url;
-    $('#proposalPreviewFrame').src=item.url;
+    const key = String(id || '');
+    if (key.startsWith('event-')) {
+      const event = eventById(key.slice('event-'.length));
+      const url = explicitProposalUrl(event);
+      if (!event || !url) return;
+      $('#proposalPreviewTitle').textContent = event.eventName || event.id;
+      $('#proposalPreviewMeta').textContent = `${event.company || 'Recorded client'} · Authoritative event link · Recorded on the event`;
+      $('#proposalPreviewOpen').href = url;
+      $('#proposalPreviewFrame').src = url;
+      $('#proposalPreviewDialog').showModal();
+      return;
+    }
+    const item = proposals.find((proposal) => proposal.id === key);
+    if (!item) return;
+    $('#proposalPreviewTitle').textContent = item.title;
+    $('#proposalPreviewMeta').textContent = `${item.client} · ${item.project} · ${HISTORICAL_PROPOSAL_STATUS}`;
+    $('#proposalPreviewOpen').href = item.url;
+    $('#proposalPreviewFrame').src = item.url;
     $('#proposalPreviewDialog').showModal();
   }
 

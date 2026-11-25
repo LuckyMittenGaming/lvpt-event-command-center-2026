@@ -160,11 +160,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | IMPLEMENTED_TESTED (T14 + supervisor revision) |
+| Date/time | 2026-11-25 |
 | Dependencies | R06 |
-| Evidence | https proposalUrl rules; historical cards labeled |
-| Remaining blocker | Missing links must remain missing |
-| Next task | Verify portfolio views |
+| Files inspected | `public/v2/js/lifecycle-command-center.js`, `public/v2/js/event-status.js`, `tests/event-status.test.mjs`, `tests/command-center-browser.test.mjs`, `remaining-spec.md` R07, `.orchestrator/current-prompt.md`, matrix Proposals row |
+| Files changed | `public/v2/js/event-status.js`, `public/v2/js/lifecycle-command-center.js`, `tests/event-status.test.mjs`, `tests/command-center-browser.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/event-status.test.mjs,tests/command-center-browser.test.mjs` |
+| Exit codes | Targeted verify **0** (event-status 0; browser 0) after revision |
+| Evidence | Historical six-card library forced to `Historical reference, not verified` (no Proposal Active / Accepted as live). Sheet https `proposalUrl` is the only authoritative link; invalid/non-https/credentialed URLs surface under Invalid or incomplete links without showing the raw URL; missing count stays explicit with no invented URL. Portfolio/pipeline “linked” uses validated sheet URL only (not historical eventId design refs). Event Record on historical cards only when that exact id exists in the signed-in snapshot. `payment_processing` stays Active and distinct from `booked`; declined/completed/closed/unverified lanes covered. `data-event-id` / `data-stage` / `data-lane` keep selection and portfolio membership aligned. `validateProposalUrl` / `redactedProposalUrl` avoid logging query tokens. Not LIVE_VERIFIED. |
+| Evidence (revision) | `portfolioCard` proposal label stays `Not linked` when sheet URL is missing even if `historicalProposalForEvent` matches; historical association is a separate `data-historical-proposal` note. Payment-processing copy no longer implies Booked means paid-in-full; states processing does not establish receipt. Booked without `paymentRecorded` shows explicit no owner-confirmed receipt note. Browser fixtures: `evt-nium-2026` (historical assoc, no URL) and `evt-active` (Booked, no receipt evidence). |
+| Remaining blocker | Live sheet proposal URLs and authenticated staging confirmation remain owner-side (R22/R23). |
+| Next task | R08 — read-only event workspace |
 
 ### R08 — Complete the read-only event workspace
 
@@ -412,7 +418,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED** (semantics + honest CRM attribution presentation) |
-| Next authorized task | R07 — proposal and event portfolio accuracy |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED** (proposal/portfolio classification) |
+| Next authorized task | R08 — read-only event workspace |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

@@ -21,8 +21,8 @@ Rules:
 | HEAD | includes `1c9b1ec` (pinned playwright-core 1.65.1) |
 | Upstream | `origin/feature/command-center-completion-20261124` |
 | Candidate included | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` (ancestor of HEAD) |
-| Working tree | Browser harness + local-test-environment docs; untracked `.orchestrator/` |
-| Node | v24.22.1 (CI uses 22) — recorded in `local-test-environment.md` |
+| Working tree | Browser harness + verify runner + local-test-environment docs; untracked `.orchestrator/` + `scripts/verify-command-center.ps1` + `tests/verify-command-center.test.mjs` |
+| Node | PATH `v24.22.1` (**owner-approved** for all local verification); Program Files `v24.19.0`; CI remains Node 22 |
 | npm | 11.17.0 |
 | Chrome | Program Files Chrome 158 resolved by harness; `LVPT_CHROME_PATH` supported |
 | playwright-core | Available locally (`1.65.1`); browser regression exit 0 |
@@ -50,16 +50,19 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | IMPLEMENTED_TESTED for T2 browser path; verify script still T3 |
+| Status | **IMPLEMENTED_TESTED** |
 | Date/time | 2026-11-25 |
 | Dependencies | R00 |
-| Files inspected | `tests/command-center-browser.test.mjs`, `package.json` (`playwright-core` 1.65.1 via `1c9b1ec`), installed Chrome under Program Files, CLI discovery for `cursor` / `cursor-agent` |
-| Files changed (T2) | `tests/command-center-browser.test.mjs` (LVPT_CHROME_PATH + Windows/Linux resolution; actionable missing-dep failure; assertions preserved), `docs/baselines/local-test-environment.md` |
-| Exact test commands | `node --version`; `npm.cmd --version`; CLI discovery; `node -e "import('playwright-core')..."`; invalid `LVPT_CHROME_PATH` probe; `node .\tests\command-center-browser.test.mjs` |
-| Exit codes | playwright-core available; browser harness **exit 0**; invalid override **exit 1** |
-| Evidence | Windows Chrome auto-resolve; Linux candidates retained; synthetic local HTTP only; no paid browser service; T2 did not edit manifests |
-| Remaining blocker | T3 still owns `scripts/verify-command-center.ps1` |
-| Next task | T3 / R01 verify script |
+| Files inspected | PATH Node `v24.22.1`; Program Files Node `v24.19.0`; `tests/command-center-browser.test.mjs`; `scripts/verify-command-center.ps1`; `tests/verify-command-center.test.mjs`; CI workflow still pins Node 22 (unchanged) |
+| Files changed (T2) | `tests/command-center-browser.test.mjs`, `docs/baselines/local-test-environment.md` |
+| Files changed (T3) | `scripts/verify-command-center.ps1` (NEW), `tests/verify-command-center.test.mjs` (NEW), `docs/baselines/local-test-environment.md` |
+| Files changed (T3 finish / owner Node 24 approval) | `docs/baselines/local-test-environment.md`, `docs/baselines/local-completion-progress.md` |
+| Owner decision | **Approved** — installed local Node 24 (`node -v` → `v24.22.1`) is authorized for local verification across all tasks; do not re-escalate over CI Node 22 vs local 24 |
+| Exact test commands | `node --version` → `v24.22.1`; `npm.cmd --version` → `11.17.0`; `node .\tests\verify-command-center.test.mjs`; `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/command-center-acceptance.test.mjs` |
+| Exit codes | runner regression **0**; Targeted acceptance **0** |
+| Evidence | Targeted/Full inventories explicit; fail-fast stops later Targeted files; Full retains CI syntax+regressions, local-phase offline suite, staging-safety, acceptance, browser, tsc, build; credential env stripped; no workflow/manifest edits; no live dry-run |
+| Remaining blocker | None for R01. Full-suite green run remains R21 |
+| Next task | R02 / T4 orchestration policy |
 
 ### R02 — Establish local orchestration safety
 
@@ -367,7 +370,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01 T2 browser executable resolution **IMPLEMENTED_TESTED** |
-| Next authorized task | T3 / R01 `scripts/verify-command-center.ps1` |
-| Stop conditions currently active | None for T2 |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED** under owner-approved Node 24 |
+| Next authorized task | T4 / R02 `scripts/local-agent-policy.json` |
+| Stop conditions currently active | None for R01; subsequent tasks must not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent |

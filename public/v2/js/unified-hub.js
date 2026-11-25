@@ -234,11 +234,17 @@
     const queueEmpty = !ledger.ok
       ? 'Gmail header status did not load. This is not an empty mailbox.'
       : gmailCoverage === 'partial'
-        ? 'The header read is partial. A missing row is not an empty mailbox, and this is not a full mailbox scan.'
+        ? `The header read is partial. ${queue.length} header thread${queue.length === 1 ? ' is' : 's are'} in this queue. A missing row is not an empty mailbox, and this is not a full mailbox scan.`
         : gmailCoverage === 'read-complete'
-          ? 'The bounded domain header read finished with no new threads. This is not a full mailbox scan.'
+          ? (queue.length
+            ? `The bounded header read finished. ${queue.length} header thread${queue.length === 1 ? ' is' : 's are'} in this queue. This is not a full mailbox scan.`
+            : 'The bounded domain header read finished with no new threads. This is not a full mailbox scan.')
           : 'The header read is unavailable. No header count was taken. This is not an empty mailbox.';
-    const stored = ledger.ok && ledger.data ? `${ledger.data.gmailActivityCount || 0} Gmail Activity rows are already stored. Threads already on the sheet are skipped. A thread is not assigned to an event from this page.` : 'The sheet did not load, so stored mail counts are hidden.';
+    const storedRows = ledger.ok && ledger.data && Number.isFinite(Number(ledger.data.gmailActivityCount)) ? Number(ledger.data.gmailActivityCount) : null;
+    const storedThreads = ledger.ok && ledger.data && Number.isFinite(Number(ledger.data.gmailThreadCount)) ? Number(ledger.data.gmailThreadCount) : null;
+    const stored = !ledger.ok || !ledger.data
+      ? 'The sheet did not load, so stored mail counts are hidden.'
+      : `${storedRows == null ? 'Stored Gmail Activity rows were not counted' : `${storedRows} stored Gmail Activity rows`}. ${storedThreads == null ? 'Unique thread ids were not counted on this read' : `${storedThreads} unique thread ids in those rows`}. A stored row is not a header thread in this queue. A thread is not assigned to an event from this page.`;
     const threads = conversations.status === 401 ? [] : (conversations.ok && conversations.data && Array.isArray(conversations.data.threads) ? conversations.data.threads : []);
     const rcsData = rcs.ok && rcs.data ? rcs.data : null;
     const rcsRecords = rcsData && Array.isArray(rcsData.records) ? rcsData.records : [];
@@ -315,6 +321,24 @@
     return value == null || value === '' ? 'Not recorded' : value;
   }
 
+  const actionUi = { filter: 'action', query: '', scroll: 0 };
+  window.lvptActionUi = actionUi;
+  window.lvptRememberActionView = function () {
+    const input = document.querySelector('#actionSearch');
+    if (input) actionUi.query = input.value;
+    actionUi.scroll = window.scrollY;
+  };
+  function localLabel(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Not recorded';
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+    const parsed = dateOnly ? new Date(`${raw}T12:00:00`) : new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return parsed.toLocaleString('en-US', dateOnly
+      ? { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' }
+      : { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
   function renderAction(view) {
     view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', '<p class="muted">Reading the sheet, mailbox headers, and SMS metadata…</p>');
     const generation = readGeneration;
@@ -356,14 +380,18 @@
         const timeline = (record.timeline || []).map((item) => `<li><span>${esc(item.at || 'Time not recorded')}</span> ${esc(item.source)} ${esc(item.direction || '')} ${item.contentAvailable ? esc(item.summary) : 'Message text is not in this list. Open the authorized review only when a session can decrypt or read it.'}</li>`).join('');
         const draft = record.draft || {};
         const label = ACTION_LABELS[record.bucket] || record.pipelineStage || record.bucket;
-        return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}" data-overdue="${record.bucket === 'follow_up_due' ? 'yes' : 'no'}"><header><span class="badge warn">${esc(label)}</span><strong>${esc(record.eventName || field(record.contact))}</strong></header><p>${esc(field(record.nextAction))}</p><details><summary>Details</summary><p>${esc(record.company || '')} · ${esc(field(info.stage))} · ${esc(record.channel || 'unknown')}</p><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul><p>Recorded recipient: ${esc(draft.recipient || 'None')}. Not verified and not an approval.</p></details></article>`;
+        const dueText = record.dueDate ? `Due ${localLabel(record.dueDate)}` : 'No due date recorded';
+        return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}" data-overdue="${record.bucket === 'follow_up_due' ? 'yes' : 'no'}"><header><span class="badge warn">${esc(label)}</span><strong>${esc(record.eventName || field(record.contact))}</strong><span>${esc(dueText)}</span></header><p>${esc(field(record.nextAction))}</p><p class="muted">Latest ${esc(localLabel(record.lastActivity))}. Times are America/Los_Angeles.</p><details><summary>Details</summary><p>${esc(record.company || '')} · ${esc(field(info.stage))} · ${esc(record.channel || 'unknown')}</p><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul><p>Recorded recipient: ${esc(draft.recipient || 'None')}. Not verified and not an approval.</p></details></article>`;
       }).join('');
       const empty = sources.sms && sources.sms.coverage === 'read-complete'
         ? 'No lead or follow-up records were returned.'
         : 'No records are listed. This is not proof that the inbox is empty.';
-      view.innerHTML = shell('New leads and action required', 'One inbox', 'A short list. Open a row for details. This page does not approve or send.', `${summary}<div class="review-actions action-filters"><input class="input" id="actionSearch" placeholder="Search this list" />${filters.map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`).concat([['due', 'Due or overdue']].map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`)).join('')}</div><div class="action-list">${cards || `<p>${empty}</p>`}</div>`);
+      view.innerHTML = shell('New leads and action required', 'One inbox', 'A short list. Open a row for details. This page does not approve or send.', `${summary}<div class="review-actions action-filters"><input class="input" id="actionSearch" placeholder="Search this list" value="${esc(actionUi.query)}" />${filters.map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`).join('')}<button type="button" data-action-filter="due">Due or overdue</button><button type="button" id="actionFilterClear">Clear filter</button></div><div class="action-list">${cards || `<p>${empty}</p>`}</div>`);
       const applyFilter = (name) => {
+        actionUi.filter = name || 'all';
         const query = (view.querySelector('#actionSearch') && view.querySelector('#actionSearch').value || '').toLowerCase();
+        actionUi.query = view.querySelector('#actionSearch') ? view.querySelector('#actionSearch').value : '';
+        view.querySelectorAll('[data-action-filter]').forEach((item) => item.classList.toggle('active', item.getAttribute('data-action-filter') === actionUi.filter));
         view.querySelectorAll('.action-card').forEach((card) => {
           const bucket = card.getAttribute('data-bucket');
           const textMatch = !query || card.textContent.toLowerCase().includes(query);
@@ -376,15 +404,27 @@
           card.hidden = !show;
         });
       };
-      applyFilter('action');
-      view.querySelector('#actionSearch')?.addEventListener('input', () => applyFilter(view.querySelector('[data-action-filter].active') ? view.querySelector('[data-action-filter].active').getAttribute('data-action-filter') : 'action'));
+      applyFilter(actionUi.filter || 'action');
+      view.querySelector('#actionSearch')?.addEventListener('input', () => {
+        const y = window.scrollY;
+        applyFilter(actionUi.filter || 'action');
+        window.scrollTo(0, y);
+      });
       view.querySelectorAll('[data-action-filter]').forEach((button) => {
         button.addEventListener('click', () => {
-          view.querySelectorAll('[data-action-filter]').forEach((item) => item.classList.remove('active'));
-          button.classList.add('active');
+          const y = window.scrollY;
           applyFilter(button.getAttribute('data-action-filter'));
+          window.scrollTo(0, y);
         });
       });
+      view.querySelector('#actionFilterClear')?.addEventListener('click', () => {
+        const y = window.scrollY;
+        const input = view.querySelector('#actionSearch');
+        if (input) input.value = '';
+        applyFilter('all');
+        window.scrollTo(0, y);
+      });
+      if (actionUi.scroll) requestAnimationFrame(() => window.scrollTo(0, actionUi.scroll));
     });
   }
 

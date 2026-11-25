@@ -75,7 +75,7 @@
       const previousSelection = selectedId;
       suppressCloudSave = true;
       events = incoming;
-      selectedId = events.some(event => event.id === previousSelection) ? previousSelection : events[0].id;
+      selectedId = events.some(event => event.id === previousSelection) ? previousSelection : '';
       localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
       suppressCloudSave = false;
       centralStatus.connected = true;

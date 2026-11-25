@@ -67,3 +67,7 @@ COMMAND_CENTER_BROWSER_REGRESSION_READY
 Operating read on this draft: one in-memory operating-picture snapshot is shared across finance, communications, and health. It uses the 50 second read. A timeout is timed out, not disconnected. A 401 or refresh drops that snapshot. Audit health is not the owner session. SMS metadata, the Android heartbeat, stored Gmail, the bounded header read, and RCS pairing stay separate. Action Required is a short list with source status on demand. The hub still does not approve or send.
 
 COMMAND_CENTER_OPERATIONS_RETEST_READY
+
+Record navigation on this draft: a task opens in the overview list. View associated event and the existing record buttons open one read-only record for a validated event id. There is no fallback to the first event. Browser Back stays inside the app view that was open. A 401 or refresh clears the open record. Stored Gmail activity rows and unique thread ids stay separate from the bounded header queue.
+
+COMMAND_CENTER_RECORD_NAVIGATION_READY

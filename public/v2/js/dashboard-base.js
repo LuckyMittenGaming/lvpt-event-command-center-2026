@@ -1,5 +1,5 @@
 function render(){
-  if(!events.length) selectedId=''; if(!current()&&events.length) selectedId=events[0].id;
+  if(!events.length || (selectedId && !events.some(event => event.id === selectedId))) selectedId='';
   renderMetrics(); renderAttention(); renderEventList(); renderEditor(); renderTab(); renderSystemStatuses();
 }
 function renderSystemStatuses(){
@@ -39,5 +39,5 @@ function paymentInput(field,label,value,type='text'){ return `<label>${label}<in
 function textarea(field,label,value){ return `<label>${label}<textarea class="input" data-field="${field}">${escapeHtml(value)}</textarea></label>`; }
 function updateField(field,value){ const event=current(); if(!event) return; event[field]=['guestCount','studentCount','probabilityToClose'].includes(field)?num(value):value; saveEvents('Saved'); renderMetrics(); renderAttention(); renderEventList(); renderTab(); }
 function updatePaymentField(field,value){ const event=current(); if(!event) return; event.payment[field]=['amountPaid','depositRequired'].includes(field)?num(value):value; saveEvents('Payment saved'); renderMetrics(); renderEventList(); renderTab(); }
-function deleteSelectedEvent(){ const event=current(); if(!event||!confirm(`Delete ${event.eventName}? This removes its browser-saved record and document index.`)) return; Promise.all(event.documents.map(doc=>deleteDocumentBlob(doc.id).catch(()=>{}))).finally(()=>{ events=events.filter(item=>item.id!==event.id); selectedId=events[0]?.id||''; saveEvents('Event deleted'); render(); }); }
+function deleteSelectedEvent(){ const event=current(); if(!event||!confirm(`Delete ${event.eventName}? This removes its browser-saved record and document index.`)) return; Promise.all(event.documents.map(doc=>deleteDocumentBlob(doc.id).catch(()=>{}))).finally(()=>{ events=events.filter(item=>item.id!==event.id); selectedId=''; saveEvents('Event deleted'); render(); }); }
 function duplicateSelectedEvent(){ const event=current(); if(!event) return; const copy=JSON.parse(JSON.stringify(event)); copy.id=id(); copy.eventName=`${event.eventName} Copy`; copy.status='New Lead'; copy.quote=copy.quote.map(item=>({...item,id:id()})); copy.tasks=copy.tasks.map(item=>({...item,id:id()})); copy.staff=copy.staff.map(item=>({...item,id:id()})); copy.compliance=copy.compliance.map(item=>({...item,id:id()})); copy.documents=[]; copy.emailActivity=[]; events.unshift(copy); selectedId=copy.id; saveEvents('Event duplicated without files or email activity'); render(); }

@@ -30,14 +30,14 @@ const seedEvents = [
 ];
 
 let events = loadEvents();
-selectedId = events[0]?.id || '';
+selectedId = '';
 
 function id(){ return 'id-' + Math.random().toString(36).slice(2,10) + '-' + Date.now().toString(36); }
 function $(selector){ return document.querySelector(selector); }
 function all(selector){ return Array.from(document.querySelectorAll(selector)); }
 function money(value){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(value)||0); }
 function num(value){ return Number(value) || 0; }
-function current(){ return events.find(event => event.id === selectedId) || events[0]; }
+function current(){ if(!selectedId) return null; return events.find(event => event.id === selectedId) || null; }
 function quoteTotal(event){ return (event.quote || []).reduce((sum,item)=>sum + num(item.quantity)*num(item.unitPrice),0); }
 function quoteCost(event){ return (event.quote || []).reduce((sum,item)=>sum + num(item.quantity)*num(item.internalCost),0); }
 function balance(event){ return Math.max(quoteTotal(event)-num(event.payment?.amountPaid),0); }

@@ -99,10 +99,31 @@
     return (picture.report.byEvent || []).find((row) => row.eventId === id) || null;
   }
 
+  function explicitEventId() {
+    if (!selectedId) return '';
+    return events.some((event) => event.id === selectedId) ? selectedId : '';
+  }
+
+  function clearEventSurfaces() {
+    const panel = document.getElementById('selectedEventTasksPanel');
+    if (panel) panel.innerHTML = '';
+    const paid = document.querySelector('[data-payment-field="amountPaid"]');
+    if (paid) paid.value = '';
+    const banner = document.querySelector('[data-sheet-ledger]');
+    if (banner) banner.remove();
+  }
+
   function applySheetSurfaces() {
-    const selected = typeof current === 'function' ? current() : null;
-    const selectedId = selected && selected.id;
-    const rollup = selectedId ? rollupFor(selectedId) : null;
+    const generation = window.lvptRecordGeneration || 0;
+    const selectedEventId = explicitEventId();
+    const visible = document.querySelector('[data-record-event]');
+    if (!selectedEventId || (visible && visible.getAttribute('data-record-event') !== selectedEventId) || Number(visible && visible.getAttribute('data-record-generation')) && Number(visible.getAttribute('data-record-generation')) !== generation) {
+      if (!selectedEventId || (visible && visible.getAttribute('data-record-event') !== selectedEventId)) clearEventSurfaces();
+      return;
+    }
+    const still = () => explicitEventId() === selectedEventId && (window.lvptRecordGeneration || 0) === generation;
+    if (!still()) return;
+    const rollup = rollupFor(selectedEventId);
     document.querySelectorAll('[data-payment-field]').forEach((field) => {
       field.readOnly = true;
       field.disabled = true;
@@ -125,7 +146,7 @@
     });
 
     const tab = document.getElementById('tabContent');
-    if (tab && selectedId) {
+    if (tab && still()) {
       let banner = tab.querySelector('[data-sheet-ledger]');
       if (!banner) {
         banner = document.createElement('div');
@@ -133,7 +154,7 @@
         banner.className = 'hub-warning';
         tab.prepend(banner);
       }
-      const rows = picture && picture.report ? picture.report.payments.filter((row) => row.eventId === selectedId && row.role === 'client_receivable') : [];
+      const rows = picture && picture.report ? picture.report.payments.filter((row) => row.eventId === selectedEventId && row.role === 'client_receivable') : [];
       const lines = rows.map((row) => `${row.paymentId}: ${money(row.invoiceTotalCents)} ${row.paymentStatus}, balance ${money(row.balanceDueCents)}`).join(' · ');
       const nextBanner = picture && rollup
         ? `Sheet ledger. Collected ${money(rollup.collectedCents)}. Outstanding ${money(rollup.outstandingCents)}. ${lines}`
@@ -142,11 +163,11 @@
     }
 
     const panel = document.getElementById('selectedEventTasksPanel');
-    if (panel && selectedId && picture && picture.eventRead === 'read') {
-      const tasks = (picture.tasks || []).filter((task) => task.eventId === selectedId);
-      const sheetEvent = (picture.events || []).find((event) => event.id === selectedId) || {};
+    if (panel && still() && picture && picture.eventRead === 'read') {
+      const tasks = (picture.tasks || []).filter((task) => task.eventId === selectedEventId);
+      const sheetEvent = (picture.events || []).find((event) => event.id === selectedEventId) || {};
       const staff = Array.isArray(sheetEvent.staff) ? sheetEvent.staff : [];
-      const deadlines = (picture.report.payments || []).filter((row) => row.eventId === selectedId && row.role === 'client_receivable' && row.balanceDueCents > 0);
+      const deadlines = (picture.report.payments || []).filter((row) => row.eventId === selectedEventId && row.role === 'client_receivable' && row.balanceDueCents > 0);
       const taskHtml = tasks.map((task) => `<article class="quick-task"><div class="quick-task-copy"><h3>${esc(task.title)}</h3><p>${esc(task.owner || 'Unassigned')} · ${esc(task.status || 'Open')} · ${esc(task.dueDate || 'No due date')}</p></div></article>`).join('') || '<div class="empty-state">No open sheet tasks for this event.</div>';
       const staffHtml = staff.length ? staff.map((person) => `${esc(person.role || 'Staff')} ${esc(person.name || '')} ${person.confirmed ? 'confirmed' : 'unconfirmed'}`).join(' · ') : 'No staffing rows on the sheet.';
       const dueHtml = deadlines.length ? deadlines.map((row) => `${esc(row.paymentId)} balance ${money(row.balanceDueCents)} due ${esc(row.dueDate || 'no date')}`).join(' · ') : 'No open client balance on the sheet.';
@@ -220,6 +241,8 @@
               : ((result.data && (result.data.message || result.data.reason)) || 'The sheet ledger is unavailable.');
         }
         paint();
+        if (typeof window.lvptPaintOverviewLedger === 'function') window.lvptPaintOverviewLedger();
+        if (typeof window.lvptPaintRecordLedger === 'function') window.lvptPaintRecordLedger();
         return window.lvptOperatingPictureResult || { ok: false, status: result.status, data: result.data, generation };
       })
       .catch(() => {
@@ -230,6 +253,8 @@
         window.lvptOperatingPictureResult = null;
         pictureError = 'The ledger read timed out. It was not marked disconnected.';
         paint();
+        if (typeof window.lvptPaintOverviewLedger === 'function') window.lvptPaintOverviewLedger();
+        if (typeof window.lvptPaintRecordLedger === 'function') window.lvptPaintRecordLedger();
         return { ok: false, status: 0, data: { reason: 'timeout' }, generation };
       });
     window.lvptOperatingPicturePromise = request;

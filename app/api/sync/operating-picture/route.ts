@@ -343,6 +343,7 @@ export async function GET(request: Request) {
       paymentCount: payments.length,
       payoutCount: payouts.length,
       gmailActivityCount: gmailRows,
+      gmailThreadCount: knownThreadIds.size,
       newestSheetGmailAt: newestGmail,
       report,
       exceptions,

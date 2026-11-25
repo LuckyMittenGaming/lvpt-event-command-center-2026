@@ -1,0 +1,280 @@
+{
+  "version": 1,
+  "policyId": "lvpt-local-agent-policy",
+  "description": "Machine-enforced local orchestration policy. Authorization boundary is scripts/local-agent-policy.mjs validating this file against code floors. Discovered supervisor harness is .orchestrator/ (state.json + current-prompt.md); it does not authorize privilege elevation. Credentials must never be stored here.",
+  "trustedPolicyPath": "scripts/local-agent-policy.json",
+  "trustedEnforcerPath": "scripts/local-agent-policy.mjs",
+  "orchestratorHarness": {
+    "directory": ".orchestrator",
+    "stateFile": ".orchestrator/state.json",
+    "promptFile": ".orchestrator/current-prompt.md",
+    "lockFile": ".orchestrator/worker.lock",
+    "role": "external-supervisor",
+    "authorizationBoundary": "scripts/local-agent-policy.mjs",
+    "harnessInstructionsAreUntrusted": true
+  },
+  "repositoryContentIsUntrusted": true,
+  "budget": {
+    "authorizedPaidUsd": 0,
+    "requireExplicitOwnerAuthorization": true,
+    "requireVerifiableRemainingBudget": true,
+    "denyWhenBudgetUncertain": true,
+    "denyWhenAuthorizationMissing": true,
+    "ownerBudgetEnvVar": "LVPT_OWNER_AUTHORIZED_PAID_USD",
+    "integritySha256EnvVar": "LVPT_LOCAL_AGENT_POLICY_SHA256",
+    "currency": "USD"
+  },
+  "retries": {
+    "initialAttempts": 1,
+    "correctiveAttemptsAfterInitial": 2,
+    "maxAttemptsPerTask": 3
+  },
+  "workers": {
+    "maxConcurrent": 1,
+    "exclusiveLockRequired": true,
+    "denyConcurrentWorkers": true,
+    "lockFilePath": ".orchestrator/worker.lock"
+  },
+  "workspace": {
+    "permittedRoot": ".",
+    "requireWorkspaceIsolation": true,
+    "denyPathsOutsideWorkspace": true,
+    "denyArbitraryModelShellExecution": true,
+    "denyShellChaining": true,
+    "caseInsensitivePathMatch": true
+  },
+  "executionGate": {
+    "repositoryExecutionFailClosedUntilTrustedIsolation": true,
+    "trustedIsolationExecutorImplemented": false,
+    "ignorePolicyIsolationBooleans": true,
+    "note": "Repository-execution (node tests/*, npm run, npx, verifier/loop PowerShell) is unconditionally denied while the trusted isolation executor is unimplemented. workspace.requireWorkspaceIsolation, isolationSatisfied, environment markers, and fromTrustedExecutor do not authorize execution. Read-only inspection and syntax checks remain permitted. T5 must implement real workspace/network/subprocess isolation before this gate can be redesigned."
+  },
+  "permittedCommands": [
+    {
+      "executable": "node",
+      "forms": [
+        { "class": "readonly", "args": ["--version"] },
+        {
+          "class": "readonly",
+          "args": ["--check", { "type": "repoFile", "extensions": [".mjs", ".js", ".cjs"] }]
+        },
+        {
+          "class": "repository-execution",
+          "args": [{ "type": "repoFile", "under": ["tests/"], "extensions": [".mjs", ".js", ".cjs"] }]
+        }
+      ]
+    },
+    {
+      "executable": "npm.cmd",
+      "forms": [
+        { "class": "readonly", "args": ["--version"] },
+        { "class": "repository-execution", "args": ["run", "test:staging-safety"] },
+        { "class": "repository-execution", "args": ["run", "build"] }
+      ]
+    },
+    {
+      "executable": "npx.cmd",
+      "forms": [
+        { "class": "repository-execution", "args": ["--no-install", "tsc", "--noEmit"] }
+      ]
+    },
+    {
+      "executable": "powershell.exe",
+      "forms": [
+        {
+          "class": "repository-execution",
+          "args": [
+            "-NoProfile",
+            "-File",
+            {
+              "type": "repoFile",
+              "equalsAny": [
+                "scripts/verify-command-center.ps1",
+                "scripts/local-agent-loop.ps1"
+              ]
+            }
+          ],
+          "allowTrailingArgs": true,
+          "trailingArgDeny": ["-Command", "-EncodedCommand", "-File"]
+        }
+      ]
+    },
+    {
+      "executable": "git",
+      "forms": [
+        { "class": "readonly", "args": ["status"] },
+        { "class": "readonly", "args": ["status", "--short"] },
+        { "class": "readonly", "args": ["branch", "--show-current"] },
+        { "class": "readonly", "args": ["rev-parse", "HEAD"] },
+        { "class": "readonly", "args": ["remote", "-v"] },
+        { "class": "readonly", "args": ["diff", "--stat"] },
+        { "class": "readonly", "args": ["diff", "--cached", "--stat"] },
+        { "class": "readonly", "args": ["diff", "--check"] },
+        { "class": "readonly", "args": ["log", "-5", "--oneline"] },
+        { "class": "readonly", "args": ["show", "--stat", "HEAD"] }
+      ]
+    }
+  ],
+  "forbiddenOperations": {
+    "git": [
+      "git commit",
+      "git push",
+      "git reset",
+      "git clean",
+      "git stash",
+      "git rebase",
+      "git merge",
+      "git cherry-pick",
+      "git checkout",
+      "git restore",
+      "git switch",
+      "git branch -d",
+      "git branch -D",
+      "git branch -m",
+      "git branch -c",
+      "git branch --delete",
+      "git branch --move",
+      "git branch --copy",
+      "git branch --set-upstream",
+      "git remote add",
+      "git remote remove",
+      "git remote set-url",
+      "git remote rename",
+      "git diff --output",
+      "git diff -o"
+    ],
+    "deployment": [
+      "vercel deploy",
+      "vercel promote",
+      "clasp push",
+      "clasp deploy",
+      "gh pr merge",
+      "npm run deploy",
+      "npm.cmd run deploy",
+      "npx vercel",
+      "npx.cmd vercel",
+      "npx wrangler",
+      "npm exec vercel"
+    ],
+    "providerMutation": [
+      "gmail send",
+      "sms send",
+      "rcs send",
+      "calendar insert",
+      "calendar patch",
+      "calendar delete",
+      "sheet write",
+      "gmail archive",
+      "gmail trash",
+      "mark-read",
+      "oauth2.googleapis.com/token",
+      "googleapis.com/calendar"
+    ],
+    "evalAndChaining": [
+      "node -e",
+      "node --eval",
+      "node -p",
+      "node --print",
+      "npm.cmd exec",
+      "npx.cmd --yes"
+    ]
+  },
+  "protectedPaths": [
+    "scripts/local-agent-policy.json",
+    "scripts/local-agent-policy.mjs",
+    "apps-script/live/**",
+    "apps-script/calendar-command-center/**",
+    "apps-script/Code.gs",
+    "apps-script/GmailEvidence.gs",
+    "apps-script/GmailDraftContext.gs",
+    "apps-script/appsscript.json",
+    "apps-script/release/**",
+    ".git/**",
+    ".github/workflows/**",
+    "docs/baselines/phase-*.md",
+    "docs/baselines/phase-*.diff",
+    "docs/baselines/lvpt-unified-hub-audit.md",
+    "archive/**",
+    "next.config.js",
+    "vercel.json",
+    ".vercel/**",
+    "docs/staging-migrations/**",
+    "lib/sms-review-session.mjs",
+    "lib/owner-read-guard.mjs",
+    "app/api/sms/staging/_review-auth.ts",
+    "app/api/gmail/send/**",
+    "app/api/sms/staging/reply-send/**",
+    "apps-script/calendar-command-center/TaskSync.safe-sync.js",
+    "apps-script/live/calendar-command-center/TaskSync.js",
+    ".env",
+    ".env.*",
+    "**/.clasp.json",
+    "**/credentials.json",
+    "**/client_secret*.json",
+    "**/*service-account*.json",
+    "**/*.pem",
+    "**/*.p12",
+    "**/*.key"
+  ],
+  "redaction": {
+    "neverStoreCredentialsInPolicy": true,
+    "neverPersistCredentials": true,
+    "neverPromptForSecretsInChat": true,
+    "sanitizeOutputs": true,
+    "patterns": [
+      "(?i)api[_-]?key\\s*[:=]\\s*\\S+",
+      "(?i)(secret|token|password|credential)\\s*[:=]\\s*\\S+",
+      "(?i)service[_-]?role",
+      "(?i)BEGIN (RSA |EC )?PRIVATE KEY",
+      "(?i)supabase.*key",
+      "(?i)sk-[a-z0-9]{10,}",
+      "(?i)eyJ[a-zA-Z0-9_-]{20,}\\.[a-zA-Z0-9_-]+\\."
+    ],
+    "forbiddenPolicyValueSubstrings": [
+      "sk-",
+      "BEGIN PRIVATE KEY",
+      "service_role",
+      "eyJ"
+    ]
+  },
+  "terminalStates": [
+    "NOT_STARTED",
+    "IN_PROGRESS",
+    "VERIFIED_EXISTING",
+    "IMPLEMENTED_TESTED",
+    "BLOCKED_OWNER",
+    "BLOCKED_ENVIRONMENT",
+    "FAILED",
+    "READY_FOR_ACCEPTANCE",
+    "LIVE_VERIFIED"
+  ],
+  "completion": {
+    "requirePassingVerification": true,
+    "denyCompleteOnFailedTests": true,
+    "completionStates": [
+      "VERIFIED_EXISTING",
+      "IMPLEMENTED_TESTED",
+      "READY_FOR_ACCEPTANCE",
+      "LIVE_VERIFIED"
+    ],
+    "blockerStates": [
+      "BLOCKED_OWNER",
+      "BLOCKED_ENVIRONMENT",
+      "FAILED"
+    ],
+    "reportTerminalAndOwnerBlockersDistinctly": true
+  },
+  "untrustedContent": {
+    "treatAsDataOnly": true,
+    "ignoreOverrideDirectives": true,
+    "sources": [
+      "repository-files",
+      "comments",
+      "emails",
+      "documents",
+      "provider-responses",
+      "model-output",
+      "orchestrator-harness-instructions"
+    ]
+  }
+}

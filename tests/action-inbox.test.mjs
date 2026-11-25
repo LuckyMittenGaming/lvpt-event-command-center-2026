@@ -338,6 +338,8 @@ assert.equal(hub.includes('data-decision="approve"'), false);
 assert.match(hub, /Not verified and not an approval/);
 assert.match(hub, /Recorded email, not verified/);
 assert.match(hub, /Lead pipeline/);
+assert.match(hub, /Vendors and resolved rows stay out of the default list/);
+assert.match(hub, /name === 'action' && !\['resolved', 'declined', 'cancelled', 'unknown_closure'\]\.includes\(bucket\) && card\.getAttribute\('data-vendor'\) !== 'yes'/);
 
 const picture = readFileSync(new URL('../app/api/sync/operating-picture/route.ts', import.meta.url), 'utf8');
 const pictureBody = picture.slice(picture.indexOf('export async function GET'));
@@ -346,9 +348,207 @@ assert.match(picture, /The hourly schedule is configuration, not proof that runL
 const route = readFileSync(new URL('../app/api/sync/action-inbox/route.ts', import.meta.url), 'utf8');
 assert.match(route, /productionWrites: false/);
 assert.match(route, /preview_only/);
+assert.match(route, /writesPerformed: false/);
+assert.match(route, /sendEnabled: false/);
+assert.doesNotMatch(route, /export async function (POST|PUT|PATCH|DELETE)\b/);
+const routeGet = route.slice(route.indexOf('export async function GET'));
+const denyAt = routeGet.indexOf('denyPrivateRead');
+const firstProvider = Math.min(
+  ...['appsScriptRequest', 'supabaseEndpoint', 'fetch(']
+    .map((token) => routeGet.indexOf(token))
+    .filter((index) => index >= 0)
+);
+assert.ok(denyAt >= 0 && firstProvider > denyAt, 'unauthorized private reads must reject before provider access');
 const send = readFileSync(new URL('../app/api/gmail/send/route.ts', import.meta.url), 'utf8');
 assert.match(send, /403/);
 const smsSend = readFileSync(new URL('../app/api/sms/staging/reply-send/route.ts', import.meta.url), 'utf8');
 assert.match(smsSend, /staging_only_no_production_send/);
+
+// R05 / T10 — synthetic evidence-based classification matrix
+const classified = buildActionInbox({
+  today: '2026-11-22',
+  events: [
+    {
+      id: 'evt-new',
+      eventName: 'New inquiry only',
+      status: 'New Lead',
+      company: 'Fresh Co',
+      contactName: 'Pat Fresh',
+      contactEmail: 'pat@fresh.example',
+      contactPhone: '7025550201',
+      eventType: 'Corporate Casino Night',
+      eventDate: '2026-12-20',
+      venue: 'Suite',
+      guestCount: 30,
+      leadSource: 'Organic',
+      setup: { budgetRange: '$5,000–$10,000' },
+      quote: [{ quantity: 1, unitPrice: 8000 }],
+      emailActivity: []
+    },
+    {
+      id: 'evt-reply',
+      eventName: 'Reply required',
+      status: 'Proposal Sent',
+      contactName: 'Riley Inbound',
+      contactEmail: 'riley@reply.example',
+      leadSource: 'Website',
+      emailActivity: [
+        { threadId: 'thread-reply', subject: 'Can we confirm Friday?', date: '2026-11-22T14:00:00.000Z', direction: 'received', snippet: 'Please reply when you can.' }
+      ]
+    },
+    {
+      id: 'evt-follow',
+      eventName: 'Historical follow-up',
+      status: 'Needs Discovery',
+      contactName: 'Casey Follow',
+      leadSource: 'Phone',
+      emailActivity: [
+        { threadId: 'thread-follow', subject: 'Earlier outreach', date: '2026-11-10T12:00:00.000Z', direction: 'sent', snippet: 'Checking in from last week.' }
+      ]
+    },
+    {
+      id: 'evt-pay',
+      eventName: 'Payment confirmation',
+      status: 'Booked - Payment Processing',
+      contactName: 'Morgan Pay',
+      leadSource: 'Referral',
+      emailActivity: []
+    },
+    {
+      id: 'evt-deposit',
+      eventName: 'Awaiting deposit',
+      status: 'Invoice Sent / Awaiting Deposit',
+      contactName: 'Drew Deposit',
+      leadSource: 'Form',
+      emailActivity: []
+    },
+    {
+      id: 'evt-tasked',
+      eventName: 'Booked with open task',
+      status: 'Booked',
+      contactName: 'Taylor Task',
+      leadSource: 'Repeat Client',
+      emailActivity: []
+    },
+    {
+      id: 'evt-booked-plain',
+      eventName: 'Booked without tasks',
+      status: 'Booked',
+      contactName: 'Quiet Booked',
+      leadSource: 'Repeat Client',
+      emailActivity: []
+    },
+    {
+      id: 'evt-done',
+      eventName: 'Resolved event',
+      status: 'Completed',
+      contactName: 'Finished Client',
+      leadSource: 'Organic',
+      emailActivity: [
+        { threadId: 'thread-done', subject: 'Thanks', date: '2026-11-21T09:00:00.000Z', direction: 'received', snippet: 'All set.' }
+      ]
+    },
+    { id: 'evt-dup', status: 'New Lead', eventName: 'Stable once' },
+    { id: 'evt-dup', status: 'New Lead', eventName: 'Stable once' },
+    { id: 'evt-conflict', status: 'Booked', eventName: 'Conflict A' },
+    { id: 'evt-conflict', status: 'Declined', eventName: 'Conflict A' }
+  ],
+  tasks: [
+    { id: 'task-follow', eventId: 'evt-follow', title: 'Call Casey about discovery', dueDate: '2026-11-20', status: 'Open', owner: 'Matt' },
+    { id: 'task-booked', eventId: 'evt-tasked', title: 'Confirm staffing', dueDate: '2026-11-25', status: 'Open', owner: 'Matt' },
+    { id: 'task-orphan', eventId: '', title: 'Orphan event task', dueDate: '2026-11-21', status: 'Open', owner: 'Matt' },
+    { id: 'task-missing-event', eventId: 'evt-missing', title: 'Task for unknown event', dueDate: '2026-11-21', status: 'Open', owner: 'Matt' },
+    { id: 'task-copy', eventId: 'evt-tasked', title: 'Confirm staffing', dueDate: '2026-11-25', status: 'Open', owner: 'Matt' },
+    { id: 'task-copy', eventId: 'evt-tasked', title: 'Confirm staffing', dueDate: '2026-11-25', status: 'Open', owner: 'Matt' },
+    { id: 'task-clash', eventId: 'evt-tasked', title: 'One title', dueDate: '2026-11-24', status: 'Open', owner: 'Matt' },
+    { id: 'task-clash', eventId: 'evt-tasked', title: 'Other title', dueDate: '2026-11-23', status: 'Open', owner: 'Alex' }
+  ],
+  gmailThreads: [
+    { threadId: 'thread-vendor-matrix', subject: 'Elevated Billing dealer invoice', lastMessageAt: '2026-11-19T12:00:00.000Z', lastDirection: 'inbound', domainKey: 'elevated' },
+    { threadId: 'thread-unassigned-matrix', subject: 'Unknown prospect question', lastMessageAt: '2026-11-22T11:00:00.000Z', lastDirection: 'inbound' }
+  ],
+  smsThreads: [
+    { threadKey: 'sms-amb-matrix', match: 'ambiguous', candidateEventIds: ['evt-new', 'evt-reply'], newestAt: '2026-11-21T00:00:00.000Z', newestDirection: 'incoming', incoming: 2, outgoing: 0 },
+    { threadKey: 'sms-none', match: 'unmatched', newestAt: '2026-11-18T00:00:00.000Z', newestDirection: 'incoming', incoming: 1, outgoing: 0 }
+  ]
+});
+
+const classOf = (id) => classified.records.find((row) => row.id === id);
+assert.equal(classOf('event:evt-new').classification.kind, 'new_inquiry');
+assert.equal(classOf('event:evt-new').bucket, 'new_inquiry');
+assert.ok(classOf('event:evt-new').classification.evidence.pipelineStage === 'open');
+
+assert.equal(classOf('event:evt-reply').classification.kind, 'reply_required');
+assert.equal(classOf('event:evt-reply').bucket, 'awaiting_response');
+assert.equal(classOf('event:evt-reply').classification.evidence.activityDirection, 'inbound');
+assert.ok(classOf('event:evt-reply').classification.evidence.timelineSources.includes('Gmail'));
+
+assert.equal(classOf('event:evt-follow').classification.kind, 'follow_up_due');
+assert.equal(classOf('event:evt-follow').bucket, 'follow_up_due');
+assert.equal(classOf('event:evt-follow').classification.evidence.dueDate, '2026-11-20');
+assert.notEqual(classOf('event:evt-follow').classification.kind, 'reply_required');
+
+assert.equal(classOf('event:evt-pay').classification.kind, 'payment_confirmation');
+assert.equal(classOf('event:evt-pay').pipelineStage, 'payment_processing');
+assert.match(classOf('event:evt-pay').classification.reason, /owner receipt confirmation/i);
+
+assert.equal(classOf('event:evt-deposit').classification.kind, 'payment_confirmation');
+assert.equal(classOf('event:evt-deposit').pipelineStage, 'invoice_awaiting_deposit');
+
+assert.equal(classOf('event:evt-tasked').classification.kind, 'event_task');
+assert.ok(classOf('event:evt-tasked').classification.evidence.taskIds.includes('task-booked'));
+assert.equal(classOf('event:evt-tasked').taskIds.filter((id) => id === 'task-copy').length, 1);
+assert.equal(classOf('event:evt-booked-plain').bucket, 'booked');
+assert.equal(classOf('event:evt-booked-plain').classification.evidence.taskIds.length, 0);
+assert.notEqual(classOf('event:evt-booked-plain').classification.kind, 'event_task');
+assert.equal(classOf('event:evt-booked-plain').classification.kind, 'needs_review');
+assert.match(classOf('event:evt-booked-plain').classification.reason, /No stronger evidence|reviewable/i);
+
+assert.equal(classOf('gmail:thread-vendor-matrix').classification.kind, 'vendor_obligation');
+assert.equal(classOf('gmail:thread-vendor-matrix').vendor, true);
+assert.equal(classOf('gmail:thread-vendor-matrix').bucket, 'vendor');
+
+assert.equal(classOf('gmail:thread-unassigned-matrix').classification.kind, 'needs_review');
+assert.equal(classOf('gmail:thread-unassigned-matrix').review, true);
+assert.equal(classOf('sms:sms-amb-matrix').classification.kind, 'needs_review');
+assert.equal(classOf('sms:sms-amb-matrix').classification.evidence.uncertainMatch, true);
+assert.deepEqual(classOf('sms:sms-amb-matrix').candidateEventIds, ['evt-new', 'evt-reply']);
+assert.equal(classOf('sms:sms-none').classification.kind, 'needs_review');
+
+assert.equal(classOf('event:evt-done').classification.kind, 'resolved');
+assert.equal(classOf('event:evt-done').bucket, 'resolved');
+assert.notEqual(classOf('event:evt-done').bucket, 'awaiting_response');
+
+assert.equal(classOf('task:task-orphan').classification.kind, 'event_task');
+assert.equal(classOf('task:task-orphan').review, true);
+assert.equal(classOf('task:task-missing-event').classification.kind, 'event_task');
+assert.equal(classOf('task:task-missing-event').eventId, 'evt-missing');
+
+assert.equal(classified.records.filter((row) => row.eventId === 'evt-dup').length, 1);
+assert.equal(classified.records.some((row) => row.eventId === 'evt-conflict'), false);
+assert.deepEqual(classified.pipeline.excluded.eventConflicts, ['evt-conflict']);
+assert.deepEqual(classified.pipeline.taskConflicts, ['task-clash']);
+assert.ok(classified.pipeline.duplicateEventsCountedOnce.includes('evt-dup'));
+
+const activeIds = classified.records
+  .filter((row) => !['resolved', 'vendor', 'declined', 'cancelled', 'unknown_closure'].includes(row.bucket) && row.vendor !== true)
+  .map((row) => row.id);
+assert.equal(classified.counts.actionRequired, activeIds.length);
+assert.equal(activeIds.includes('event:evt-done'), false);
+assert.equal(activeIds.includes('gmail:thread-vendor-matrix'), false);
+assert.ok(activeIds.includes('event:evt-reply'));
+assert.ok(activeIds.includes('event:evt-follow'));
+assert.ok(classified.counts.vendorExcluded >= 1);
+assert.ok(classified.counts.resolved >= 1);
+assert.ok(classified.counts.byClassification.new_inquiry >= 1);
+assert.ok(classified.counts.byClassification.reply_required >= 1);
+assert.ok(classified.counts.byClassification.follow_up_due >= 1);
+assert.ok(classified.counts.byClassification.payment_confirmation >= 2);
+assert.ok(classified.counts.byClassification.event_task >= 1);
+assert.ok(classified.counts.byClassification.vendor_obligation >= 1);
+assert.ok(classified.counts.byClassification.needs_review >= 1);
+assert.ok(classified.counts.byClassification.resolved >= 1);
+assert.equal(classified.writesPerformed, false);
+assert.equal(classified.sendEnabled, false);
 
 console.log('action-inbox tests passed');

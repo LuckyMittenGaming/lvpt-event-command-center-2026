@@ -121,11 +121,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | IMPLEMENTED_TESTED (T10 classification + supervisor revision) |
+| Date/time | 2026-11-25 |
 | Dependencies | R03 |
-| Evidence | `lib/action-inbox.mjs`, related tests/routes |
-| Remaining blocker | None known beyond verification |
-| Next task | Verify filters and unavailable-vs-zero handling |
+| Files inspected | `lib/action-inbox.mjs`, `app/api/sync/action-inbox/route.ts`, `app/api/sync/_owner-read.ts`, `public/v2/js/unified-hub.js`, `public/v2/js/event-status.js`, `tests/action-inbox.test.mjs`, `tests/owner-read-guard.test.mjs`, `remaining-spec.md` R05 |
+| Files changed | `lib/action-inbox.mjs`, `tests/action-inbox.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `node .\tests\action-inbox.test.mjs` (post-revision); prior related `owner-read-guard` / `rcs-staging` already green |
+| Exit codes | action-inbox **0** |
+| Evidence | Synthetic matrix covers new_inquiry, reply_required, follow_up_due, payment_confirmation, event_task, vendor_obligation, needs_review, resolved with explicit `classification.evidence`. Inbound reply requirements stay distinct from overdue follow-ups. Stable-ID dedup + event/task conflicts + ambiguous SMS remain reviewable. Vendors and resolved excluded from `counts.actionRequired` / default hub action filter. Route keeps `denyPrivateRead` before provider reads; no mutation exports; `writesPerformed`/`sendEnabled` false. **Revision:** removed booked-without-tasks `event_task` fallback; `event_task` requires explicit open-task evidence (`task:` id or booked + `taskIds`); booked-plain fixture asserts `needs_review` (not `event_task`); booked-with-open-task still `event_task`. Not LIVE_VERIFIED. |
+| Remaining blocker | Full R05 browser filter/search/ordering acceptance still available via `tests/command-center-browser.test.mjs` if not already covered; authenticated staging later (R22). |
+| Next task | R06 / CRM attribution, or remaining R05 browser verification if orchestrator continues R05 |
 
 ### R06 — Complete CRM, SEO attribution and conversion reporting
 
@@ -393,7 +398,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED** (executive metrics + compact responsive presentation) |
-| Next authorized task | R05 — Complete actionable inbox behavior |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10 **IMPLEMENTED_TESTED** (evidence-based actionable inbox classification) |
+| Next authorized task | R05 remaining browser/UI acceptance if required, else R06 — CRM / SEO attribution / conversion |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

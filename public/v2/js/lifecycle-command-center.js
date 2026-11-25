@@ -288,11 +288,52 @@
     }).join('');
     const listHtml = (rows) => rows.map((event) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(event.id)}">${escapeHtml(event.eventName || 'Untitled event')}</button> <span>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${escapeHtml(event.eventDate)}</span></li>`).join('');
     const missingNote = detail && detail.mode === 'missing' ? '<p class="hub-warning">That task is not in the signed-in snapshot. Another event was not opened.</p>' : '';
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. A task opens here. View associated event opens one record.')}<div class="command-view-body"><div id="overviewLedger">${overviewLedgerInner()}</div>${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong></div><div><span>Active</span><strong>${count('active')}</strong></div><div><span>Past</span><strong>${count('past')}</strong></div><div><span>Needs review</span><strong>${count('review')}</strong></div></div>${missingNote}<h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Confirmed upcoming</h3><ul>${listHtml(confirmed) || '<li>No confirmed upcoming event.</li>'}</ul><h3>Dated inquiries and proposals</h3><ul>${listHtml(tentative) || '<li>No dated inquiry or proposal.</li>'}</ul><p class="muted">Booked and payment-processing events are confirmed. A past date does not complete an event.</p></div></div>`;
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. A task opens here. View associated event opens one record.')}<div class="command-view-body"><div id="overviewLedger">${overviewLedgerInner()}</div>${dailyOverview()}${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong></div><div><span>Active</span><strong>${count('active')}</strong></div><div><span>Past</span><strong>${count('past')}</strong></div><div><span>Needs review</span><strong>${count('review')}</strong></div></div>${missingNote}<h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Confirmed upcoming</h3><ul>${listHtml(confirmed) || '<li>No confirmed upcoming event.</li>'}</ul><h3>Dated inquiries and proposals</h3><ul>${listHtml(tentative) || '<li>No dated inquiry or proposal.</li>'}</ul><p class="muted">Booked and payment-processing events are confirmed. A past date does not complete an event. Unknown outcomes stay in Needs review.</p></div></div>`;
     bindEventOpeners(view);
     bindLedgerRetry(view);
   }
 
+  function taskOpen(task) {
+    const status = String(task && task.status || '').trim().toLowerCase();
+    return !['complete', 'completed', 'resolved', 'done', 'cancelled', 'canceled', 'closed', 'declined'].includes(status);
+  }
+  function dailyOverview() {
+    const today = todayString();
+    let overdue = 0;
+    let dueToday = 0;
+    let undated = 0;
+    events.forEach((event) => (event.tasks || []).forEach((task) => {
+      if (!taskOpen(task)) return;
+      if (!task.dueDate) undated += 1;
+      else if (task.dueDate < today) overdue += 1;
+      else if (task.dueDate === today) dueToday += 1;
+    }));
+    const newLeads = events.filter((event) => laneOf(event).lane === 'pipeline' && laneOf(event).stage === 'open').length;
+    const picture = window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok ? window.lvptOperatingPictureResult.data : null;
+    const payments = picture && picture.report && Array.isArray(picture.report.payments) ? picture.report.payments : [];
+    const deadlines = payments.filter((row) => row && row.eventId && row.role === 'client_receivable' && Number(row.balanceDueCents) > 0).slice(0, 4);
+    const vendorDue = payments.filter((row) => row && row.eventId && row.role === 'vendor_expense' && row.settlement && !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement)).slice(0, 3);
+    const deadlineHtml = deadlines.map((row) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(row.eventId)}">${escapeHtml(row.paymentId || 'Invoice')}</button> <span>${escapeHtml(ledgerAmount(row.balanceDueCents))} open · ${escapeHtml(row.dueDate || 'no due date')}</span></li>`).join('');
+    const vendorHtml = vendorDue.map((row) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(row.eventId)}">${escapeHtml(row.paymentId || 'Vendor bill')}</button> <span>${escapeHtml(String(row.settlement || 'open').replaceAll('_', ' '))}</span></li>`).join('');
+    const jobs = picture && Array.isArray(picture.jobs) ? picture.jobs : [];
+    const sheetJob = jobs.find((job) => job.id === 'financial-sync');
+    const heartbeat = jobs.find((job) => job.id === 'sms-heartbeat');
+    const freshness = picture
+      ? `Sheet ledger last success ${escapeHtml((sheetJob && sheetJob.lastSuccess) || 'not recorded')}. SMS heartbeat ${escapeHtml((heartbeat && heartbeat.status) || 'not verified')}. A stored row is not a heartbeat.`
+      : 'Source freshness is waiting on the ledger read. It is not marked connected.';
+    return `<div class="lifecycle-summary"><div><span>New and open leads</span><strong>${newLeads}</strong><p class="muted">Sheet stage only. Unanswered mail is not guessed from the event list.</p></div><div><span>Overdue tasks</span><strong>${overdue}</strong></div><div><span>Due today</span><strong>${dueToday}</strong></div><div><span>Undated open tasks</span><strong>${undated}</strong><p class="muted">Undated tasks stay open. They are not completed.</p></div></div><p class="muted">${freshness} Approvals waiting are opened in the review workspace. This page does not count a draft as an approval.</p><h3>Open client balances</h3><ul>${deadlineHtml || '<li>No open client balance was returned.</li>'}</ul><h3>Open vendor bills</h3><ul>${vendorHtml || '<li>No open vendor bill was returned.</li>'}</ul>`;
+  }
+  function recordedLine(label, value) {
+    const text = value == null || value === '' ? 'Not recorded' : value;
+    return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong></div>`;
+  }
+  function recordSections(event) {
+    const setup = event.setup || {};
+    const quoteLines = (event.quote || []).map((line) => `<li>${escapeHtml(line.name || line.category || 'Line')} · qty ${escapeHtml(line.quantity)} · price ${escapeHtml(line.unitPrice)} · cost ${line.internalCost == null || line.internalCost === '' ? 'not recorded' : escapeHtml(line.internalCost)}</li>`).join('') || '<li>No quote lines on this event.</li>';
+    const compliance = (event.compliance || []).map((item) => `<li>${escapeHtml(item.name || 'Requirement')} · ${escapeHtml(item.status || 'Not recorded')} · ${escapeHtml(item.dueDate || 'No due date')}</li>`).join('') || '<li>No compliance row on this event.</li>';
+    const post = event.postEvent || {};
+    return `<h3>Discovery and setup</h3><div class="lifecycle-summary">${recordedLine('Planning', setup.planningStage)}${recordedLine('Budget range', setup.budgetRange)}${recordedLine('Venue status', setup.venueStatus)}${recordedLine('Owner', setup.internalOwner)}</div><h3>Quote lines</h3><ul>${quoteLines}</ul><h3>Compliance</h3><ul>${compliance}</ul><h3>Documents</h3><p>${(event.documents || []).length} document rows on this event. File bytes are not opened here.</p><h3>Inbox</h3><p>${(event.emailActivity || []).length} stored mail rows on this event. A stored row is not a full thread.</p><h3>Venue and logistics</h3><div class="lifecycle-summary">${recordedLine('Venue', event.venue)}${recordedLine('City', event.city)}${recordedLine('Setup', setup.setupTime)}${recordedLine('Strike', setup.strikeTime)}</div><h3>Post-event</h3><div class="lifecycle-summary">${recordedLine('Feedback', post.clientFeedback)}${recordedLine('Rebooking', post.rebookingLikelihood)}</div><p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`;
+  }
   function renderRecord(view, eventId) {
     const generation = (window.lvptRecordGeneration = (window.lvptRecordGeneration || 0) + 1);
     const event = eventById(eventId);
@@ -308,13 +349,14 @@
     selectedId = event.id;
     const staff = (event.staff || []).map((person) => `${escapeHtml(person.name || 'Unnamed')} · ${escapeHtml(person.role || 'Staff')}`).join(', ') || 'No staffing row on this event.';
     const taskItems = (event.tasks || []).map((task) => `<li data-task-id="${escapeHtml(task.id)}">${escapeHtml(task.title || 'Untitled task')} · ${escapeHtml(task.dueDate || 'No due date')} · ${escapeHtml(task.status || 'Open')}</li>`).join('') || '<li>No task on this event.</li>';
-    const html = `<div class="command-view-shell">${viewHeader('Read-only record', event.eventName || 'Untitled event', 'One event. The sheet is not changed from this page.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status not recorded')} · ${escapeHtml(event.eventDate || 'Date not recorded')} · ${escapeHtml(event.venue || 'Venue not recorded')}</p><h3>Tasks</h3><ul>${taskItems}</ul><h3>Staff</h3><p data-record-staff>${staff}</p><h3>Invoices</h3><div data-record-ledger>${recordLedgerInner(event.id)}</div><p class="muted">Headings, tasks, staff, and invoices on this page are this event only.</p></article></div></div>`;
+    const html = `<div class="command-view-shell">${viewHeader('Read-only record', event.eventName || 'Untitled event', 'One event. The sheet is not changed from this page.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status not recorded')} · ${escapeHtml(event.eventDate || 'Date not recorded')} · ${escapeHtml(event.venue || 'Venue not recorded')}</p><h3>Tasks</h3><ul>${taskItems}</ul><h3>Staff</h3><p data-record-staff>${staff}</p><h3>Invoices</h3><div data-record-ledger>${recordLedgerInner(event.id)}</div>${recordSections(event)}</article></div></div>`;
     if (window.lvptRecordGeneration !== generation) return;
     view.innerHTML = html;
     if (typeof renderEditor === 'function') renderEditor();
     if (typeof renderTab === 'function') renderTab();
     bindEventOpeners(view);
     bindLedgerRetry(view);
+    view.querySelector('[data-print-record]')?.addEventListener('click', () => window.print());
   }
 
   function renderPipeline(view) {
@@ -477,7 +519,7 @@
   }
 
   function openTask(eventId, taskId) {
-    if (!suppressHistory) rememberList();
+    if (!suppressHistory && !detail) rememberList();
     const event = eventById(eventId);
     const task = event && (event.tasks || []).find((item) => item.id === taskId);
     selectedId = '';
@@ -493,7 +535,7 @@
     if (suppressHistory) restoreListScroll();
   }
   function openRecord(eventId) {
-    if (!suppressHistory) rememberList();
+    if (!suppressHistory && !detail) rememberList();
     const event = eventById(eventId);
     detail = { mode: 'record', eventId: event ? event.id : (eventId || ''), origin: commandView };
     recordOpen = false;
@@ -545,5 +587,6 @@
   window.lvptOpenRecord = openRecord;
   window.lvptOpenTask = openTask;
   window.addEventListener('popstate', (event) => applyNav(event.state));
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   history.replaceState({ lvptNav: { view: commandView, eventId: '', taskId: '' } }, '');
 })();

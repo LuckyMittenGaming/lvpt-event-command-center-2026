@@ -71,3 +71,24 @@ COMMAND_CENTER_OPERATIONS_RETEST_READY
 Record navigation on this draft: a task opens in the overview list. View associated event and the existing record buttons open one read-only record for a validated event id. There is no fallback to the first event. Browser Back stays inside the app view that was open. A 401 or refresh clears the open record. Stored Gmail activity rows and unique thread ids stay separate from the bounded header queue.
 
 COMMAND_CENTER_RECORD_NAVIGATION_READY
+
+The completion matrix is `docs/command-center-completion-matrix.md`. Safe read-only work on this draft is in that matrix. Live verification is not claimed.
+
+## One owner checklist
+
+Do these in order. Stop at the first failed expected result. None of these steps is a production deploy.
+
+1. Open the staging preview for this branch while signed out. Expected: Owner sign-in required, and no event, task, or message body.
+2. Open `/sms-review/index.html` on that same host and finish the existing device-token exchange. Expected: the HttpOnly review cookie exists. Command-center reads before that cookie stay 401.
+3. Return to `/v2/index.html`. Expected: the sheet list loads, Overview stays global, and a priority task expands in the list.
+4. Choose View associated event, then open a second event from Pipeline or Finance. Expected: headings, tasks, staff, and invoice rows belong to the event just opened. Browser Back returns to the list you came from.
+5. Open Event Finance. Expected: client invoices, vendor bills, and payouts stay in separate rows. Drawable cash stays unavailable. A refund or Payment Initiated row is not labeled as a bank receipt.
+6. Open Communications. Expected: the session line and the audit line are separate. Stored Gmail Activity rows and unique thread ids are separate from the header queue. A queue row is not described as no new threads.
+7. Open Source Health. Expected: a missing heartbeat stays not verified. A blocked read is not labeled as a disconnected provider.
+8. On the approved handset, run the LVPT SMS bridge and record `last_success_at`. Expected: a timestamp from that run. This preview cannot read it. A stored SMS count is not that timestamp.
+9. On the approved computer, pair the read-only RCS collector. Expected: the collector reports paired. Send and mark-read stay off.
+10. In the approved Apps Script project, run `runLVPTSafeTaskSync` once and note the execution time. Expected: one execution record. The hourly trigger is not that record. Do not run `runLVPTTaskSync`.
+11. After that run, watch two later scheduled cycles of the hourly trigger. Expected: two more execution records that do not delete cancelled reminders or mark internal reminders Busy.
+12. Do not resume the four-times-daily Gmail approval job. Expected: it stays disabled until a later approval that names a test recipient, a full thread, and an idempotent send. Sending stays off in this draft.
+
+COMMAND_CENTER_FULL_COMPLETION_HANDOFF_READY

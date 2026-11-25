@@ -199,9 +199,9 @@ try {
   await page.evaluate(() => { document.body.style.minHeight = '2400px'; });
   await page.waitForFunction(() => document.body.scrollHeight > 2000);
   await page.evaluate(() => window.scrollTo(0, 640));
-  await page.waitForFunction(() => window.scrollY > 500);
+  await page.waitForFunction(() => window.scrollY === 640);
   const listScroll = await page.evaluate(() => window.scrollY);
-  await page.locator('[data-open-task="task-1"]').click();
+  await page.evaluate(() => document.querySelector('[data-open-task="task-1"]').click());
   const taskView = await page.locator('#commandView').innerText();
   assert.match(taskView, /Priority open tasks/);
   assert.match(taskView, /Send proposal/);
@@ -217,7 +217,7 @@ try {
   assert.match(await page.locator('#commandView').innerText(), /Priority open tasks/);
   await page.goForward();
   await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]'));
-  await page.locator('[data-view-event="evt-lead"]').click();
+  await page.evaluate(() => document.querySelector('[data-view-event="evt-lead"]').click());
   await page.waitForFunction(() => {
     const record = document.querySelector('[data-record-event="evt-lead"]');
     return record && record.innerText.includes('$111.00');
@@ -237,10 +237,12 @@ try {
   assert.equal(editorText.includes('$222'), false);
   assert.equal(editorText.includes('Synthetic Booked'), false);
   assert.equal(page.url().includes('Synthetic'), false);
-  await page.locator('[data-back-list]').click();
-  await page.waitForFunction(() => Math.abs(window.scrollY - 640) < 80 || document.querySelector('[data-open-task-panel="task-1"]'));
-  await page.locator('[data-close-task]').click();
-  await page.waitForFunction((y) => !document.querySelector('[data-open-task-panel]') && Math.abs(window.scrollY - y) < 80, listScroll);
+  await page.evaluate(() => document.querySelector('[data-back-list]').click());
+  await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]'));
+  await page.evaluate(() => document.querySelector('[data-close-task]').click());
+  await page.waitForFunction(() => !document.querySelector('[data-open-task-panel]') && /Priority open tasks/.test(document.querySelector('#commandView').innerText));
+  const restored = await page.evaluate(() => window.scrollY);
+  assert.ok(Math.abs(restored - listScroll) < 80, `scroll ${restored} vs ${listScroll}`);
   await page.evaluate(() => { document.body.style.minHeight = ''; window.lvptOpenRecord('evt-active'); window.lvptOpenRecord('evt-lead'); });
   await page.waitForFunction(() => {
     const node = document.querySelector('[data-record-event]');
@@ -298,6 +300,14 @@ try {
   assert.match(await page.locator('#commandView').innerText(), /Send proposal/);
   await page.locator('[data-command-view="finance"]').click();
   await page.waitForTimeout(300);
+  await page.locator('#commandView [data-view-record="evt-lead"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+  const fromFinance = await page.locator('[data-record-event="evt-lead"]').innerText();
+  assert.match(fromFinance, /Discovery and setup/);
+  assert.match(fromFinance, /\$111\.00/);
+  assert.equal(fromFinance.includes('$222'), false);
+  assert.match(fromFinance, /No save control/);
+  await page.locator('[data-back-list]').click();
   await page.locator('[data-command-view="communications"]').click();
   await page.waitForTimeout(300);
   assert.equal(pictureGets, afterReady);
@@ -311,10 +321,15 @@ try {
   await page.waitForTimeout(400);
   assert.match(await page.locator('#commandView').innerText(), /Synthetic Lead/);
   assert.match(await page.locator('#commandView').innerText(), /Due /);
+  assert.match(await page.locator('#commandView').innerText(), /not a conversion rate/);
+  await page.locator('#commandView [data-view-record="evt-lead"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+  assert.match(await page.locator('[data-record-event="evt-lead"]').innerText(), /Send proposal/);
+  await page.locator('[data-command-view="action"]').click();
   await page.locator('#actionSearch').fill('zzzz-no-match');
   await page.waitForFunction(() => document.querySelectorAll('.action-card:not([hidden])').length === 0);
   const searchScroll = await page.evaluate(() => window.scrollY);
-  await page.locator('#actionFilterClear').click();
+  await page.evaluate(() => document.querySelector('#actionFilterClear').click());
   assert.equal(await page.locator('#actionSearch').inputValue(), '');
   assert.match(await page.locator('#commandView').innerText(), /Synthetic Lead/);
   assert.ok(Math.abs(await page.evaluate(() => window.scrollY) - searchScroll) < 80);

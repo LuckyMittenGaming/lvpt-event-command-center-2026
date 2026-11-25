@@ -694,19 +694,91 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     return `<div class="lifecycle-summary"><div><span>New and open leads</span><strong>${newLeads}</strong><p class="muted">Scope: sheet snapshot stage open in Pipeline. Unanswered mail is not guessed from the event list.</p></div><div><span>Overdue tasks</span><strong>${overdue}</strong><p class="muted">Scope: open Tasks on the sheet snapshot with due date before today. Due today is not overdue.</p></div><div><span>Due today</span><strong>${dueToday}</strong><p class="muted">Scope: open Tasks on the sheet snapshot due today.</p></div><div><span>Undated open tasks</span><strong>${undated}</strong><p class="muted">Scope: open Tasks without a due date. They stay open and are not completed.</p></div></div><div id="overviewOperating">${overviewOperatingInner()}</div>`;
   }
   function recordedLine(label, value) {
-    const text = value == null || value === '' ? 'Not recorded' : value;
-    return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong></div>`;
+    const missing = value == null || value === '';
+    const text = missing ? 'Unavailable' : value;
+    return `<div data-field-state="${missing ? 'unavailable' : 'recorded'}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong></div>`;
+  }
+  function workspaceSection(eventId, sectionId, title, body) {
+    return `<section class="workspace-section" data-workspace-section="${escapeHtml(sectionId)}" data-event-id="${escapeHtml(eventId)}"><h3>${escapeHtml(title)}</h3>${body}</section>`;
+  }
+  function documentRows(event) {
+    const docs = Array.isArray(event.documents) ? event.documents : [];
+    if (!docs.length) return '<p>0 document rows on this event. File bytes are not opened here.</p>';
+    const items = docs.map((doc) => {
+      const name = doc && (doc.name || doc.title) ? String(doc.name || doc.title) : 'Untitled document';
+      const category = doc && doc.category ? String(doc.category) : 'Category unavailable';
+      const link = doc && typeof doc.url === 'string' && /^https:\/\//i.test(doc.url.trim()) && !/@(?:[^/?#]*):/.test(doc.url)
+        ? `<a href="${escapeHtml(doc.url.trim())}" target="_blank" rel="noopener">Open source link</a>`
+        : 'Source link unavailable';
+      return `<li data-document-id="${escapeHtml(doc && doc.id ? doc.id : '')}">${escapeHtml(name)} · ${escapeHtml(category)} · ${link}</li>`;
+    }).join('');
+    return `<p>${docs.length} document row${docs.length === 1 ? '' : 's'} on this event. File bytes are not opened here.</p><ul>${items}</ul>`;
+  }
+  function communicationRows(event) {
+    const rows = Array.isArray(event.emailActivity) ? event.emailActivity : [];
+    if (!rows.length) {
+      return '<p>0 stored mail rows on this event. A stored row is not a full thread. SMS/RCS content is unavailable on this record.</p>';
+    }
+    const items = rows.map((row, index) => {
+      const subject = row && (row.subject || row.snippet) ? String(row.subject || row.snippet).slice(0, 120) : 'Subject unavailable';
+      const when = row && row.date ? String(row.date) : 'Date unavailable';
+      const direction = row && row.direction ? String(row.direction) : 'Direction unavailable';
+      return `<li data-mail-index="${index}">${escapeHtml(subject)} · ${escapeHtml(direction)} · ${escapeHtml(when)}</li>`;
+    }).join('');
+    return `<p>${rows.length} stored mail row${rows.length === 1 ? '' : 's'} on this event. A stored row is not a full thread. SMS/RCS content is unavailable on this record.</p><ul>${items}</ul>`;
   }
   function recordSections(event) {
+    const eventId = event.id;
     const setup = event.setup || {};
-    const quoteLines = (event.quote || []).map((line) => `<li>${escapeHtml(line.name || line.category || 'Line')} · qty ${escapeHtml(line.quantity)} · price ${escapeHtml(line.unitPrice)} · cost ${line.internalCost == null || line.internalCost === '' ? 'not recorded' : escapeHtml(line.internalCost)}</li>`).join('') || '<li>No quote lines on this event.</li>';
-    const compliance = (event.compliance || []).map((item) => `<li>${escapeHtml(item.name || 'Requirement')} · ${escapeHtml(item.status || 'Not recorded')} · ${escapeHtml(item.dueDate || 'No due date')}</li>`).join('') || '<li>No compliance row on this event.</li>';
+    const payment = event.payment || {};
+    const quote = statusApi() && typeof statusApi().quoteCoverage === 'function'
+      ? statusApi().quoteCoverage(event)
+      : { targetState: 'omitted', priced: false, recordedZero: false, linePartial: false, pricedCents: null, recordedTargetCents: null };
+    const quoteLines = (event.quote || []).map((line) => `<li>${escapeHtml(line.name || line.category || 'Line')} · qty ${line.quantity == null || line.quantity === '' ? 'unavailable' : escapeHtml(line.quantity)} · price ${line.unitPrice == null || line.unitPrice === '' ? 'unavailable' : escapeHtml(line.unitPrice)} · cost ${line.internalCost == null || line.internalCost === '' ? 'unavailable' : escapeHtml(line.internalCost)}</li>`).join('') || '<li>No quote lines on this event.</li>';
+    const targetLabel = quote.targetState === 'recorded'
+      ? moneyCents(quote.recordedTargetCents)
+      : 'Unavailable';
+    const pricedLabel = quote.priced
+      ? (quote.linePartial ? `Partial ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents))
+      : (quote.recordedZero ? 'Recorded zero' : 'Unavailable');
+    const compliance = (event.compliance || []).map((item) => `<li>${escapeHtml(item.name || 'Requirement')} · ${escapeHtml(item.status || 'Unavailable')} · ${escapeHtml(item.dueDate || 'Due date unavailable')}</li>`).join('') || '<li>No compliance row on this event.</li>';
     const post = event.postEvent || {};
+    const reviewRequested = Object.prototype.hasOwnProperty.call(post, 'reviewRequested')
+      ? (post.reviewRequested ? 'Yes' : 'No')
+      : 'Unavailable';
+    const reviewReceived = Object.prototype.hasOwnProperty.call(post, 'reviewReceived')
+      ? (post.reviewReceived ? 'Yes' : 'No')
+      : 'Unavailable';
     const acquired = crmApi() ? crmApi().acquisitionOf(event) : { kind: 'unknown', label: '', leadSource: '', utmSource: '', utmCampaign: '' };
     const acquisitionLabel = acquired.kind === 'unknown'
       ? 'Unknown (not recorded)'
       : `${acquired.label || acquired.kind} (${acquired.kind})`;
-    return `<h3>Discovery and setup</h3><div class="lifecycle-summary">${recordedLine('Planning', setup.planningStage)}${recordedLine('Budget range', setup.budgetRange)}${recordedLine('Venue status', setup.venueStatus)}${recordedLine('Owner', setup.internalOwner)}</div><h3>CRM attribution</h3><div class="lifecycle-summary" data-crm-record-attribution>${recordedLine('Acquisition source', acquisitionLabel)}${recordedLine('Recorded lead source', acquired.leadSource || 'Not recorded')}${recordedLine('UTM source', acquired.utmSource || 'Not recorded')}${recordedLine('UTM campaign', acquired.utmCampaign || 'Not recorded')}<div><span>Communication channel</span><strong>Not inferred from acquisition. Channel evidence stays on Communications / Action Required.</strong></div></div><h3>Quote lines</h3><ul>${quoteLines}</ul><h3>Compliance</h3><ul>${compliance}</ul><h3>Documents</h3><p>${(event.documents || []).length} document rows on this event. File bytes are not opened here.</p><h3>Inbox</h3><p>${(event.emailActivity || []).length} stored mail rows on this event. A stored row is not a full thread.</p><h3>Venue and logistics</h3><div class="lifecycle-summary">${recordedLine('Venue', event.venue)}${recordedLine('City', event.city)}${recordedLine('Setup', setup.setupTime)}${recordedLine('Strike', setup.strikeTime)}</div><h3>Post-event</h3><div class="lifecycle-summary">${recordedLine('Feedback', post.clientFeedback)}${recordedLine('Rebooking', post.rebookingLikelihood)}</div><p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`;
+    const timeLabel = (value) => {
+      if (value == null || value === '') return '';
+      return typeof humanTime === 'function' ? humanTime(value) : value;
+    };
+    const paymentAmount = Object.prototype.hasOwnProperty.call(payment, 'amountPaid') && payment.amountPaid !== '' && payment.amountPaid != null
+      ? payment.amountPaid
+      : '';
+    const depositAmount = Object.prototype.hasOwnProperty.call(payment, 'depositRequired') && payment.depositRequired !== '' && payment.depositRequired != null
+      ? payment.depositRequired
+      : '';
+    return [
+      workspaceSection(eventId, 'client-contact', 'Client and contact', `<div class="lifecycle-summary">${recordedLine('Company / client', event.company)}${recordedLine('Contact name', event.contactName)}${recordedLine('Contact email', event.contactEmail)}${recordedLine('Contact phone', event.contactPhone)}${recordedLine('Event type', event.eventType)}</div>`),
+      workspaceSection(eventId, 'discovery', 'Discovery and setup', `<div class="lifecycle-summary">${recordedLine('Planning', setup.planningStage)}${recordedLine('Budget range', setup.budgetRange)}${recordedLine('Venue status', setup.venueStatus)}${recordedLine('Owner', setup.internalOwner)}${recordedLine('Stakeholders', setup.stakeholders)}${recordedLine('Next action', event.nextAction)}</div>`),
+      workspaceSection(eventId, 'date-venue', 'Event date and venue', `<div class="lifecycle-summary">${recordedLine('Event date', event.eventDate)}${recordedLine('Venue', event.venue)}${recordedLine('City', event.city)}${recordedLine('State', event.state)}${recordedLine('Time zone', setup.timeZone)}${recordedLine('Venue contact', setup.venueContact)}</div>`),
+      workspaceSection(eventId, 'goals', 'Event goals', `<div class="lifecycle-summary">${recordedLine('Primary goal', setup.primaryGoal)}${recordedLine('Event goal', event.eventGoal)}${recordedLine('Event format', event.eventFormat)}${recordedLine('Client expectations', event.clientExpectations)}${recordedLine('Known risks', event.knownRisks)}${recordedLine('Guest count', event.guestCount == null || event.guestCount === '' ? '' : event.guestCount)}</div>`),
+      workspaceSection(eventId, 'quote-payment', 'Quote and payment', `<div class="lifecycle-summary">${recordedLine('Recorded target quote', targetLabel)}${recordedLine('Priced line items', pricedLabel)}${recordedLine('Payment status', payment.status)}${recordedLine('Amount paid (event payment field)', paymentAmount)}${recordedLine('Deposit required', depositAmount)}${recordedLine('Balance due date', payment.balanceDueDate)}</div><p class="muted">A budget is not a quote. Payment initiated is not owner-confirmed receipt. Ledger invoices for this event are listed above.</p><ul>${quoteLines}</ul>`),
+      workspaceSection(eventId, 'compliance', 'Compliance', `<ul>${compliance}</ul>`),
+      workspaceSection(eventId, 'documents', 'Documents', documentRows(event)),
+      workspaceSection(eventId, 'run-of-show', 'Run of show', `<div class="lifecycle-summary">${recordedLine('Start', timeLabel(event.startTime))}${recordedLine('End', timeLabel(event.endTime))}${recordedLine('Setup access', timeLabel(setup.setupTime))}${recordedLine('Strike', timeLabel(setup.strikeTime))}${recordedLine('Experience duration', setup.experienceDuration)}${recordedLine('Training format', setup.trainingFormat)}${recordedLine('Game format', setup.gameFormat)}</div>`),
+      workspaceSection(eventId, 'logistics', 'Logistics', `<div class="lifecycle-summary">${recordedLine('Parking / loading', setup.parkingInstructions)}${recordedLine('Travel / lodging', setup.travelNeeds)}${recordedLine('Power / internet', setup.powerInternet)}${recordedLine('Accessibility', setup.accessibilityNeeds)}${recordedLine('Layout / floor plan', setup.layoutNotes)}${recordedLine('Production notes', setup.productionNotes)}${recordedLine('Equipment source', setup.equipmentSource)}${recordedLine('AV needed', setup.avNeeded)}</div>`),
+      workspaceSection(eventId, 'communications', 'Communications', `${communicationRows(event)}<div class="lifecycle-summary top-gap">${recordedLine('Gmail keywords', setup.gmailKeywords)}${recordedLine('Communication notes', setup.communicationNotes)}</div>`),
+      workspaceSection(eventId, 'crm-attribution', 'CRM attribution', `<div class="lifecycle-summary" data-crm-record-attribution>${recordedLine('Acquisition source', acquisitionLabel)}${recordedLine('Recorded lead source', acquired.leadSource || '')}${recordedLine('UTM source', acquired.utmSource || '')}${recordedLine('UTM campaign', acquired.utmCampaign || '')}<div><span>Communication channel</span><strong>Not inferred from acquisition. Channel evidence stays on Communications / Action Required.</strong></div></div>`),
+      workspaceSection(eventId, 'post-event', 'Post-event obligations', `<div class="lifecycle-summary">${recordedLine('Client feedback', post.clientFeedback)}${recordedLine('What went well', post.whatWentWell)}${recordedLine('Pain points', post.painPoints)}${recordedLine('Changes next time', post.changesForNextTime)}${recordedLine('Review requested', reviewRequested)}${recordedLine('Review received', reviewReceived)}${recordedLine('Rebooking likelihood', post.rebookingLikelihood)}</div><p class="muted">A past event date does not close open tasks, vendor bills, or payouts by itself.</p>`),
+      workspaceSection(eventId, 'reports', 'Reports', `<p class="muted">Print/report output is limited to this validated event id (${escapeHtml(eventId)}). Overall portfolio reports stay off this record.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`),
+      `<p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record. No delete control is on this record.</p>`
+    ].join('');
   }
   function renderRecord(view, eventId) {
     const generation = (window.lvptRecordGeneration = (window.lvptRecordGeneration || 0) + 1);
@@ -723,11 +795,22 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     selectedId = event.id;
     const staff = (event.staff || []).map((person) => `${escapeHtml(person.name || 'Unnamed')} · ${escapeHtml(person.role || 'Staff')}`).join(', ') || 'No staffing row on this event.';
     const taskItems = (event.tasks || []).map((task) => `<li data-task-id="${escapeHtml(task.id)}">${escapeHtml(task.title || 'Untitled task')} · ${escapeHtml(task.dueDate || 'No due date')} · ${escapeHtml(task.status || 'Open')}</li>`).join('') || '<li>No task on this event.</li>';
-    const html = `<div class="command-view-shell">${viewHeader('Read-only record', event.eventName || 'Untitled event', 'One event. The sheet is not changed from this page.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status not recorded')} · ${escapeHtml(event.eventDate || 'Date not recorded')} · ${escapeHtml(event.venue || 'Venue not recorded')}</p><h3>Tasks</h3><ul>${taskItems}</ul><h3>Staff</h3><p data-record-staff>${staff}</p><h3>Invoices</h3><div data-record-ledger>${recordLedgerInner(event.id)}</div>${recordSections(event)}</article></div></div>`;
+    const html = `<div class="command-view-shell">${viewHeader('Read-only record', event.eventName || 'Untitled event', 'One event. The sheet is not changed from this page.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status unavailable')} · ${escapeHtml(event.eventDate || 'Date unavailable')} · ${escapeHtml(event.venue || 'Venue unavailable')}</p>${workspaceSection(event.id, 'tasks', 'Tasks', `<ul>${taskItems}</ul>`)}${workspaceSection(event.id, 'staffing', 'Staffing', `<p data-record-staff>${staff}</p>`)}${workspaceSection(event.id, 'invoices', 'Invoices', `<div data-record-ledger>${recordLedgerInner(event.id)}</div>`)}${recordSections(event)}</article></div></div>`;
     if (window.lvptRecordGeneration !== generation) return;
     view.innerHTML = html;
     if (typeof renderEditor === 'function') renderEditor();
     if (typeof renderTab === 'function') renderTab();
+    ['saveEditorBtn', 'deleteEventBtn', 'duplicateEventBtn', 'reopenWizardBtn', 'quickAddTaskBtn', 'manageTasksBtn'].forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) {
+        button.disabled = true;
+        button.hidden = true;
+      }
+    });
+    document.querySelectorAll('#selectedEventTasksPanel [data-complete-task], #selectedEventTasksPanel [data-complete-compliance]').forEach((button) => {
+      button.disabled = true;
+      button.hidden = true;
+    });
     bindEventOpeners(view);
     bindLedgerRetry(view);
     view.querySelector('[data-print-record]')?.addEventListener('click', () => window.print());

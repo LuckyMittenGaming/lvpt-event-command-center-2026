@@ -176,11 +176,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | **IMPLEMENTED_TESTED** (T15 + revision) |
+| Date/time | 2026-11-25 |
 | Dependencies | R03, R07 |
-| Evidence | Read-only record workspace; writes disabled |
-| Remaining blocker | No sheet writes without later owner activation |
-| Next task | Verify single-event identity across panels |
+| Files inspected | `remaining-spec.md` R08, `public/v2/js/lifecycle-command-center.js` (`summarizeQuotes` Cost coverage label), `public/v2/js/event-workspace-upgrade.js`, `tests/command-center-acceptance.test.mjs`, `tests/command-center-browser.test.mjs` |
+| Files changed | `public/v2/js/lifecycle-command-center.js`, `public/v2/js/event-workspace-upgrade.js`, `public/v2/lifecycle-command-center.css`, `public/v2/event-workspace-upgrade.css`, `tests/command-center-browser.test.mjs`, `tests/command-center-acceptance.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `node .\tests\command-center-acceptance.test.mjs`; `node .\tests\command-center-browser.test.mjs` |
+| Exit codes | acceptance **0**; browser **0** |
+| Evidence | Read-only record sections for client/contact, discovery, date/venue, goals, quote/payment, tasks, staffing, compliance, documents, run of show, logistics, communications, CRM attribution, post-event obligations, and reports. Each section uses `data-workspace-section` + the same validated `data-event-id`. Missing fields labeled Unavailable. No Save/Delete/Mark Complete/Add Task on the record or selected-task panel. Desktop + 375px navigation covered. |
+| Evidence (revision) | Stale acceptance `/Quote profit/` updated to intentional UI label `/Cost coverage/`. Preserved and strengthened financial-integrity static checks: `Cost not recorded`, `Missing cost is not zero`, margin-only-when-complete, budget≠target, targets not added to priced lines; rejects `Projected Profit` and stale `Quote profit`. Not LIVE_VERIFIED. |
+| Remaining blocker | Live sheet field completeness and authenticated staging confirmation remain owner-side (R22/R23). |
+| Next task | R09 — safe granular event editing contract (isolated) |
 
 ### R09 — Prepare safe granular event editing
 
@@ -418,7 +424,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED** (proposal/portfolio classification) |
-| Next authorized task | R08 — read-only event workspace |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15 **IMPLEMENTED_TESTED** (read-only event workspace) |
+| Next authorized task | R09 — safe granular event editing contract |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

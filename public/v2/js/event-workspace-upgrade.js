@@ -170,17 +170,15 @@
   }
 
   function taskItem(task) {
-    return `<article class="quick-task ${daysFromToday(task.dueDate) < 0 ? 'overdue' : ''}">
-      <button type="button" class="quick-task-check" data-complete-task="${escapeHtml(task.id)}" aria-label="Mark ${escapeHtml(task.title)} complete"><span aria-hidden="true">✓</span> Mark Complete</button>
-      <div class="quick-task-copy"><h3>${escapeHtml(task.title)}</h3><p>${escapeHtml(task.owner || 'Unassigned')} · ${escapeHtml(task.priority || 'Medium')} priority · ${escapeHtml(task.status || 'Open')}</p></div>
+    return `<article class="quick-task ${daysFromToday(task.dueDate) < 0 ? 'overdue' : ''}" data-task-id="${escapeHtml(task.id)}">
+      <div class="quick-task-copy"><h3>${escapeHtml(task.title)}</h3><p>${escapeHtml(task.owner || 'Unassigned')} · ${escapeHtml(task.priority || 'Medium')} priority · ${escapeHtml(task.status || 'Open')}</p><p class="muted compact">Read-only. Completion stays off until a granular write is approved.</p></div>
       ${dueBadge(task)}
     </article>`;
   }
 
   function complianceItem(item) {
-    return `<article class="quick-task compliance-task ${daysFromToday(item.dueDate) < 0 ? 'overdue' : ''}">
-      <button type="button" class="quick-task-check" data-complete-compliance="${escapeHtml(item.id)}" aria-label="Mark ${escapeHtml(item.name)} complete">✓</button>
-      <div class="quick-task-copy"><h3>${escapeHtml(item.name)}</h3><p>Compliance · ${escapeHtml(item.status || 'Needed')}</p></div>
+    return `<article class="quick-task compliance-task ${daysFromToday(item.dueDate) < 0 ? 'overdue' : ''}" data-compliance-id="${escapeHtml(item.id)}">
+      <div class="quick-task-copy"><h3>${escapeHtml(item.name)}</h3><p>Compliance · ${escapeHtml(item.status || 'Needed')}</p><p class="muted compact">Read-only. No mark-complete control.</p></div>
       ${dueBadge(item)}
     </article>`;
   }
@@ -238,34 +236,8 @@
       ? `<div class="selected-next-action"><span>Current next action</span><strong>${escapeHtml(event.nextAction)}</strong>${event.nextActionDue ? `<small>Due ${escapeHtml(event.nextActionDue)}</small>` : ''}</div>`
       : '';
 
-    panel.innerHTML = `<div class="panel-head selected-task-head"><div><p class="eyebrow small">Selected Event Action Plan</p><h2>To-Do List</h2><p class="muted compact">${escapeHtml(event.eventName)} · ${total} open item${total === 1 ? '' : 's'}</p></div><div class="actions"><button type="button" class="btn small" id="manageTasksBtn">Full Task Editor</button><button type="button" class="btn small primary" id="quickAddTaskBtn">+ Add Task</button></div></div>${nextAction}<div class="quick-task-list">${tasks.map(taskItem).join('')}${compliance.map(complianceItem).join('') || (!tasks.length ? '<div class="empty-state">Everything currently recorded for this event is complete.</div>' : '')}</div>`;
-
-    panel.querySelectorAll('[data-complete-task]').forEach(button => button.addEventListener('click', () => {
-      const task = (event.tasks || []).find(item => item.id === button.dataset.completeTask);
-      if (!task) return;
-      completeTask(task);
-      saveEvents('Task marked complete');
-      render();
-    }));
-    panel.querySelectorAll('[data-complete-compliance]').forEach(button => button.addEventListener('click', () => {
-      const item = (event.compliance || []).find(record => record.id === button.dataset.completeCompliance);
-      if (!item) return;
-      item.status = 'Complete';
-      saveEvents('Compliance item marked complete');
-      render();
-    }));
-    $('#quickAddTaskBtn')?.addEventListener('click', () => {
-      event.tasks.push({ id:id(), title:'New task', owner:event.setup?.internalOwner || 'Matt', dueDate:'', priority:'Medium', status:'Open' });
-      activeTab = 'tasks';
-      saveEvents('Task added');
-      render();
-      document.querySelector('#fullEventEditorTabs')?.scrollIntoView({ behavior:'smooth', block:'start' });
-    });
-    $('#manageTasksBtn')?.addEventListener('click', () => {
-      activeTab = 'tasks';
-      render();
-      document.querySelector('#fullEventEditorTabs')?.scrollIntoView({ behavior:'smooth', block:'start' });
-    });
+    panel.dataset.eventId = event.id;
+    panel.innerHTML = `<div class="panel-head selected-task-head"><div><p class="eyebrow small">Selected Event Action Plan</p><h2>To-Do List</h2><p class="muted compact">${escapeHtml(event.eventName)} · ${total} open item${total === 1 ? '' : 's'} · read-only</p></div></div>${nextAction}<div class="quick-task-list">${tasks.map(taskItem).join('')}${compliance.map(complianceItem).join('') || (!tasks.length ? '<div class="empty-state">Everything currently recorded for this event is complete.</div>' : '')}</div><p class="muted compact">No Save, Delete, Add Task, or Mark Complete control is presented. Open the command-center record for the full read-only workspace.</p>`;
   }
 
   function correctOverallReport() {

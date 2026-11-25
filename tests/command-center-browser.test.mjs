@@ -90,7 +90,7 @@ const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const fixture = {
   events: [
-    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Lead Client Co', contactName: 'Synthetic Guest', status: 'New Lead', eventDate: '12/20/2026', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000' }, staff: [{ id: 'staff-lead', name: 'Lead Host', role: 'Host' }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-lead-1', name: 'Lead-Only Proposal Packet', category: 'Proposal' }] },
+    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Lead Client Co', contactName: 'Synthetic Guest', contactEmail: 'stored.lead@example.test', contactPhone: '555-0101', status: 'New Lead', eventDate: '12/20/2026', startTime: '16:00', endTime: '20:00', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', eventGoal: 'Convert discovery into a priced proposal', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000', planningStage: 'Needs Discovery', primaryGoal: 'Corporate Team Building', setupTime: '15:00', strikeTime: '21:00', parkingInstructions: 'Use loading dock B' }, payment: { status: 'Not Invoiced', amountPaid: 0, depositRequired: 500, balanceDueDate: '2026-12-01' }, staff: [{ id: 'staff-lead', name: 'Lead Host', role: 'Host' }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }], compliance: [{ id: 'comp-lead-1', name: 'Certificate of Insurance', status: 'Needed', dueDate: '2026-12-05' }], documents: [{ id: 'doc-lead-1', name: 'Lead-Only Proposal Packet', category: 'Proposal' }], emailActivity: [{ id: 'mail-lead-1', subject: 'Lead discovery thread', direction: 'received', date: '2026-11-20T18:00:00.000Z', snippet: 'Can you send a proposal?' }], postEvent: { clientFeedback: '', whatWentWell: '', painPoints: '', changesForNextTime: '', reviewRequested: false, reviewReceived: false, rebookingLikelihood: '' } },
     { id: 'evt-partial', eventName: 'Synthetic Partial', status: 'Quote Needed', eventDate: '2026-12-18', quote: [{ quantity: 1, unitPrice: 100 }, { quantity: 1 }], tasks: [] },
     { id: 'evt-budget', eventName: 'Synthetic Budget', status: 'Needs Discovery', eventDate: '2026-12-16', setup: { budgetRange: '$10,000–$20,000', targetQuote: 0 }, tasks: [{ id: 'task-undated', title: 'Capture undated discovery', owner: 'Synthetic Owner', status: 'Open', priority: 'Low' }] },
     { id: 'evt-awaiting', eventName: 'Synthetic Awaiting', company: 'Private Client', status: 'Invoice Sent / Awaiting Deposit', eventDate: '2026-12-15', tasks: [] },
@@ -1174,7 +1174,30 @@ try {
   assert.match(record, /Lead Host/);
   assert.match(record, /Send proposal/);
   assert.match(record, /\$111\.00/);
-  assert.match(record, /1 document rows on this event/);
+  assert.match(record, /1 document row on this event/);
+  const workspaceSections = [
+    'client-contact', 'discovery', 'date-venue', 'goals', 'quote-payment', 'tasks', 'staffing',
+    'compliance', 'documents', 'run-of-show', 'logistics', 'communications', 'post-event', 'reports'
+  ];
+  for (const sectionId of workspaceSections) {
+    const section = page.locator(`[data-record-event="evt-lead"] [data-workspace-section="${sectionId}"]`);
+    assert.equal(await section.count(), 1, `missing workspace section ${sectionId}`);
+    assert.equal(await section.getAttribute('data-event-id'), 'evt-lead');
+  }
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="client-contact"]').innerText(), /Lead Client Co/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="client-contact"]').innerText(), /Synthetic Guest/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="goals"]').innerText(), /Convert discovery into a priced proposal/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="run-of-show"]').innerText(), /4:00 PM|16:00/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="logistics"]').innerText(), /loading dock B/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="communications"]').innerText(), /Lead discovery thread/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="compliance"]').innerText(), /Certificate of Insurance/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="post-event"]').innerText(), /Unavailable/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="quote-payment"]').innerText(), /Not Invoiced/);
+  assert.match(record, /No save control/);
+  assert.match(record, /No delete control/);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] #saveEditorBtn').count(), 0);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] #deleteEventBtn').count(), 0);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-complete-task]').count(), 0);
   assert.equal(await page.locator('[data-record-event="evt-lead"] [data-task-id="task-1"]').count(), 1);
   assert.equal(await page.locator('[data-record-event="evt-lead"] [data-task-id="task-floor"]').count(), 0);
   assert.equal(record.includes('Floor Lead'), false);
@@ -1527,6 +1550,11 @@ try {
   assert.equal(await page.locator('#commandNav').isVisible(), true);
   await page.locator('[data-view-event="evt-lead"]').click();
   await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="client-contact"]').getAttribute('data-event-id'), 'evt-lead');
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="logistics"]').getAttribute('data-event-id'), 'evt-lead');
+  assert.match(await page.locator('[data-record-event="evt-lead"]').innerText(), /No save control/);
+  assert.equal(await overflow(), true);
+  assert.equal(await page.locator('#commandNav').isVisible(), true);
   await page.locator('[data-back-list]').click();
   await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]') || /Priority open tasks/.test(document.querySelector('#commandView')?.innerText || ''));
   assert.equal(page.url().includes('sms-review'), false);
@@ -1586,7 +1614,10 @@ try {
   assert.equal(delayed.includes('Send proposal'), false);
   assert.equal(delayed.includes('Lead Client Co'), false);
   assert.equal(delayed.includes('Lead-Only Proposal Packet'), false);
-  assert.equal(delayed.includes('1 document rows'), false);
+  assert.equal(delayed.includes('1 document row on this event'), false);
+  for (const sectionId of ['client-contact', 'discovery', 'date-venue', 'goals', 'quote-payment', 'tasks', 'staffing', 'compliance', 'run-of-show', 'logistics', 'communications', 'post-event']) {
+    assert.equal(await page.locator(`[data-record-event="evt-active"] [data-workspace-section="${sectionId}"]`).getAttribute('data-event-id'), 'evt-active');
+  }
   assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue(), 'Synthetic Active');
   assert.equal(await page.locator('#eventEditorPanel [data-field="eventName"]').inputValue(), 'Synthetic Booked');
   assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue().then((value) => value.includes('Lead Client')), false);

@@ -65,7 +65,7 @@
 .quick-task-list{display:grid;gap:9px}
 .quick-task{
   display:grid;
-  grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-columns:minmax(0,1fr) auto;
   gap:12px;
   align-items:center;
   padding:12px;

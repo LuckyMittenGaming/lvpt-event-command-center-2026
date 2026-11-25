@@ -36,19 +36,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Authentication primitives unchanged: invalid sync key still 401 before any write path.
   if (!authorizeAppRequest(request)) return unauthorizedResponse();
-  try {
-    const body = (await request.json()) as { events?: unknown[]; actor?: string; reason?: string };
-    if (!Array.isArray(body.events) || body.events.length === 0) {
-      return Response.json({ message: 'At least one event record is required.' }, { status: 400 });
-    }
-    const data = await appsScriptRequest('saveAllEvents', {
-      events: body.events,
-      actor: String(body.actor || 'Unknown').slice(0, 60),
-      reason: String(body.reason || 'Command Center save').slice(0, 180),
-    });
-    return Response.json(data);
-  } catch (error) {
-    return serverError(error);
-  }
+  // R09 gate: legacy bulk snapshot replacement stays disabled.
+  // Authenticated callers still cannot invoke Apps Script / sheet mutation from this route.
+  // The isolated granular event-mutation contract is not wired here.
+  return Response.json({
+    ok: false,
+    writesPerformed: false,
+    reason: 'bulk_event_mutation_disabled',
+    message: 'Bulk event snapshot writes are disabled. Production editing remains off until owner-approved granular activation.'
+  }, { status: 403 });
 }

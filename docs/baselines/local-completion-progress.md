@@ -193,11 +193,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED |
+| Status | IMPLEMENTED_TESTED |
+| Date/time | 2026-11-25 |
 | Dependencies | R08 |
-| Evidence | Event writes DISABLED in matrix; mutation contract files absent |
-| Remaining blocker | Isolated development only; activation is R28 / owner |
-| Next task | Create contract/tests only; no live enablement |
+| Files inspected | `remaining-spec.md` R09, `public/v2/js/wizard.js`, `public/v2/js/core.js`, `public/v2/js/central-sync.js`, `app/api/sync/events/route.ts`, `apps-script/live/event-command-center-backend/Code.js` (read-only), `docs/command-center-completion-matrix.md` |
+| Files changed | `lib/event-mutation-contract.mjs` (new), `tests/event-mutation-contract.test.mjs` (new), `docs/event-mutation-contract.md` (new), `app/api/sync/events/route.ts` (bulk POST disabled), `docs/command-center-completion-matrix.md`, `docs/baselines/local-completion-progress.md`, `docs/baselines/local-baseline-reconciliation.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/event-mutation-contract.test.mjs,tests/command-center-acceptance.test.mjs` |
+| Exit codes | Targeted verify **0** (mutation contract 0; acceptance 0) |
+| Evidence | Isolated synthetic contract covers create, field/status update, quote upsert, task complete/reopen, proposal link, follow-up, post-event. Rejects unauthorized, unknown fields, stale revisions, cross-event task/quote ownership, and bulk snapshot shapes. Idempotent replays do not duplicate. Armed atomic failures roll back with unrelated fields preserved. `PRODUCTION_MUTATIONS_ENABLED=false`; granular contract not wired to routes; no Apps Script proposal. |
+| Evidence (T17 revision) | Inspected POST: auth via `authorizeAppRequest` only; no prior write-disable gate existed (authenticated callers previously reached `saveAllEvents`). Disabled bulk snapshot POST to 403 `bulk_event_mutation_disabled` / `writesPerformed: false` without changing auth primitives or wiring the granular contract. Behavioral harness proves unauthorized → 401 and authenticated bulk `events[]` → 403 with zero `appsScriptRequest` calls. Not LIVE_VERIFIED. |
+| Remaining blocker | Live activation remains R28 / owner; production Event writes stay DISABLED |
+| Next task | R10 (independent) or continue remaining-spec order |
 
 ### R10 — Complete financial drilldown and reconciliation
 
@@ -425,7 +431,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED** (read-only workspace + event-scoped documents/print) |
-| Next authorized task | R09 — safe granular event editing contract |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED** (isolated event mutation contract) |
+| Next authorized task | R10 — financial drilldown and reconciliation |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

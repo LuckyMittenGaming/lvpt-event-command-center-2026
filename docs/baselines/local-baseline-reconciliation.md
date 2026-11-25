@@ -201,7 +201,7 @@ Status meanings used here:
 | R06 | CRM / SEO attribution / conversion | VERIFY_EXISTING (partial) | action-inbox keeps acquisition/channel separate; conversion.rate null | Cohort period undefined; do not invent |
 | R07 | Proposal / portfolio accuracy | VERIFY_EXISTING | Proposal URL rules in matrix | Missing links stay missing |
 | R08 | Read-only event workspace | VERIFY_EXISTING | event workspace upgrade / lifecycle record views | Writes remain off |
-| R09 | Safe granular event editing | NOT_STARTED | No `lib/event-mutation-contract.mjs` / proposed Apps Script | Isolated contract only; activation later (R28) |
+| R09 | Safe granular event editing | IMPLEMENTED_TESTED | `lib/event-mutation-contract.mjs` + tests + docs; synthetic adapter only | Activation later (R28); production writes stay DISABLED |
 | R10 | Financial drilldown / reconciliation | VERIFY_EXISTING | event-finance + acceptance fixtures | Live payment-row completeness still owner check |
 | R11 | Gmail full-thread read readiness | VERIFY_EXISTING (partial) | SMS-review Gmail triage/intelligence + GAS evidence files | Full-thread live readiness still staged; no auto-send |
 | R12 | One-at-a-time approval state machine | VERIFY_EXISTING (partial) | reply workflow / decisions / review controls + tests | Hub does not record approvals; keep synthetic-only |

@@ -702,17 +702,26 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     return `<section class="workspace-section" data-workspace-section="${escapeHtml(sectionId)}" data-event-id="${escapeHtml(eventId)}"><h3>${escapeHtml(title)}</h3>${body}</section>`;
   }
   function documentRows(event) {
+    if (typeof formatDocumentAssociationHtml === 'function') {
+      return formatDocumentAssociationHtml(event);
+    }
     const docs = Array.isArray(event.documents) ? event.documents : [];
-    if (!docs.length) return '<p>0 document rows on this event. File bytes are not opened here.</p>';
+    if (!docs.length) return '<p data-document-count="0">0 document rows on this event. File bytes are not opened here. Document writes stay off.</p>';
     const items = docs.map((doc) => {
       const name = doc && (doc.name || doc.title) ? String(doc.name || doc.title) : 'Untitled document';
       const category = doc && doc.category ? String(doc.category) : 'Category unavailable';
-      const link = doc && typeof doc.url === 'string' && /^https:\/\//i.test(doc.url.trim()) && !/@(?:[^/?#]*):/.test(doc.url)
-        ? `<a href="${escapeHtml(doc.url.trim())}" target="_blank" rel="noopener">Open source link</a>`
-        : 'Source link unavailable';
-      return `<li data-document-id="${escapeHtml(doc && doc.id ? doc.id : '')}">${escapeHtml(name)} · ${escapeHtml(category)} · ${link}</li>`;
+      const source = typeof resolveDocumentSourceUrl === 'function'
+        ? resolveDocumentSourceUrl(doc)
+        : { ok: false, reason: 'missing' };
+      let link = '<span data-document-link="unavailable">Source link unavailable</span>';
+      if (source.ok) {
+        link = `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener" data-document-link="linked">Open source link</a>`;
+      } else if (source.reason === 'invalid') {
+        link = '<span data-document-link="unsupported">Unsupported or invalid source link</span>';
+      }
+      return `<li data-document-id="${escapeHtml(doc && doc.id ? doc.id : '')}" data-document-link-state="${source.ok ? 'linked' : source.reason === 'invalid' ? 'unsupported' : 'unavailable'}">${escapeHtml(name)} · ${escapeHtml(category)} · ${link}</li>`;
     }).join('');
-    return `<p>${docs.length} document row${docs.length === 1 ? '' : 's'} on this event. File bytes are not opened here.</p><ul>${items}</ul>`;
+    return `<p data-document-count="${docs.length}">${docs.length} document row${docs.length === 1 ? '' : 's'} on this event. File bytes are not opened here. Document writes stay off.</p><ul data-document-associations>${items}</ul>`;
   }
   function communicationRows(event) {
     const rows = Array.isArray(event.emailActivity) ? event.emailActivity : [];
@@ -813,7 +822,27 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     });
     bindEventOpeners(view);
     bindLedgerRetry(view);
-    view.querySelector('[data-print-record]')?.addEventListener('click', () => window.print());
+    view.querySelector('[data-print-record]')?.addEventListener('click', () => {
+      const recordEvent = eventById(event.id);
+      if (!recordEvent) {
+        toast('Selected event id is not in the current snapshot. Another event was not substituted.');
+        return;
+      }
+      selectedId = recordEvent.id;
+      const center = document.getElementById('reportCenter');
+      if (center) center.hidden = false;
+      const preButton = document.querySelector('[data-generate-report="pre"]');
+      if (preButton) {
+        preButton.click();
+      } else if (typeof generateReport === 'function') {
+        const output = document.getElementById('generatedReportOutput');
+        if (output) {
+          output.hidden = false;
+          output.textContent = generateReport(recordEvent, 'pre');
+        }
+      }
+      window.print();
+    });
   }
 
   function renderPipeline(view) {

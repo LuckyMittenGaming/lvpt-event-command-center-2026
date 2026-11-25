@@ -176,16 +176,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | **IMPLEMENTED_TESTED** (T15 + revision) |
+| Status | **IMPLEMENTED_TESTED** (T15 + T16) |
 | Date/time | 2026-11-25 |
 | Dependencies | R03, R07 |
-| Files inspected | `remaining-spec.md` R08, `public/v2/js/lifecycle-command-center.js` (`summarizeQuotes` Cost coverage label), `public/v2/js/event-workspace-upgrade.js`, `tests/command-center-acceptance.test.mjs`, `tests/command-center-browser.test.mjs` |
-| Files changed | `public/v2/js/lifecycle-command-center.js`, `public/v2/js/event-workspace-upgrade.js`, `public/v2/lifecycle-command-center.css`, `public/v2/event-workspace-upgrade.css`, `tests/command-center-browser.test.mjs`, `tests/command-center-acceptance.test.mjs`, `docs/baselines/local-completion-progress.md` |
-| Exact test commands | `node .\tests\command-center-acceptance.test.mjs`; `node .\tests\command-center-browser.test.mjs` |
-| Exit codes | acceptance **0**; browser **0** |
+| Files inspected | `remaining-spec.md` R08, `public/v2/js/lifecycle-command-center.js` (`summarizeQuotes` Cost coverage label), `public/v2/js/event-workspace-upgrade.js`, `public/v2/js/documents.js`, `public/v2/js/reports.js`, `public/v2/js/dashboard-upgrades.js`, `public/v2/js/central-sync.js`, `tests/command-center-acceptance.test.mjs`, `tests/command-center-browser.test.mjs` |
+| Files changed | `public/v2/js/documents.js`, `public/v2/js/reports.js`, `public/v2/js/lifecycle-command-center.js`, `public/v2/js/dashboard-upgrades.js`, `public/v2/js/central-sync.js`, `public/v2/app.js`, `tests/command-center-browser.test.mjs`, `tests/command-center-acceptance.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/command-center-browser.test.mjs,tests/command-center-acceptance.test.mjs` |
+| Exit codes | Targeted verify **0** (browser 0; acceptance 0) |
 | Evidence | Read-only record sections for client/contact, discovery, date/venue, goals, quote/payment, tasks, staffing, compliance, documents, run of show, logistics, communications, CRM attribution, post-event obligations, and reports. Each section uses `data-workspace-section` + the same validated `data-event-id`. Missing fields labeled Unavailable. No Save/Delete/Mark Complete/Add Task on the record or selected-task panel. Desktop + 375px navigation covered. |
 | Evidence (revision) | Stale acceptance `/Quote profit/` updated to intentional UI label `/Cost coverage/`. Preserved and strengthened financial-integrity static checks: `Cost not recorded`, `Missing cost is not zero`, margin-only-when-complete, budget≠target, targets not added to priced lines; rejects `Projected Profit` and stale `Quote profit`. Not LIVE_VERIFIED. |
-| Remaining blocker | Live sheet field completeness and authenticated staging confirmation remain owner-side (R22/R23). |
+| Evidence (T16) | Authoritative document associations via `validateDocumentSourceUrl` / `resolveDocumentSourceUrl` (`url` → `driveUrl` → `downloadUrl`). Counts and linked/unsupported/unavailable labels stay event-scoped. Pre/post print/report re-resolve by event id with no arbitrary fallback; invalid ids refuse substitution. Upload/delete/Open blob/Drive mutation paths disabled (`documentMutationsEnabled` false); private bytes not fetched. Browser fixtures cover https link, http unsupported, credentialed unsupported, missing link, rapid switch, and report isolation. Not LIVE_VERIFIED. |
+| Remaining blocker | Live sheet field completeness and authenticated staging confirmation remain owner-side (R22/R23). Private document access remains owner-authorized. |
 | Next task | R09 — safe granular event editing contract (isolated) |
 
 ### R09 — Prepare safe granular event editing
@@ -424,7 +425,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15 **IMPLEMENTED_TESTED** (read-only event workspace) |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED** (read-only workspace + event-scoped documents/print) |
 | Next authorized task | R09 — safe granular event editing contract |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

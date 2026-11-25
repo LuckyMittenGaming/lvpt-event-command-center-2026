@@ -112,6 +112,14 @@
   }
 
   function selectedEventReport(event,type){
+    if(!event||!event.id){
+      return '<div class="report-empty">No event selected. Print/report output was not generated for another event.</div>';
+    }
+    const scoped=Array.isArray(events)?events.find((row)=>row&&row.id===event.id):null;
+    if(!scoped){
+      return '<div class="report-empty">Selected event id is not in the current snapshot. Another event was not substituted.</div>';
+    }
+    event=scoped;
     const completion=setupCompleteness(event);
     const total=quoteTotal(event);
     const cost=quoteCost(event);
@@ -121,15 +129,20 @@
     const taskRows=(event.tasks||[]).map(item=>[item.title,item.owner,item.dueDate||'Not set',item.priority,taskStatusLabel(item)]);
     const staffRows=(event.staff||[]).map(item=>[item.name,item.role,item.confirmed?'Yes':'No',humanTime(item.arrivalTime),money(item.rate)]);
     const complianceRows=(event.compliance||[]).map(item=>[item.name,item.status,item.dueDate||'Not set']);
-    const documentRows=(event.documents||[]).map(item=>[item.category,item.name,item.vendor||'—',item.documentDate||'—',item.amount?money(item.amount):'—']);
+    const documentRows=(event.documents||[]).map((item)=>{
+      const source=typeof resolveDocumentSourceUrl==='function'?resolveDocumentSourceUrl(item):{ok:false,reason:'missing'};
+      const linkLabel=source.ok?'source link available':source.reason==='invalid'?'unsupported or invalid source link':'source link unavailable';
+      return [item.id||'missing-id',item.category||'Category unavailable',item.name||'Untitled document',linkLabel];
+    });
     const emailRows=(event.emailActivity||[]).map(item=>[item.subject||'(No subject)',item.from||'Unknown',item.date||'—',item.direction||'received',item.snippet||'']);
     const setup=event.setup||{};
-    const header=`<div class="generated-report-hero"><div><p class="eyebrow">Las Vegas Poker Training</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(subtitle)}</p></div><div class="generated-report-badge">${escapeHtml(event.status)}</div></div><div class="generated-report-title"><div><h1>${escapeHtml(event.eventName)}</h1><p>${escapeHtml(event.company)} · ${escapeHtml(event.eventDate||'Date TBD')} · ${escapeHtml(event.venue||'Venue TBD')}, ${escapeHtml(event.city||'')}${event.state?`, ${escapeHtml(event.state)}`:''}</p></div>${validUrl(event.proposalUrl)?`<a class="btn primary" href="${escapeHtml(event.proposalUrl)}" target="_blank" rel="noopener">Open Proposal</a>`:''}</div><div class="generated-report-metrics">${[
-      ['Quote',money(total)],['Collected',money(event.payment.amountPaid)],['Outstanding',money(balance(event))],['Estimated Profit',money(total-cost)],['Open Tasks',String((event.tasks||[]).filter(task=>!taskIsComplete(task)).length)],['Setup',`${completion.percent}%`]
+    const payment=event.payment||{};
+    const header=`<div class="generated-report-hero"><div><p class="eyebrow">Las Vegas Poker Training</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(subtitle)}</p></div><div class="generated-report-badge">${escapeHtml(event.status)}</div></div><div class="generated-report-title"><div><h1>${escapeHtml(event.eventName)}</h1><p>Event ID: ${escapeHtml(event.id)} · ${escapeHtml(event.company)} · ${escapeHtml(event.eventDate||'Date TBD')} · ${escapeHtml(event.venue||'Venue TBD')}, ${escapeHtml(event.city||'')}${event.state?`, ${escapeHtml(event.state)}`:''}</p></div>${validUrl(event.proposalUrl)?`<a class="btn primary" href="${escapeHtml(event.proposalUrl)}" target="_blank" rel="noopener">Open Proposal</a>`:''}</div><div class="generated-report-metrics">${[
+      ['Quote',money(total)],['Collected',money(payment.amountPaid)],['Outstanding',money(balance(event))],['Estimated Profit',money(total-cost)],['Open Tasks',String((event.tasks||[]).filter(task=>!taskIsComplete(task)).length)],['Setup',`${completion.percent}%`]
     ].map(item=>`<div><span>${escapeHtml(item[0])}</span><strong>${escapeHtml(item[1])}</strong></div>`).join('')}</div>`;
 
-    const overview=reportSection('Current Event Information','Full Event Editor',`<div class="report-kv-grid">${[
-      ['Primary Contact',event.contactName],['Contact Email',event.contactEmail],['Contact Phone',event.contactPhone],['Event Type',event.eventType],['Lead Source',event.leadSource],['Close Probability',`${event.probabilityToClose||0}%`],['Start',humanTime(event.startTime)],['End',humanTime(event.endTime)],['Guests',String(event.guestCount||0)],['Training Participants',String(event.studentCount||0)],['Skill Level',event.skillLevel],['Next Action Due',event.nextActionDue],['Payment Status',event.payment.status],['Balance Due Date',event.payment.balanceDueDate],['Proposal URL',event.proposalUrl||'Not entered']
+    const overview=reportSection('Current Event Information','Selected Event Only',`<div class="report-kv-grid">${[
+      ['Event ID',event.id],['Primary Contact',event.contactName],['Contact Email',event.contactEmail],['Contact Phone',event.contactPhone],['Event Type',event.eventType],['Lead Source',event.leadSource],['Close Probability',`${event.probabilityToClose||0}%`],['Start',humanTime(event.startTime)],['End',humanTime(event.endTime)],['Guests',String(event.guestCount||0)],['Training Participants',String(event.studentCount||0)],['Skill Level',event.skillLevel],['Next Action Due',event.nextActionDue],['Payment Status',payment.status],['Balance Due Date',payment.balanceDueDate],['Proposal URL',event.proposalUrl||'Not entered']
     ].map(([label,value])=>reportValue(label,value)).join('')}</div><div class="report-text-grid">${reportText('Event Goal',event.eventGoal)}${reportText('Event Format',event.eventFormat)}${reportText('Client Expectations',event.clientExpectations)}${reportText('Known Risks / Red Flags',event.knownRisks)}${reportText('Next Action',event.nextAction)}</div>`);
 
     const setupSection=reportSection('Setup & Production','Guided Event Setup',`<div class="report-kv-grid">${[
@@ -140,10 +153,11 @@
     const tasksSection=reportSection('Tasks & Reminders','Action Plan',reportTable(['Task','Owner','Due','Priority','Status'],taskRows,'No tasks entered.'));
     const staffSection=reportSection('Staff','Pros, Dealers, MCs & TDs',reportTable(['Name','Role','Confirmed','Arrival','Rate'],staffRows,'No staff assigned.'));
     const complianceSection=reportSection('Compliance','Venue, Vendor & Legal',reportTable(['Requirement','Status','Due'],complianceRows,'No compliance items entered.'));
-    const documentsSection=reportSection('Documents','Invoices, Proposals, Receipts & Files',reportTable(['Category','Document','Vendor','Date','Amount'],documentRows,'No documents indexed.'));
+    const documentsSection=reportSection('Documents','Invoices, Proposals, Receipts & Files',reportTable(['Document ID','Category','Document','Source link'],documentRows,'No documents indexed.'));
+    const post=event.postEvent||{};
     const inboxSection=reportSection('Inbox & Reminders','Gmail-Assisted Event Management',`${reportTable(['Subject','From','Date','Direction','Summary'],emailRows,'No matched Gmail activity yet.')}<div class="report-text-grid top-gap">${reportText('Gmail Matching Terms',setup.gmailKeywords)}${reportText('Communication Notes',setup.communicationNotes)}</div>`);
-    const postSection=reportSection('Post-Event','After-Action Review',`<div class="report-text-grid">${reportText('Client Feedback',event.postEvent.clientFeedback)}${reportText('What Went Well',event.postEvent.whatWentWell)}${reportText('Pain Points',event.postEvent.painPoints)}${reportText('Changes Next Time',event.postEvent.changesForNextTime)}</div><div class="report-kv-grid top-gap">${reportValue('Review Requested',event.postEvent.reviewRequested?'Yes':'No')}${reportValue('Review Received',event.postEvent.reviewReceived?'Yes':'No')}${reportValue('Rebooking Likelihood',event.postEvent.rebookingLikelihood)}</div>`);
-    return `<article class="generated-report">${header}${overview}${setupSection}${quoteSection}${tasksSection}${staffSection}${complianceSection}${documentsSection}${inboxSection}${postSection}</article>`;
+    const postSection=reportSection('Post-Event','After-Action Review',`<div class="report-text-grid">${reportText('Client Feedback',post.clientFeedback)}${reportText('What Went Well',post.whatWentWell)}${reportText('Pain Points',post.painPoints)}${reportText('Changes Next Time',post.changesForNextTime)}</div><div class="report-kv-grid top-gap">${reportValue('Review Requested',post.reviewRequested?'Yes':'No')}${reportValue('Review Received',post.reviewReceived?'Yes':'No')}${reportValue('Rebooking Likelihood',post.rebookingLikelihood)}</div>`);
+    return `<article class="generated-report" data-report-event="${escapeHtml(event.id)}">${header}${overview}${setupSection}${quoteSection}${tasksSection}${staffSection}${complianceSection}${documentsSection}${inboxSection}${postSection}</article>`;
   }
 
   function overallReport(){
@@ -185,7 +199,13 @@
     ensureReportCenter();
     const event=current();
     $('#generatedReportOutput').hidden=false;
-    $('#generatedReportOutput').innerHTML=type==='overall'?overallReport():event?selectedEventReport(event,type):'<div class="report-empty">Select an event to generate this report.</div>';
+    if(type==='overall'){
+      $('#generatedReportOutput').innerHTML=overallReport();
+    } else if(!event||!event.id){
+      $('#generatedReportOutput').innerHTML='<div class="report-empty">No event selected. Print/report output was not generated for another event.</div>';
+    } else {
+      $('#generatedReportOutput').innerHTML=selectedEventReport(event,type);
+    }
     refreshReportContext();
   }
 

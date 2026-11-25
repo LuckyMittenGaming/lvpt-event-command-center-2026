@@ -2,21 +2,123 @@ function openDocDb(){ return new Promise((resolve,reject)=>{ const request=index
 async function saveDocumentBlob(idValue,file){ const db=await openDocDb(); return new Promise((resolve,reject)=>{ const tx=db.transaction(DB_STORE,'readwrite'); tx.objectStore(DB_STORE).put({id:idValue,file}); tx.oncomplete=()=>resolve(); tx.onerror=()=>reject(tx.error); }); }
 async function getDocumentBlob(idValue){ const db=await openDocDb(); return new Promise((resolve,reject)=>{ const request=db.transaction(DB_STORE,'readonly').objectStore(DB_STORE).get(idValue); request.onsuccess=()=>resolve(request.result?.file||null); request.onerror=()=>reject(request.error); }); }
 async function deleteDocumentBlob(idValue){ const db=await openDocDb(); return new Promise((resolve,reject)=>{ const tx=db.transaction(DB_STORE,'readwrite'); tx.objectStore(DB_STORE).delete(idValue); tx.oncomplete=()=>resolve(); tx.onerror=()=>reject(tx.error); }); }
+
+/** Document writes and private blob/Drive fetches stay off until a granular write is approved. */
+function documentMutationsEnabled(){ return false; }
+
+/**
+ * Authoritative document source URLs must be https without embedded credentials.
+ * Missing stays missing; invalid/unsupported stays invalid. Never invent a URL.
+ */
+function validateDocumentSourceUrl(value){
+  const raw=String(value??'').trim();
+  if(!raw) return { ok:false, url:'', reason:'missing', raw:'' };
+  if(/\s/.test(raw)) return { ok:false, url:'', reason:'invalid', raw };
+  try {
+    const url=new URL(raw);
+    if(url.protocol!=='https:'||!url.hostname||url.username||url.password){
+      return { ok:false, url:'', reason:'invalid', raw };
+    }
+    return { ok:true, url:url.toString(), reason:'valid', raw };
+  } catch {
+    return { ok:false, url:'', reason:'invalid', raw };
+  }
+}
+
+/** Prefer stable sheet fields: url, driveUrl, then downloadUrl. First valid https wins. */
+function resolveDocumentSourceUrl(doc){
+  if(!doc||typeof doc!=='object') return { ok:false, url:'', reason:'missing', raw:'', field:'' };
+  const candidates=[
+    ['url', doc.url],
+    ['driveUrl', doc.driveUrl],
+    ['downloadUrl', doc.downloadUrl]
+  ];
+  let sawInvalid=false;
+  for(const [field,value] of candidates){
+    if(value==null||value==='') continue;
+    const validated=validateDocumentSourceUrl(value);
+    if(validated.ok) return { ...validated, field };
+    if(validated.reason==='invalid') sawInvalid=true;
+  }
+  return { ok:false, url:'', reason:sawInvalid?'invalid':'missing', raw:'', field:'' };
+}
+
+function documentAssociationRows(event){
+  const docs=Array.isArray(event&&event.documents)?event.documents:[];
+  return docs.map((doc)=>{
+    const idValue=doc&&doc.id?String(doc.id):'';
+    const name=doc&&(doc.name||doc.title)?String(doc.name||doc.title):'Untitled document';
+    const category=doc&&doc.category?String(doc.category):'Category unavailable';
+    const source=resolveDocumentSourceUrl(doc);
+    let linkState='unavailable';
+    let linkLabel='Source link unavailable';
+    if(source.ok){
+      linkState='linked';
+      linkLabel='Open source link';
+    } else if(source.reason==='invalid'){
+      linkState='unsupported';
+      linkLabel='Unsupported or invalid source link';
+    }
+    return { id:idValue, name, category, source, linkState, linkLabel };
+  });
+}
+
+function formatDocumentAssociationHtml(event){
+  const rows=documentAssociationRows(event);
+  if(!rows.length){
+    return '<p data-document-count="0">0 document rows on this event. File bytes are not opened here. Document writes stay off.</p>';
+  }
+  const items=rows.map((row)=>{
+    const link=row.linkState==='linked'
+      ? `<a href="${escapeHtml(row.source.url)}" target="_blank" rel="noopener" data-document-link="linked">Open source link</a>`
+      : `<span data-document-link="${escapeHtml(row.linkState)}">${escapeHtml(row.linkLabel)}</span>`;
+    return `<li data-document-id="${escapeHtml(row.id)}" data-document-link-state="${escapeHtml(row.linkState)}">${escapeHtml(row.name)} · ${escapeHtml(row.category)} · ${link}</li>`;
+  }).join('');
+  return `<p data-document-count="${rows.length}">${rows.length} document row${rows.length===1?'':'s'} on this event. File bytes are not opened here. Document writes stay off.</p><ul data-document-associations>${items}</ul>`;
+}
+
+function formatDocumentAssociationText(event){
+  const rows=documentAssociationRows(event);
+  if(!rows.length) return 'No documents indexed.';
+  return rows.map((row)=>{
+    const idPart=row.id||'missing-id';
+    const linkPart=row.linkState==='linked'?'source link available':row.linkLabel.toLowerCase();
+    return `- ${idPart}: ${row.category}: ${row.name} | ${linkPart}`;
+  }).join('\n');
+}
+
 function renderDocumentsTab(event){
-  const docs=[...event.documents].sort((a,b)=>b.uploadedAt.localeCompare(a.uploadedAt));
-  $('#tabContent').innerHTML=`<div class="panel-head"><div><p class="eyebrow small">Event Document Vault</p><h2>Invoices, Receipts & Files</h2></div><button class="btn primary small" id="chooseDocumentsBtn">+ Upload Documents</button></div><div class="storage-note">Files are stored in this browser's IndexedDB and indexed inside the event record. They are not yet shared across devices. The System tab contains the secure Vercel Blob cloud-storage upgrade requirements.</div><div class="document-toolbar"><label>Category<select class="input" id="docCategory"><option>Invoice</option><option>Receipt</option><option>Contract</option><option>Venue Document</option><option>COI / Compliance</option><option>Staff Document</option><option>Floor Plan</option><option>Client Correspondence</option><option>Miscellaneous</option></select></label><label>Vendor / Payee<input class="input" id="docVendor" /></label><label>Amount<input class="input" id="docAmount" type="number" min="0" /></label><label>Document Date<input class="input" id="docDate" type="date" /></label><button class="btn" id="uploadUsingMetaBtn">Select Files</button></div><div class="file-drop" id="fileDrop"><strong>Drop PDFs, images, Office files, CSVs, text files or .eml messages here</strong><p class="muted">Maximum ${formatBytes(MAX_FILE_SIZE)} per file.</p></div><h3 class="section-title">${docs.length} Stored Document${docs.length===1?'':'s'}</h3><div class="document-list">${docs.map(documentCard).join('')||'<div class="empty-state">No documents uploaded for this event yet.</div>'}</div>`;
-  const choose=()=>$('#documentFileInput').click(); $('#chooseDocumentsBtn').addEventListener('click',choose); $('#uploadUsingMetaBtn').addEventListener('click',choose); const drop=$('#fileDrop'); ['dragenter','dragover'].forEach(name=>drop.addEventListener(name,event=>{ event.preventDefault(); drop.classList.add('dragover'); })); ['dragleave','drop'].forEach(name=>drop.addEventListener(name,event=>{ event.preventDefault(); drop.classList.remove('dragover'); })); drop.addEventListener('drop',event=>handleDocumentFiles(event.dataTransfer.files));
-  all('[data-open-doc]').forEach(button=>button.addEventListener('click',()=>openDocument(button.dataset.openDoc))); all('[data-download-doc]').forEach(button=>button.addEventListener('click',()=>downloadDocument(button.dataset.downloadDoc))); all('[data-delete-doc]').forEach(button=>button.addEventListener('click',()=>removeDocument(button.dataset.deleteDoc)));
+  const rows=documentAssociationRows(event);
+  const list=rows.length
+    ? `<div class="document-list" data-document-associations>${rows.map((row)=>{
+        const link=row.linkState==='linked'
+          ? `<a class="btn small" href="${escapeHtml(row.source.url)}" target="_blank" rel="noopener" data-document-link="linked">Open source link</a>`
+          : `<span class="muted" data-document-link="${escapeHtml(row.linkState)}">${escapeHtml(row.linkLabel)}</span>`;
+        return `<div class="document-card" data-document-id="${escapeHtml(row.id)}" data-document-link-state="${escapeHtml(row.linkState)}"><div class="doc-name"><h4>${escapeHtml(row.name)}</h4><p>${escapeHtml(row.category)} · association only</p></div><div><span class="label">Source</span><strong>${link}</strong></div></div>`;
+      }).join('')}</div>`
+    : '<div class="empty-state">0 document rows on this event.</div>';
+  $('#tabContent').innerHTML=`<div class="panel-head"><div><p class="eyebrow small">Event Document Associations</p><h2>Invoices, Receipts & Files</h2></div></div><div class="storage-note">Counts and links use authoritative document rows for this validated event only. Private file bytes are not fetched. Upload, delete, and browser IndexedDB writes stay off until a granular write is approved.</div><h3 class="section-title" data-document-count="${rows.length}">${rows.length} Document Row${rows.length===1?'':'s'}</h3>${list}`;
 }
-function documentCard(doc){ return `<div class="document-card"><div class="doc-name"><h4>${escapeHtml(doc.name)}</h4><p>${escapeHtml(doc.category)} · ${formatBytes(doc.size)} · Uploaded ${escapeHtml(doc.uploadedAt.slice(0,10))}</p></div><div><span class="label">Vendor</span><strong>${escapeHtml(doc.vendor||'—')}</strong></div><div><span class="label">Amount</span><strong>${doc.amount?money(doc.amount):'—'}</strong></div><div><span class="label">Date</span><strong>${escapeHtml(doc.documentDate||'—')}</strong></div><div class="document-actions"><button class="btn small" data-open-doc="${doc.id}">Open</button><button class="btn small" data-download-doc="${doc.id}">Download</button><button class="btn danger small" data-delete-doc="${doc.id}">Delete</button></div></div>`; }
-async function handleDocumentFiles(fileList){
-  const event=current(); if(!event||!fileList?.length) return; const category=$('#docCategory')?.value||'Miscellaneous'; const vendor=$('#docVendor')?.value||''; const amount=num($('#docAmount')?.value); const documentDate=$('#docDate')?.value||''; let added=0;
-  for(const file of Array.from(fileList)){ if(file.size>MAX_FILE_SIZE){ toast(`${file.name} exceeds ${formatBytes(MAX_FILE_SIZE)}`); continue; } const docId=id(); try { await saveDocumentBlob(docId,file); event.documents.push({id:docId,name:file.name,type:file.type||'application/octet-stream',size:file.size,category,vendor,amount,documentDate,uploadedAt:new Date().toISOString()}); added++; } catch(error){ console.error(error); toast(`Could not store ${file.name}`); } }
-  $('#documentFileInput').value=''; if(added){ saveEvents(`${added} document${added===1?'':'s'} uploaded`); render(); }
+function documentCard(doc){
+  const rows=documentAssociationRows({ documents:[doc] });
+  const row=rows[0]||{ id:'', name:'Untitled document', category:'Category unavailable', linkState:'unavailable', linkLabel:'Source link unavailable', source:{ ok:false } };
+  const link=row.linkState==='linked'
+    ? `<a class="btn small" href="${escapeHtml(row.source.url)}" target="_blank" rel="noopener">Open source link</a>`
+    : `<span class="muted">${escapeHtml(row.linkLabel)}</span>`;
+  return `<div class="document-card" data-document-id="${escapeHtml(row.id)}"><div class="doc-name"><h4>${escapeHtml(row.name)}</h4><p>${escapeHtml(row.category)}</p></div><div class="document-actions">${link}</div></div>`;
 }
-async function openDocument(docId){ const file=await getDocumentBlob(docId); if(!file){ toast('File data is unavailable in this browser'); return; } const url=URL.createObjectURL(file); window.open(url,'_blank','noopener'); setTimeout(()=>URL.revokeObjectURL(url),60000); }
-async function downloadDocument(docId){ const event=current(); const doc=event.documents.find(item=>item.id===docId); const file=await getDocumentBlob(docId); if(!doc||!file){ toast('File data is unavailable in this browser'); return; } const url=URL.createObjectURL(file); const anchor=document.createElement('a'); anchor.href=url; anchor.download=doc.name; anchor.click(); URL.revokeObjectURL(url); }
-async function removeDocument(docId){ const event=current(); const doc=event.documents.find(item=>item.id===docId); if(!doc||!confirm(`Delete ${doc.name}?`)) return; await deleteDocumentBlob(docId).catch(()=>{}); event.documents=event.documents.filter(item=>item.id!==docId); saveEvents('Document deleted'); render(); }
+async function handleDocumentFiles(){
+  toast('Document uploads stay off until a granular write is approved.');
+}
+async function openDocument(){
+  toast('Private document bytes are not opened from this workspace.');
+}
+async function downloadDocument(){
+  toast('Private document downloads stay off from this workspace.');
+}
+async function removeDocument(){
+  toast('Document deletes stay off until a granular write is approved.');
+}
 
 function buildGmailQuery(event){ const parts=[]; if(event.contactEmail) parts.push(`from:(${event.contactEmail}) OR to:(${event.contactEmail})`); const keywords=event.setup.gmailKeywords||event.company||event.eventName; if(keywords) parts.push(`(${keywords.split(/\s+/).filter(Boolean).slice(0,6).join(' OR ')})`); return parts.join(' ')||'newer_than:1y'; }
 async function checkGmailStatus(showToast=true){

@@ -196,6 +196,9 @@
 
   const browserHandleDocumentFiles = handleDocumentFiles;
   handleDocumentFiles = async function(fileList) {
+    if (typeof documentMutationsEnabled === 'function' && !documentMutationsEnabled()) {
+      return browserHandleDocumentFiles(fileList);
+    }
     const event = current();
     if (!event || !fileList?.length) return;
     if (!centralStatus.configured || !appSyncKey()) {
@@ -258,9 +261,13 @@
 
   const browserOpenDocument = openDocument;
   openDocument = async function(docId) {
+    if (typeof documentMutationsEnabled === 'function' && !documentMutationsEnabled()) {
+      return browserOpenDocument(docId);
+    }
     const doc = current()?.documents.find(item => item.id === docId);
-    if (doc?.driveUrl) {
-      window.open(doc.driveUrl, '_blank', 'noopener');
+    const source = typeof resolveDocumentSourceUrl === 'function' ? resolveDocumentSourceUrl(doc) : null;
+    if (source && source.ok) {
+      window.open(source.url, '_blank', 'noopener');
       return;
     }
     return browserOpenDocument(docId);
@@ -268,9 +275,13 @@
 
   const browserDownloadDocument = downloadDocument;
   downloadDocument = async function(docId) {
+    if (typeof documentMutationsEnabled === 'function' && !documentMutationsEnabled()) {
+      return browserDownloadDocument(docId);
+    }
     const doc = current()?.documents.find(item => item.id === docId);
-    if (doc?.downloadUrl || doc?.driveUrl) {
-      window.open(doc.downloadUrl || doc.driveUrl, '_blank', 'noopener');
+    const source = typeof resolveDocumentSourceUrl === 'function' ? resolveDocumentSourceUrl(doc) : null;
+    if (source && source.ok) {
+      window.open(source.url, '_blank', 'noopener');
       return;
     }
     return browserDownloadDocument(docId);
@@ -278,6 +289,9 @@
 
   const browserRemoveDocument = removeDocument;
   removeDocument = async function(docId) {
+    if (typeof documentMutationsEnabled === 'function' && !documentMutationsEnabled()) {
+      return browserRemoveDocument(docId);
+    }
     const event = current();
     const doc = event?.documents.find(item => item.id === docId);
     if (!doc?.driveFileId) return browserRemoveDocument(docId);

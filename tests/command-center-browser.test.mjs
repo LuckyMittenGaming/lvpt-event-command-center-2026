@@ -90,12 +90,12 @@ const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const fixture = {
   events: [
-    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Lead Client Co', contactName: 'Synthetic Guest', contactEmail: 'stored.lead@example.test', contactPhone: '555-0101', status: 'New Lead', eventDate: '12/20/2026', startTime: '16:00', endTime: '20:00', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', eventGoal: 'Convert discovery into a priced proposal', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000', planningStage: 'Needs Discovery', primaryGoal: 'Corporate Team Building', setupTime: '15:00', strikeTime: '21:00', parkingInstructions: 'Use loading dock B' }, payment: { status: 'Not Invoiced', amountPaid: 0, depositRequired: 500, balanceDueDate: '2026-12-01' }, staff: [{ id: 'staff-lead', name: 'Lead Host', role: 'Host' }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }], compliance: [{ id: 'comp-lead-1', name: 'Certificate of Insurance', status: 'Needed', dueDate: '2026-12-05' }], documents: [{ id: 'doc-lead-1', name: 'Lead-Only Proposal Packet', category: 'Proposal' }], emailActivity: [{ id: 'mail-lead-1', subject: 'Lead discovery thread', direction: 'received', date: '2026-11-20T18:00:00.000Z', snippet: 'Can you send a proposal?' }], postEvent: { clientFeedback: '', whatWentWell: '', painPoints: '', changesForNextTime: '', reviewRequested: false, reviewReceived: false, rebookingLikelihood: '' } },
+    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Lead Client Co', contactName: 'Synthetic Guest', contactEmail: 'stored.lead@example.test', contactPhone: '555-0101', status: 'New Lead', eventDate: '12/20/2026', startTime: '16:00', endTime: '20:00', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', eventGoal: 'Convert discovery into a priced proposal', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000', planningStage: 'Needs Discovery', primaryGoal: 'Corporate Team Building', setupTime: '15:00', strikeTime: '21:00', parkingInstructions: 'Use loading dock B' }, payment: { status: 'Not Invoiced', amountPaid: 0, depositRequired: 500, balanceDueDate: '2026-12-01' }, staff: [{ id: 'staff-lead', name: 'Lead Host', role: 'Host' }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }], compliance: [{ id: 'comp-lead-1', name: 'Certificate of Insurance', status: 'Needed', dueDate: '2026-12-05' }], documents: [{ id: 'doc-lead-1', name: 'Lead-Only Proposal Packet', category: 'Proposal', driveUrl: 'https://example.test/docs/lead-proposal' }, { id: 'doc-lead-bad', name: 'Lead Unsupported Link', category: 'Miscellaneous', url: 'http://insecure.example/doc' }, { id: 'doc-lead-missing', name: 'Lead Missing Link', category: 'Receipt' }], emailActivity: [{ id: 'mail-lead-1', subject: 'Lead discovery thread', direction: 'received', date: '2026-11-20T18:00:00.000Z', snippet: 'Can you send a proposal?' }], postEvent: { clientFeedback: '', whatWentWell: '', painPoints: '', changesForNextTime: '', reviewRequested: false, reviewReceived: false, rebookingLikelihood: '' } },
     { id: 'evt-partial', eventName: 'Synthetic Partial', status: 'Quote Needed', eventDate: '2026-12-18', quote: [{ quantity: 1, unitPrice: 100 }, { quantity: 1 }], tasks: [] },
     { id: 'evt-budget', eventName: 'Synthetic Budget', status: 'Needs Discovery', eventDate: '2026-12-16', setup: { budgetRange: '$10,000–$20,000', targetQuote: 0 }, tasks: [{ id: 'task-undated', title: 'Capture undated discovery', owner: 'Synthetic Owner', status: 'Open', priority: 'Low' }] },
     { id: 'evt-awaiting', eventName: 'Synthetic Awaiting', company: 'Private Client', status: 'Invoice Sent / Awaiting Deposit', eventDate: '2026-12-15', tasks: [] },
     { id: 'evt-processing', eventName: 'Synthetic Processing', company: 'Private Client', status: 'Booked — Payment Processing', eventDate: '2026-12-10', proposalUrl: 'https://example.test/processing?access_token=synthetic-secret-token', tasks: [] },
-    { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', staff: [{ id: 'staff-floor', name: 'Floor Lead', role: 'Floor' }], tasks: [{ id: 'task-floor', title: 'Confirm the floor', owner: 'Synthetic Owner', dueDate: '2026-12-02', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-active-1', name: 'Active-Only Floor Diagram', category: 'Floor Plan' }, { id: 'doc-active-2', name: 'Active-Only Invoice Scan', category: 'Invoice' }] },
+    { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', staff: [{ id: 'staff-floor', name: 'Floor Lead', role: 'Floor' }], tasks: [{ id: 'task-floor', title: 'Confirm the floor', owner: 'Synthetic Owner', dueDate: '2026-12-02', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-active-1', name: 'Active-Only Floor Diagram', category: 'Floor Plan', downloadUrl: 'https://example.test/docs/active-floor' }, { id: 'doc-active-2', name: 'Active-Only Invoice Scan', category: 'Invoice', driveUrl: 'https://user:secret@example.test/invoice' }] },
     { id: 'evt-nium-2026', eventName: 'Synthetic NIUM Assoc', company: 'NIUM Synthetic', status: 'Booked', eventDate: '2026-12-08', venue: 'Synthetic Palms', city: 'Las Vegas', state: 'NV', tasks: [] },
     { id: 'evt-bad-link', eventName: 'Synthetic Bad Link', company: 'Bad Link Co', status: 'Proposal Sent', eventDate: '2026-12-22', proposalUrl: 'http://insecure.example/proposal', tasks: [] },
     { id: 'evt-declined', eventName: 'Synthetic Declined', status: 'Client Declined', eventDate: '2026-12-18', tasks: [] },
@@ -1174,7 +1174,18 @@ try {
   assert.match(record, /Lead Host/);
   assert.match(record, /Send proposal/);
   assert.match(record, /\$111\.00/);
-  assert.match(record, /1 document row on this event/);
+  assert.match(record, /3 document rows on this event/);
+  assert.match(record, /Document writes stay off/);
+  const documentsSection = page.locator('[data-record-event="evt-lead"] [data-workspace-section="documents"]');
+  assert.equal(await documentsSection.getAttribute('data-event-id'), 'evt-lead');
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-document-id="doc-lead-1"][data-document-link-state="linked"] a[data-document-link="linked"]').count(), 1);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-document-id="doc-lead-1"] a').getAttribute('href'), 'https://example.test/docs/lead-proposal');
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-document-id="doc-lead-bad"]').innerText(), /Unsupported or invalid source link/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-document-id="doc-lead-missing"]').innerText(), /Source link unavailable/);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] #chooseDocumentsBtn').count(), 0);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-delete-doc]').count(), 0);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-open-doc]').count(), 0);
+  assert.equal(record.includes('user:secret'), false);
   const workspaceSections = [
     'client-contact', 'discovery', 'date-venue', 'goals', 'quote-payment', 'tasks', 'staffing',
     'compliance', 'documents', 'run-of-show', 'logistics', 'communications', 'post-event', 'reports'
@@ -1205,7 +1216,10 @@ try {
   assert.equal(record.includes('Synthetic Booked'), false);
   assert.equal(record.includes('Confirm the floor'), false);
   assert.equal(record.includes('Active-Only Floor Diagram'), false);
+  assert.equal(record.includes('Active-Only Invoice Scan'), false);
   assert.equal(record.includes('2 document rows'), false);
+  assert.match(record, /Lead Unsupported Link/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="reports"]').innerText(), /validated event id \(evt-lead\)/);
   const editorText = await page.locator('#eventEditorPanel').textContent();
   assert.match(editorText, /Synthetic Lead/);
   assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue(), 'Lead Client Co');
@@ -1222,8 +1236,23 @@ try {
     documentName: 'Lead-Only Proposal Packet',
     staffName: 'Lead Host',
     taskTitle: 'Send proposal',
-    forbidden: ['Synthetic Booked', 'Synthetic Active', 'Floor Lead', 'Active-Only Floor Diagram', 'Confirm the floor', 'Active-Only Invoice Scan']
+    forbidden: ['Synthetic Booked', 'Synthetic Active', 'Floor Lead', 'Active-Only Floor Diagram', 'Confirm the floor', 'Active-Only Invoice Scan', 'user:secret']
   });
+  const leadReport = await page.locator('#generatedReportOutput').innerText();
+  assert.match(leadReport, /Event ID: evt-lead/);
+  assert.match(leadReport, /doc-lead-1/);
+  assert.match(leadReport, /source link available/i);
+  assert.match(leadReport, /unsupported or invalid source link/i);
+  assert.match(leadReport, /source link unavailable/i);
+  assert.equal(leadReport.includes('doc-active-1'), false);
+  assert.equal(await page.locator('#generatedReportOutput [data-report-event="evt-lead"]').count(), 1);
+  const leadTextReport = await page.evaluate(() => generateReport(events.find((row) => row.id === 'evt-lead'), 'pre'));
+  assert.match(leadTextReport, /Event ID: evt-lead/);
+  assert.match(leadTextReport, /doc-lead-1: Proposal: Lead-Only Proposal Packet \| source link available/);
+  assert.equal(leadTextReport.includes('Synthetic Booked'), false);
+  const missingReport = await page.evaluate(() => generateReport({ id: 'not-a-real-event' }, 'pre'));
+  assert.match(missingReport, /Another event was not substituted/);
+  assert.equal(missingReport.includes('Synthetic Lead'), false);
   await page.evaluate(() => document.querySelector('[data-back-list]').click());
   await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]'));
   assert.match(await page.locator('#commandView').innerText(), /Priority open tasks/);
@@ -1607,6 +1636,10 @@ try {
   assert.match(delayed, /Floor Lead/);
   assert.match(delayed, /\$222\.00/);
   assert.match(delayed, /2 document rows on this event/);
+  assert.equal(await page.locator('[data-record-event="evt-active"] [data-document-id="doc-active-1"][data-document-link-state="linked"] a[data-document-link="linked"]').count(), 1);
+  assert.equal(await page.locator('[data-record-event="evt-active"] [data-document-id="doc-active-1"] a').getAttribute('href'), 'https://example.test/docs/active-floor');
+  assert.match(await page.locator('[data-record-event="evt-active"] [data-document-id="doc-active-2"]').innerText(), /Unsupported or invalid source link/);
+  assert.equal(delayed.includes('user:secret'), false);
   assert.equal(await page.locator('[data-record-event="evt-active"] [data-task-id="task-floor"]').count(), 1);
   assert.equal(await page.locator('[data-record-event="evt-active"] [data-task-id="task-1"]').count(), 0);
   assert.equal(delayed.includes('$111'), false);
@@ -1614,7 +1647,8 @@ try {
   assert.equal(delayed.includes('Send proposal'), false);
   assert.equal(delayed.includes('Lead Client Co'), false);
   assert.equal(delayed.includes('Lead-Only Proposal Packet'), false);
-  assert.equal(delayed.includes('1 document row on this event'), false);
+  assert.equal(delayed.includes('3 document rows on this event'), false);
+  assert.equal(delayed.includes('Lead Unsupported Link'), false);
   for (const sectionId of ['client-contact', 'discovery', 'date-venue', 'goals', 'quote-payment', 'tasks', 'staffing', 'compliance', 'run-of-show', 'logistics', 'communications', 'post-event']) {
     assert.equal(await page.locator(`[data-record-event="evt-active"] [data-workspace-section="${sectionId}"]`).getAttribute('data-event-id'), 'evt-active');
   }
@@ -1627,8 +1661,12 @@ try {
     documentName: 'Active-Only Floor Diagram',
     staffName: 'Floor Lead',
     taskTitle: 'Confirm the floor',
-    forbidden: ['Synthetic Lead', 'Lead Client Co', 'Lead-Only Proposal Packet', 'Lead Host', 'Send proposal']
+    forbidden: ['Synthetic Lead', 'Lead Client Co', 'Lead-Only Proposal Packet', 'Lead Host', 'Send proposal', 'Lead Unsupported Link', 'user:secret']
   });
+  const activeReport = await page.locator('#generatedReportOutput').innerText();
+  assert.match(activeReport, /Event ID: evt-active/);
+  assert.equal(activeReport.includes('evt-lead'), false);
+  assert.equal(activeReport.includes('3 document rows'), false);
 
   mode = 'unavailable';
   await page.locator('#refreshSheetBtn').click();

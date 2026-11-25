@@ -68,18 +68,19 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | IN_PROGRESS (T4 policy definition IMPLEMENTED_TESTED; executor enforcement pending T5) |
+| Status | **IMPLEMENTED_TESTED** |
 | Date/time | 2026-11-25 |
 | Dependencies | R00 |
-| Files inspected | `.orchestrator/current-prompt.md`, `.orchestrator/state.json`, `remaining-spec.md` R02, `AGENTS.md` §§7/11/16/19/20, session/send/Calendar paths (`lib/sms-review-session.mjs`, `app/api/gmail/send/**`, `TaskSync.safe-sync.js`), `docs/staging-migrations/**` |
+| Files inspected | `.orchestrator/current-prompt.md`, `.orchestrator/state.json`, `remaining-spec.md` R02, `AGENTS.md` §§7/11/16/19/20, installed CLI help (`agent --help`, `agent worker --help`), T4 policy modules |
 | Files changed (T4) | `scripts/local-agent-policy.json`, `scripts/local-agent-policy.mjs`, `tests/local-agent-policy.test.mjs`, `docs/baselines/local-completion-progress.md` |
-| Exact test commands | `node .\tests\local-agent-policy.test.mjs` |
-| Exit codes | policy regression **0** |
-| Policy vs executor | **T4 = policy definition only** (allowlist, floors, unconditional repository-execution deny, harness wiring). **T5 = pending executor enforcement** — must implement real workspace/network/subprocess isolation; env/`fromTrustedExecutor`/`isolationSatisfied` markers do **not** authorize today. |
-| Integration path | `.orchestrator/` (supervisor data) → `scripts/local-agent-policy.mjs` (authorization boundary) → validated `scripts/local-agent-policy.json` → lock `.orchestrator/worker.lock`. No competing loop. |
-| Evidence | Read-only git/`node --check`/`--version` allowed; `node tests/*`, `npm run`, `npx` denied even with `fromTrustedExecutor=true` + isolation env + `isolationSatisfied=true`; `isTrustedExecutionIsolationActive` always false; `authorizeThenExecute` never invokes those payloads; paid default $0; protected self + expanded paths; harness `instructionsTrusted=false` |
-| Remaining blocker | T5 must implement trusted isolation executor + dry-run loop; only then may the deny gate be redesigned |
-| Next task | T5 — restricted resumable agent execution |
+| Files changed (T5) | `scripts/local-agent-loop.ps1` (NEW), `scripts/local-agent-loop.mjs` (NEW), `tests/local-agent-policy.test.mjs`, `docs/local-agent-loop.md` (NEW), `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `node .\tests\local-agent-policy.test.mjs`; `powershell.exe -NoProfile -File .\scripts\local-agent-loop.ps1 -DryRun` |
+| Exit codes | policy+loop regression **0**; DryRun **0** |
+| Policy vs executor | **T4 = policy definition** (allowlist, floors, unconditional repository-execution deny). **T5 = resumable dry-run executor** — task selection, exclusive lock, attempt/spend persistence, sanitized failures, dirty-baseline hashes; paid/worker launch **fail-closed** (`insufficient-isolation`). Env/`fromTrustedExecutor`/`isolationSatisfied` markers do **not** authorize. Protected policy files untouched by T5. |
+| Integration path | `.orchestrator/` → `scripts/local-agent-policy.mjs` → `scripts/local-agent-loop.ps1`/`.mjs` → lock `.orchestrator/worker.lock` + `loop-state.json`. No competing loop. |
+| Evidence | DryRun selects T5 without AI/API/CLI auth; lock contention tested; retry exhaustion at attempt 4; secrets redacted in failure reports; measured spend persists without credentials; unexpected protected changes stop without restore; CLI `--sandbox`/`--worktree` inspected and judged inadequate for credential isolation |
+| Remaining blocker | Owner-approved paid budget + real trusted workspace/network/credential isolation executor before enabling paid/worker launch or redesigning repository-execution deny gate |
+| Next task | R03 / T6 — verify selected-record identity |
 
 ### R03 — Verify stable event identity and record navigation
 
@@ -377,7 +378,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4 **IMPLEMENTED_TESTED** (policy definition + fail-closed repo execution) |
-| Next authorized task | T5 / R02 `scripts/local-agent-loop.ps1` (executor isolation enforcement) |
-| Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (executor unimplemented; markers do not unlock); paid orchestration denied until owner budget; do not re-escalate local Node 24 vs CI Node 22 |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED** (policy + dry-run loop; paid launch fail-closed) |
+| Next authorized task | R03 / T6 — selected-record identity and race safety |
+| Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

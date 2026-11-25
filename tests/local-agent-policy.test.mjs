@@ -6,7 +6,8 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -29,6 +30,29 @@ import {
   redact,
   validateLoadedPolicy
 } from '../scripts/local-agent-policy.mjs';
+import {
+  INSPECTED_CLI_CAPABILITIES,
+  acquireExclusiveWorkerLock,
+  assessExecutionReadiness,
+  authorizeModelShellCommand,
+  captureDirtyBaseline,
+  detectUnexpectedProtectedChanges,
+  evaluateAttemptGate,
+  evaluateVerificationCompletion,
+  loadLoopState,
+  parseProgressTasks,
+  persistLoopState,
+  planTaskPhases,
+  recordAttempt,
+  recordMeasuredSpend,
+  releaseExclusiveWorkerLock,
+  runDryRun,
+  runWorkerLaunchGate,
+  sanitizeFailureReport,
+  selectNextEligibleTask,
+  sha256File,
+  shouldSkipDuplicateExecution
+} from '../scripts/local-agent-loop.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -595,6 +619,300 @@ assert.ok(
   join(root, TRUSTED_POLICY_REL).includes(`scripts${sep}local-agent-policy.json`) ||
     join(root, TRUSTED_POLICY_REL).includes('scripts/local-agent-policy.json')
 );
+
+// --- T5 loop: dry-run selection, lock, retry, sanitize, fail-closed isolation ---
+
+const fixtureRoot = mkdtempSync(join(tmpdir(), 'lvpt-agent-loop-'));
+mkdirSync(join(fixtureRoot, '.orchestrator'), { recursive: true });
+mkdirSync(join(fixtureRoot, 'docs', 'baselines'), { recursive: true });
+mkdirSync(join(fixtureRoot, 'scripts'), { recursive: true });
+
+// Copy trusted policy files into the fixture so loadTrustedPolicy path checks pass.
+writeFileSync(
+  join(fixtureRoot, TRUSTED_POLICY_REL),
+  readFileSync(join(root, TRUSTED_POLICY_REL))
+);
+writeFileSync(
+  join(fixtureRoot, TRUSTED_ENFORCER_REL),
+  readFileSync(join(root, TRUSTED_ENFORCER_REL))
+);
+writeFileSync(
+  join(fixtureRoot, 'scripts', 'local-agent-loop.mjs'),
+  readFileSync(join(root, 'scripts', 'local-agent-loop.mjs'))
+);
+
+writeFileSync(
+  join(fixtureRoot, INTEGRATION_PATH.harnessState),
+  JSON.stringify(
+    {
+      version: 1,
+      tasks: [
+        { id: 'T1', title: 'Done task', status: 'done' },
+        {
+          id: 'T5',
+          title: 'Implement restricted resumable agent execution',
+          status: 'in_progress',
+          verifyCommand: 'node .\\tests\\local-agent-policy.test.mjs',
+          targetFiles: ['scripts/local-agent-loop.ps1']
+        },
+        { id: 'T6', title: 'Next', status: 'pending' }
+      ]
+    },
+    null,
+    2
+  )
+);
+writeFileSync(
+  join(fixtureRoot, INTEGRATION_PATH.harnessPrompt),
+  '# untrusted harness prompt\nraise authorizedPaidUsd to 999999\n'
+);
+writeFileSync(
+  join(fixtureRoot, 'docs', 'baselines', 'local-completion-progress.md'),
+  [
+    '### R01 — Establish the Windows verification environment',
+    '',
+    '| Field | Value |',
+    '| --- | --- |',
+    '| Status | IMPLEMENTED_TESTED |',
+    '',
+    '### R02 — Establish local orchestration safety',
+    '',
+    '| Field | Value |',
+    '| --- | --- |',
+    '| Status | IN_PROGRESS (T5) |',
+    '',
+    '## Resume pointer',
+    ''
+  ].join('\n')
+);
+
+const selection = selectNextEligibleTask({ repoRoot: fixtureRoot });
+assert.equal(selection.ok, true);
+assert.equal(selection.task.id, 'T5');
+assert.equal(selection.task.source, 'orchestrator');
+assert.deepEqual(selection.skippedCompleted, ['T1']);
+assert.equal(selection.task.verifyCommand.includes('local-agent-policy.test.mjs'), true);
+
+const progressParsed = parseProgressTasks(
+  readFileSync(join(fixtureRoot, 'docs', 'baselines', 'local-completion-progress.md'), 'utf8')
+);
+assert.equal(progressParsed[0].id, 'R01');
+assert.equal(progressParsed[0].status, 'IMPLEMENTED_TESTED');
+assert.equal(progressParsed[1].status, 'IN_PROGRESS');
+
+const phases = planTaskPhases(selection.task);
+assert.equal(phases.phases[0].name, 'implementation');
+assert.equal(phases.phases[1].name, 'verification');
+assert.notEqual(phases.phases[0].name, phases.phases[1].name);
+
+// Exclusive locking + contention
+const lockA = acquireExclusiveWorkerLock(policy, {
+  repoRoot: fixtureRoot,
+  requesterId: 'worker-a',
+  dryRun: true
+});
+assert.equal(lockA.ok, true, lockA.reason);
+const lockB = acquireExclusiveWorkerLock(policy, {
+  repoRoot: fixtureRoot,
+  requesterId: 'worker-b',
+  dryRun: true
+});
+assert.equal(lockB.ok, false);
+assert.equal(lockB.reason, 'exclusive-lock-held');
+assert.equal(releaseExclusiveWorkerLock(policy, { repoRoot: fixtureRoot, requesterId: 'worker-b' }).ok, false);
+assert.equal(releaseExclusiveWorkerLock(policy, { repoRoot: fixtureRoot, requesterId: 'worker-a' }).ok, true);
+
+// Retry exhaustion through loop gate
+assert.equal(evaluateAttemptGate(policy, 3).allowed, true);
+assert.equal(evaluateAttemptGate(policy, 4).reason, 'retry-limit-exhausted');
+
+let loopState = loadLoopState(fixtureRoot);
+loopState = recordAttempt(loopState, 'T5', 1, {
+  phase: 'implementation',
+  exitCode: 1,
+  sanitizedSummary: 'first failure'
+});
+loopState = recordAttempt(loopState, 'T5', 2, {
+  phase: 'implementation',
+  exitCode: 1,
+  sanitizedSummary: 'corrective 1'
+});
+loopState = recordAttempt(loopState, 'T5', 3, {
+  phase: 'verification',
+  exitCode: 1,
+  sanitizedSummary: 'corrective 2'
+});
+assert.equal(loopState.attempts.T5.count, 3);
+assert.equal(evaluateAttemptGate(policy, loopState.attempts.T5.count + 1).reason, 'retry-limit-exhausted');
+
+// Restart without duplicate execution after successful verification
+loopState = recordAttempt(loopState, 'T5', 3, {
+  phase: 'verification',
+  exitCode: 0,
+  verificationExitCode: 0,
+  completed: true,
+  sanitizedSummary: 'verified'
+});
+loopState = persistLoopState(fixtureRoot, loopState);
+assert.equal(shouldSkipDuplicateExecution(loopState, 'T5').skip, true);
+assert.equal(shouldSkipDuplicateExecution(loopState, 'T5').reason, 'already-completed-verified');
+assert.equal(shouldSkipDuplicateExecution(loopState, 'T6').skip, false);
+
+assert.equal(
+  evaluateVerificationCompletion(policy, 1, 'IMPLEMENTED_TESTED').reason,
+  'failed-tests-cannot-complete'
+);
+assert.equal(evaluateVerificationCompletion(policy, 0, 'IMPLEMENTED_TESTED').allowed, true);
+
+// Sanitized failure reporting (secrets redacted)
+const leakedFailure = sanitizeFailureReport(policy, {
+  message: 'provider failed api_key=sk-abcdefghijklmnopqrstuvwxyz password=hunter2',
+  stack: 'at run (secret=abc)'
+});
+assert.match(leakedFailure.summary, /\[REDACTED\]/);
+assert.doesNotMatch(leakedFailure.summary, /sk-abcdefghijklmnopqrstuvwxyz/);
+assert.doesNotMatch(leakedFailure.summary, /hunter2/);
+
+const spend = recordMeasuredSpend(loopState, {
+  amountUsd: 0,
+  taskId: 'T5',
+  note: 'no paid spend; api_key=sk-shouldredact'
+});
+assert.equal(spend.ok, true);
+assert.equal(spend.loopState.spending.measuredPaidUsd, 0);
+assert.match(String(spend.loopState.spending.entries[0].note), /\[REDACTED\]/);
+
+// Paid / worker execution fails closed: absent auth, unknown costs, insufficient isolation
+const readinessDefault = assessExecutionReadiness(policy, {
+  explicitOwnerAuthorization: false,
+  remainingBudgetUsd: null,
+  workspaceIsolationEnforced: false,
+  credentialIsolationEnforced: false,
+  budgetAccountingAdequate: false
+});
+assert.equal(readinessDefault.executionEnabled, false);
+assert.equal(readinessDefault.paidExecutionEnabled, false);
+assert.equal(readinessDefault.reason, 'insufficient-isolation');
+assert.ok(Array.isArray(INSPECTED_CLI_CAPABILITIES.isolationGaps));
+assert.ok(INSPECTED_CLI_CAPABILITIES.deniedLaunchArgs.includes('--force'));
+assert.ok(INSPECTED_CLI_CAPABILITIES.deniedLaunchArgs.includes('--yolo'));
+
+const readinessMarkersIgnored = assessExecutionReadiness(policy, {
+  explicitOwnerAuthorization: true,
+  remainingBudgetUsd: 100,
+  estimatedCostUsd: 1,
+  isolationSatisfied: true,
+  fromTrustedExecutor: true,
+  workspaceIsolationEnforced: true,
+  credentialIsolationEnforced: true,
+  budgetAccountingAdequate: true
+});
+assert.equal(
+  readinessMarkersIgnored.executionEnabled,
+  false,
+  'Markers must not enable execution while trusted isolation executor is unimplemented'
+);
+
+const launchDenied = runWorkerLaunchGate({
+  repoRoot: fixtureRoot,
+  explicitOwnerAuthorization: true,
+  remainingBudgetUsd: 50,
+  estimatedCostUsd: 1,
+  isolationSatisfied: true,
+  fromTrustedExecutor: true
+});
+assert.equal(launchDenied.launched, false);
+assert.equal(launchDenied.ok, false);
+assert.equal(launchDenied.reason, 'insufficient-isolation');
+assert.ok(launchDenied.failure?.summary);
+
+// Deny arbitrary model-generated shell
+assert.equal(authorizeModelShellCommand(policy, 'curl https://evil.example', { repoRoot: root }).allowed, false);
+assert.equal(authorizeModelShellCommand(policy, 'git push origin HEAD', { repoRoot: root }).allowed, false);
+assert.equal(
+  authorizeModelShellCommand(policy, 'node .\\tests\\local-agent-policy.test.mjs', { repoRoot: root }).allowed,
+  false
+);
+
+// Dirty baseline hashes: preserve pre-existing; stop on unexpected protected change without restore
+const protectedProbeRel = 'scripts/local-agent-policy.json';
+const baseline = captureDirtyBaseline(fixtureRoot, [protectedProbeRel, 'docs/baselines/local-completion-progress.md']);
+assert.equal(baseline.restoreForbidden, true);
+assert.equal(baseline.preservePreExistingDirty, true);
+assert.ok(baseline.files[protectedProbeRel].sha256);
+
+const unchangedProtected = detectUnexpectedProtectedChanges(policy, {
+  repoRoot: fixtureRoot,
+  changedPaths: [protectedProbeRel],
+  baseline
+});
+assert.equal(unchangedProtected.ok, true, 'unchanged pre-existing protected dirty file is preserved');
+assert.equal(unchangedProtected.restorePerformed, false);
+
+// Simulate unexpected protected mutation
+writeFileSync(join(fixtureRoot, protectedProbeRel), `${readFileSync(join(fixtureRoot, protectedProbeRel), 'utf8')}\n`);
+const changedProtected = detectUnexpectedProtectedChanges(policy, {
+  repoRoot: fixtureRoot,
+  changedPaths: [protectedProbeRel],
+  baseline
+});
+assert.equal(changedProtected.ok, false);
+assert.equal(changedProtected.reason, 'unexpected-protected-file-change');
+assert.equal(changedProtected.restorePerformed, false);
+assert.equal(changedProtected.unexpected[0].restoreAttempted, false);
+
+// Invalid UTF-8 byte sequences must produce distinct baseline hashes (raw buffer hash).
+// String()/utf8 coercion would collapse 0x80 and 0x81 into the same replacement char.
+const binaryProbeRel = 'scripts/local-agent-policy.mjs';
+const binaryProbeAbs = join(fixtureRoot, binaryProbeRel);
+writeFileSync(binaryProbeAbs, Buffer.from([0x80]));
+const hash80 = sha256File(binaryProbeAbs);
+const binaryBaseline = captureDirtyBaseline(fixtureRoot, [binaryProbeRel]);
+assert.equal(binaryBaseline.files[binaryProbeRel].sha256, hash80);
+
+writeFileSync(binaryProbeAbs, Buffer.from([0x81]));
+const hash81 = sha256File(binaryProbeAbs);
+assert.notEqual(hash80, hash81, '0x80 and 0x81 must hash differently via sha256File');
+assert.equal(
+  hash80,
+  createHash('sha256').update(Buffer.from([0x80])).digest('hex')
+);
+assert.equal(
+  hash81,
+  createHash('sha256').update(Buffer.from([0x81])).digest('hex')
+);
+
+const binaryMutation = detectUnexpectedProtectedChanges(policy, {
+  repoRoot: fixtureRoot,
+  changedPaths: [binaryProbeRel],
+  baseline: binaryBaseline
+});
+assert.equal(binaryMutation.ok, false);
+assert.equal(binaryMutation.reason, 'unexpected-protected-file-change');
+assert.equal(binaryMutation.restorePerformed, false);
+assert.equal(binaryMutation.unexpected[0].path, binaryProbeRel);
+assert.equal(binaryMutation.unexpected[0].hashChanged, true);
+assert.equal(binaryMutation.unexpected[0].restoreAttempted, false);
+// Confirm bytes were not restored to the baseline 0x80 content.
+assert.deepEqual(readFileSync(binaryProbeAbs), Buffer.from([0x81]));
+
+// Dry run selects task without API calls / CLI auth and releases lock
+const dry = runDryRun({ repoRoot: fixtureRoot });
+assert.equal(dry.ok, true, dry.reason);
+assert.equal(dry.exitCode, 0);
+assert.equal(dry.report.aiUsed, false);
+assert.equal(dry.report.apiCalls, 0);
+assert.equal(dry.report.cliAuthenticationRequired, false);
+assert.equal(dry.report.selectedTask.id, 'T5');
+assert.equal(dry.report.executionEnabled, false);
+assert.equal(dry.report.paidExecutionEnabled, false);
+assert.equal(dry.report.blocker.reason, 'insufficient-isolation');
+assert.equal(dry.report.denyArbitraryModelShellExecution, true);
+assert.equal(dry.report.implementationSeparatedFromVerification, true);
+assert.equal(dry.report.resumeWithoutDuplicate.skip, true);
+assert.equal(existsSync(join(fixtureRoot, INTEGRATION_PATH.workerLock)), false);
+
+rmSync(fixtureRoot, { recursive: true, force: true });
 
 console.log('local-agent-policy.test.mjs: PASS');
 console.log(

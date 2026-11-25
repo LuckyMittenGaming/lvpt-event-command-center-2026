@@ -302,19 +302,28 @@
 
   const ACTION_LABELS = {
     new_inquiry: 'New inquiry',
+    reply_required: 'Reply required',
     awaiting_response: 'Awaiting response',
     new_activity: 'New activity',
     follow_up_due: 'Follow-up due',
+    payment_confirmation: 'Payment confirmation required',
+    event_task: 'Event task',
+    vendor_obligation: 'Vendor obligation',
+    needs_review: 'Needs review',
     unassigned: 'Unassigned',
     booked: 'Booked',
     invoice_sent: 'Invoice sent, not booked',
+    payment_processing: 'Payment confirmation required',
+    invoice_awaiting_deposit: 'Payment confirmation required',
     declined: 'Declined',
     cancelled: 'Cancelled',
     unknown_closure: 'Closure unknown',
-    resolved: 'Completed',
+    resolved: 'Resolved',
     unknown: 'Stage unknown',
     vendor: 'Vendor, not a sales lead'
   };
+
+  const PRIORITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
 
   function moneyCents(cents) {
     if (cents == null || !Number.isFinite(cents)) return 'Not recorded';
@@ -343,6 +352,113 @@
       : { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   }
 
+  function priorityRank(value) {
+    const key = String(value || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(PRIORITY_RANK, key) ? PRIORITY_RANK[key] : 4;
+  }
+
+  function actionKind(record) {
+    const classified = record && record.classification && record.classification.kind;
+    if (classified) return classified;
+    if (record && record.vendor) return 'vendor_obligation';
+    return record && record.bucket ? record.bucket : 'needs_review';
+  }
+
+  function isValidCalendarDate(value) {
+    const raw = String(value || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+    const year = Number(raw.slice(0, 4));
+    const month = Number(raw.slice(5, 7));
+    const day = Number(raw.slice(8, 10));
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year
+      && parsed.getUTCMonth() === month - 1
+      && parsed.getUTCDate() === day;
+  }
+
+  function dueState(record, today) {
+    const due = String(record && record.dueDate || '').trim();
+    const day = String(today || '').trim();
+    if (!due) return 'undated';
+    if (!day) return 'unknown';
+    if (!isValidCalendarDate(due) || !isValidCalendarDate(day)) return 'unknown';
+    if (due < day) return 'overdue';
+    if (due === day) return 'due';
+    return 'scheduled';
+  }
+
+  function reviewHref(record) {
+    const id = String(record && record.id || '').trim();
+    if (!id) return '/sms-review/index.html#inboxReviewTitle';
+    return `/sms-review/index.html?record=${encodeURIComponent(id)}#inboxReviewTitle`;
+  }
+
+  // Only omit proven presentation-only keys. Never omit channel, draft,
+  // timeline, classification.evidence, or other business identity fields.
+  const ACTION_SIGNATURE_OMIT = new Set();
+
+  function canonicalizeActionValue(value) {
+    if (value === null || value === undefined) return null;
+    if (Array.isArray(value)) return value.map((item) => canonicalizeActionValue(item));
+    if (typeof value === 'object') {
+      const out = Object.create(null);
+      for (const key of Object.keys(value).sort()) out[key] = canonicalizeActionValue(value[key]);
+      return out;
+    }
+    if (typeof value === 'string') return value;
+    if (typeof value === 'boolean' || typeof value === 'number') return value;
+    return String(value);
+  }
+
+  function actionRecordSignature(record) {
+    if (!record || typeof record !== 'object') return JSON.stringify(null);
+    const filtered = Object.create(null);
+    for (const key of Object.keys(record)) {
+      if (ACTION_SIGNATURE_OMIT.has(key)) continue;
+      filtered[key] = record[key];
+    }
+    return JSON.stringify(canonicalizeActionValue(filtered));
+  }
+
+  function collapseActionRecords(records) {
+    const identity = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+    const grouped = new Map();
+    const missingIdentity = [];
+    for (const record of records || []) {
+      const id = identity(record && record.id);
+      if (!id) {
+        missingIdentity.push(record);
+        continue;
+      }
+      const list = grouped.get(id) || [];
+      list.push(record);
+      grouped.set(id, list);
+    }
+    const rows = [];
+    const conflicts = [];
+    for (const [id, list] of grouped) {
+      const signatures = new Set(list.map(actionRecordSignature));
+      if (signatures.size > 1) {
+        conflicts.push({
+          id,
+          copies: list.length,
+          kind: 'conflict',
+          reason: 'Conflicting rows share this stable id and were excluded from the active queue until reviewed.'
+        });
+        continue;
+      }
+      rows.push(list[0]);
+    }
+    const missingIds = missingIdentity.map((record, index) => ({
+      id: `(missing:${index + 1})`,
+      copies: 1,
+      kind: 'missing_id',
+      label: record && (record.eventName || record.contact || record.eventId || 'Unlabeled record'),
+      reason: 'Action record is missing a stable id and was excluded from the active queue until reviewed.'
+    }));
+    return { rows, conflicts, missingIds };
+  }
+
   function renderAction(view) {
     view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', '<p class="muted">Reading the sheet, mailbox headers, and SMS metadata…</p>');
     const generation = readGeneration;
@@ -359,53 +475,103 @@
       const data = result.data;
       const sources = data.sources || {};
       const gmail = data.gmail || {};
-      const records = Array.isArray(data.records) ? data.records : [];
+      const today = String(data.today || '').trim();
+      const collapsed = collapseActionRecords(Array.isArray(data.records) ? data.records : []);
+      const records = collapsed.rows;
+      const recordConflicts = Array.isArray(collapsed.conflicts) ? collapsed.conflicts : [];
+      const missingIdIssues = Array.isArray(collapsed.missingIds) ? collapsed.missingIds : [];
       const counts = data.counts || {};
       const filters = [
         ['action', 'Action required'],
+        ['reply_required', 'Reply required'],
+        ['follow_up_due', 'Follow-up due'],
+        ['payment_confirmation', 'Payment confirmation'],
         ['review', 'Needs review'],
         ['resolved', 'Resolved'],
         ['vendor', 'Vendor'],
+        ['due', 'Due or overdue'],
         ['all', 'All']
       ];
       const pipe = data.pipeline || {};
       const stages = pipe.stages || {};
-      const acquired = pipe.sources || {};
-      const excluded = pipe.excluded || {};
-      const conversion = pipe.conversion;
-      const proposalLinks = Array.isArray(pipe.proposalLinks) ? pipe.proposalLinks : [];
-      const eventConflicts = Array.isArray(excluded.eventConflicts) ? excluded.eventConflicts.length : 0;
-      const countedOnce = Array.isArray(pipe.duplicateEventsCountedOnce) ? pipe.duplicateEventsCountedOnce.length : 0;
-      const taskConflicts = Array.isArray(pipe.taskConflicts) ? pipe.taskConflicts.length : 0;
       const pipeline = `<p class="muted">Lead pipeline. Stages: open ${esc(stages.open || 0)}, payment processing ${esc(stages.paymentProcessing || 0)}, awaiting deposit ${esc(stages.invoiceAwaitingDeposit || 0)}, invoice sent ${esc(stages.invoiceSent || 0)}, booked ${esc(stages.booked || 0)}, declined ${esc(stages.declined || 0)}, unknown ${esc(stages.unknown || 0)}. ${esc((pipe.conversion && pipe.conversion.reason) || 'Booked divided by all events is not a conversion rate.')} Due today ${esc(pipe.dueFollowUps || 0)}. Overdue ${esc(pipe.overdueFollowUps || 0)}. Vendors and resolved rows stay out of the default list.</p>`;
-      const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Recorded email, not verified</span><strong>${esc(counts.recordedRecipientUnverified || 0)}</strong></div></div>${pipeline}<p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p><p class="muted">That workspace does not prove exactly-once delivery from this page.</p><details><summary>Source status</summary>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<p>${esc(gmail.blocker || '')}</p></details>`;
-      const ordered = records.slice().sort((a, b) => String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99')) || String(a.eventName || '').localeCompare(String(b.eventName || '')));
+      const conflictBanner = recordConflicts.length
+        ? `<div class="hub-callout" data-action-integrity="conflict"><strong>Integrity review required.</strong><p>${esc(recordConflicts.length)} conflicting action id${recordConflicts.length === 1 ? '' : 's'} excluded from the active queue. Identical copies still collapse to one row.</p><ul class="action-conflict-list">${recordConflicts.map((item) => `<li data-conflict-id="${esc(item.id)}">${esc(item.id)} · ${esc(item.copies)} copies · ${esc(item.reason)}</li>`).join('')}</ul></div>`
+        : '';
+      const missingIdBanner = missingIdIssues.length
+        ? `<div class="hub-callout" data-action-integrity="missing-id"><strong>Integrity review required.</strong><p>${esc(missingIdIssues.length)} action record${missingIdIssues.length === 1 ? '' : 's'} missing a stable id excluded from the active queue.</p><ul class="action-conflict-list">${missingIdIssues.map((item) => `<li data-missing-id="${esc(item.id)}">${esc(item.label)} · ${esc(item.reason)}</li>`).join('')}</ul></div>`
+        : '';
+      const summary = `<div class="lifecycle-summary hub-metrics"><div><span>Action required</span><strong>${esc(counts.actionRequired || 0)}</strong></div><div><span>Needs review</span><strong>${esc(counts.review || 0)}</strong></div><div><span>Recorded email, not verified</span><strong>${esc(counts.recordedRecipientUnverified || 0)}</strong></div></div>${pipeline}${conflictBanner}${missingIdBanner}<p><a class="btn primary" href="/sms-review/index.html#inboxReviewTitle">Open the protected approval workspace</a></p><p class="muted">This Action Required page does not approve, send, or confirm receipt. The review workspace is where decisions are recorded; opening it from here is not an approval.</p><details><summary>Source status</summary>${smsScanBlock(sources.sms, data.smsProbe)}${gmailScanBlock(sources.gmailHeader)}<p>${esc(gmail.blocker || '')}</p></details>`;
+      const ordered = records.slice().sort((a, b) => {
+        const priorityDiff = priorityRank(a.priority) - priorityRank(b.priority);
+        if (priorityDiff) return priorityDiff;
+        const dueDiff = String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99'));
+        if (dueDiff) return dueDiff;
+        const nameDiff = String(a.eventName || a.contact || '').localeCompare(String(b.eventName || b.contact || ''));
+        if (nameDiff) return nameDiff;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
       const cards = ordered.map((record) => {
         const info = record.qualification || {};
-        const timeline = (record.timeline || []).map((item) => `<li><span>${esc(item.at || 'Time not recorded')}</span> ${esc(item.source)} ${esc(item.direction || '')} ${item.contentAvailable ? esc(item.summary) : 'Message text is not in this list. Open the authorized review only when a session can decrypt or read it.'}</li>`).join('');
+        const classification = record.classification || {};
+        const evidence = classification.evidence || {};
         const draft = record.draft || {};
-        const label = ACTION_LABELS[record.bucket] || record.pipelineStage || record.bucket;
-        const dueText = record.dueDate ? `Due ${localLabel(record.dueDate)}` : 'No due date recorded';
-        const openEvent = record.eventId ? `<button type="button" class="btn small" data-view-record="${esc(record.eventId)}">View event</button>` : '';
-        return `<article class="action-card" data-bucket="${esc(record.bucket)}" data-review="${record.review ? 'yes' : 'no'}" data-vendor="${record.vendor ? 'yes' : 'no'}" data-overdue="${record.bucket === 'follow_up_due' ? 'yes' : 'no'}"><header><span class="badge warn">${esc(label)}</span><strong>${esc(record.eventName || field(record.contact))}</strong><span>${esc(dueText)}</span></header><p>${esc(field(record.nextAction))}</p><p class="muted">${esc(record.channel || 'unknown')} · Latest ${esc(localLabel(record.lastActivity))}. Times are America/Los_Angeles.</p><div class="actions">${openEvent}<a class="btn small" href="/sms-review/index.html#inboxReviewTitle">Open review</a></div><details><summary>Details</summary><p>${esc(record.company || '')} · ${esc(field(info.stage))} · ${esc(record.channel || 'unknown')}</p><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul><p>Recorded recipient: ${esc(draft.recipient || 'None')}. Not verified and not an approval.</p></details></article>`;
+        const kind = actionKind(record);
+        const label = ACTION_LABELS[kind] || ACTION_LABELS[record.bucket] || record.pipelineStage || record.bucket;
+        const due = dueState(record, today);
+        const dueText = due === 'unknown'
+          ? 'Due date invalid or unavailable'
+          : due === 'undated' || !record.dueDate
+            ? 'No due date recorded'
+            : `Due ${localLabel(record.dueDate)}`;
+        const priorityText = record.priority ? `${record.priority} priority` : 'No priority recorded';
+        const openEvent = record.eventId
+          ? `<button type="button" class="btn small" data-view-record="${esc(record.eventId)}">View event</button>`
+          : '';
+        const reviewLink = `<a class="btn small" data-review-link="${esc(record.id || '')}" href="${esc(reviewHref(record))}" aria-label="Open review workspace for ${esc(record.id || 'this record')}. Does not approve or send.">Open review</a>`;
+        const timeline = (record.timeline || []).map((item) => `<li><span>${esc(localLabel(item.at))}</span> ${esc(item.source || 'Unknown source')} ${esc(item.direction || '')}. Message text stays collapsed here.</li>`).join('');
+        const evidenceBits = [];
+        if (evidence.eventId) evidenceBits.push(`event ${evidence.eventId}`);
+        if (Array.isArray(evidence.taskIds) && evidence.taskIds.length) evidenceBits.push(`tasks ${evidence.taskIds.join(', ')}`);
+        if (Array.isArray(evidence.timelineSources) && evidence.timelineSources.length) evidenceBits.push(`sources ${evidence.timelineSources.join(', ')}`);
+        if (Array.isArray(evidence.candidateEventIds) && evidence.candidateEventIds.length > 1) evidenceBits.push(`ambiguous candidates ${evidence.candidateEventIds.join(', ')}`);
+        if (evidence.uncertainMatch) evidenceBits.push('uncertain match');
+        if (evidence.missingEventId) evidenceBits.push('missing event id');
+        const evidenceLine = evidenceBits.length
+          ? evidenceBits.join(' · ')
+          : 'No stronger stable-id evidence is attached to this row.';
+        const recipientLine = draft.recipientVerified === true
+          ? `Verified recipient evidence is present for ${esc(draft.recipient)}. Verification still does not send from this page.`
+          : `Recorded Gmail address: ${esc(draft.recipient || 'None')}. Stored addresses are not verified recipients. Not verified and not an approval.`;
+        return `<article class="action-card" data-record-id="${esc(record.id || '')}" data-event-id="${esc(record.eventId || '')}" data-bucket="${esc(record.bucket || '')}" data-classification="${esc(kind)}" data-priority="${esc(record.priority || '')}" data-due-date="${esc(record.dueDate || '')}" data-due-state="${esc(due)}" data-review="${record.review || kind === 'needs_review' ? 'yes' : 'no'}" data-vendor="${record.vendor || kind === 'vendor_obligation' ? 'yes' : 'no'}" data-overdue="${due === 'overdue' ? 'yes' : 'no'}"><header><span class="badge warn">${esc(label)}</span><strong>${esc(record.eventName || field(record.contact))}</strong><span class="action-card-meta"><span>${esc(priorityText)}</span><span>${esc(dueText)}</span></span></header><p>${esc(field(record.nextAction))}</p><p class="muted">${esc(record.channel || 'unknown')} · Latest ${esc(localLabel(record.lastActivity))}. Times are America/Los_Angeles.</p><div class="actions">${openEvent}${reviewLink}</div><details class="action-evidence"><summary>Minimal evidence</summary><p>${esc(classification.reason || 'Classification evidence was not supplied for this row.')}</p><p class="muted">${esc(evidenceLine)}</p><p>${esc(record.company || '')} · ${esc(field(info.stage))} · ${esc(record.channel || 'unknown')}</p><ul class="action-timeline">${timeline || '<li>No message metadata is stored on this record.</li>'}</ul><p>${recipientLine}</p><p class="muted">Expanding evidence does not approve, send, or confirm receipt.</p></details></article>`;
       }).join('');
       const empty = sources.sms && sources.sms.coverage === 'read-complete'
         ? 'No lead or follow-up records were returned.'
         : 'No records are listed. This is not proof that the inbox is empty.';
-      view.innerHTML = shell('New leads and action required', 'One inbox', 'A short list. Open a row for details. This page does not approve or send.', `${summary}<div class="review-actions action-filters"><input class="input" id="actionSearch" placeholder="Search this list" value="${esc(actionUi.query)}" />${filters.map(([id, label]) => `<button type="button" data-action-filter="${id}">${label}</button>`).join('')}<button type="button" data-action-filter="due">Due or overdue</button><button type="button" id="actionFilterClear">Clear filter</button></div><div class="action-list">${cards || `<p>${empty}</p>`}</div>`);
+      const filterButtons = filters.map(([id, label]) => `<button type="button" class="btn small" data-action-filter="${id}" aria-pressed="false">${label}</button>`).join('');
+      view.innerHTML = shell('New leads and action required', 'One inbox', 'A short list. Open a row for details. This page does not approve or send.', `${summary}<div class="review-actions action-filters" role="search" aria-label="Action Required filters"><label class="action-search-label" for="actionSearch">Search this list</label><input class="input" id="actionSearch" type="search" placeholder="Search this list" value="${esc(actionUi.query)}" aria-label="Search Action Required" />${filterButtons}<button type="button" class="btn small" id="actionFilterClear">Clear filter</button></div><div class="action-list" data-action-order="priority-due">${cards || `<p>${empty}</p>`}</div>`);
       const applyFilter = (name) => {
         actionUi.filter = name || 'all';
         const query = (view.querySelector('#actionSearch') && view.querySelector('#actionSearch').value || '').toLowerCase();
         actionUi.query = view.querySelector('#actionSearch') ? view.querySelector('#actionSearch').value : '';
-        view.querySelectorAll('[data-action-filter]').forEach((item) => item.classList.toggle('active', item.getAttribute('data-action-filter') === actionUi.filter));
+        view.querySelectorAll('[data-action-filter]').forEach((item) => {
+          const active = item.getAttribute('data-action-filter') === actionUi.filter;
+          item.classList.toggle('active', active);
+          item.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
         view.querySelectorAll('.action-card').forEach((card) => {
           const bucket = card.getAttribute('data-bucket');
+          const kind = card.getAttribute('data-classification');
           const textMatch = !query || card.textContent.toLowerCase().includes(query);
+          const dueStateAttr = card.getAttribute('data-due-state');
           const show = textMatch && (name === 'all'
-            || (name === 'review' && card.getAttribute('data-review') === 'yes')
-            || (name === 'vendor' && card.getAttribute('data-vendor') === 'yes')
-            || (name === 'due' && card.getAttribute('data-overdue') === 'yes')
-            || (name === 'resolved' && bucket === 'resolved')
+            || (name === 'review' && (card.getAttribute('data-review') === 'yes' || kind === 'needs_review'))
+            || (name === 'vendor' && (card.getAttribute('data-vendor') === 'yes' || kind === 'vendor_obligation'))
+            || (name === 'due' && (dueStateAttr === 'due' || dueStateAttr === 'overdue') && !['resolved', 'declined', 'cancelled', 'unknown_closure'].includes(bucket) && kind !== 'resolved' && card.getAttribute('data-vendor') !== 'yes')
+            || (name === 'resolved' && (bucket === 'resolved' || kind === 'resolved'))
+            || (name === 'reply_required' && kind === 'reply_required')
+            || (name === 'follow_up_due' && kind === 'follow_up_due')
+            || (name === 'payment_confirmation' && kind === 'payment_confirmation')
             || (name === 'action' && !['resolved', 'declined', 'cancelled', 'unknown_closure'].includes(bucket) && card.getAttribute('data-vendor') !== 'yes'));
           card.hidden = !show;
         });

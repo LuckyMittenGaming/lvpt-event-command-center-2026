@@ -151,11 +151,506 @@ const ledger = {
     { id: 'sms-heartbeat', name: 'Android SMS collector heartbeat', status: 'NOT VERIFIED', connected: false, detail: 'No heartbeat on this fixture.' }
   ]
 };
+const leadInboxRecord = {
+  id: 'event:evt-lead',
+  eventId: 'evt-lead',
+  bucket: 'follow_up_due',
+  classification: {
+    kind: 'follow_up_due',
+    reason: 'An open task is overdue relative to today; due-today is not overdue.',
+    evidence: { eventId: 'evt-lead', dueDate: '2026-11-21', taskIds: ['task-1'], timelineSources: ['Gmail'] }
+  },
+  priority: 'High',
+  dueDate: '2026-11-21',
+  source: 'Referral',
+  contact: 'Synthetic Guest',
+  company: 'Synthetic Co',
+  eventName: 'Synthetic Lead',
+  channel: 'Gmail',
+  nextAction: 'Send the recorded proposal',
+  lastActivity: '2026-11-20T18:00:00.000Z',
+  review: false,
+  vendor: false,
+  qualification: { missing: ['phone'], email: 'stored.lead@example.test', stage: 'New Lead' },
+  draft: {
+    body: 'Draft preview',
+    recipient: 'stored.lead@example.test',
+    recipientRecorded: true,
+    recipientVerified: false,
+    readyToApprove: false,
+    readyToSend: false,
+    sendEnabled: false
+  },
+  timeline: [{
+    at: '2026-11-20T18:00:00.000Z',
+    source: 'Gmail',
+    direction: 'outbound',
+    summary: 'PRIVATE_FIXTURE_BODY_MUST_STAY_COLLAPSED',
+    contentAvailable: true
+  }]
+};
+
 const inbox = {
   ok: true,
-  counts: { actionRequired: 1, review: 0, recordedRecipientUnverified: 0, vendorExcluded: 0 },
-  pipeline: { denominator: 1, stages: { open: 1, booked: 1 }, sources: { referral: 1 }, excluded: {}, qualificationGaps: 1, dueFollowUps: 0, overdueFollowUps: 1, proposalLinks: [{ eventId: 'evt-lead', url: 'https://example.test/lead' }] },
-  records: [{ id: 'event:evt-lead', eventId: 'evt-lead', bucket: 'follow_up_due', source: 'Referral', contact: 'Synthetic Guest', company: 'Synthetic Co', eventName: 'Synthetic Lead', channel: 'unknown', qualification: { missing: ['phone'] }, draft: { body: 'Draft preview', recipient: '' }, timeline: [] }],
+  today: '2026-11-25',
+  counts: { actionRequired: 6, review: 2, recordedRecipientUnverified: 1, vendorExcluded: 1, resolved: 1 },
+  pipeline: {
+    denominator: 3,
+    stages: { open: 2, booked: 1 },
+    sources: { referral: 1 },
+    excluded: { vendor: 1 },
+    qualificationGaps: 1,
+    dueFollowUps: 1,
+    overdueFollowUps: 1,
+    conversion: { rate: null, reason: 'Booked divided by all events is not a conversion rate.' },
+    proposalLinks: [{ eventId: 'evt-lead', url: 'https://example.test/lead' }]
+  },
+  records: [
+    leadInboxRecord,
+    {
+      ...leadInboxRecord,
+      timeline: leadInboxRecord.timeline.slice()
+    },
+    {
+      id: 'event:evt-reply',
+      eventId: 'evt-reply',
+      bucket: 'awaiting_response',
+      classification: {
+        kind: 'reply_required',
+        reason: 'Newest dated activity is inbound, so a reply is required before any older follow-up.',
+        evidence: { eventId: 'evt-reply', activityDirection: 'inbound', timelineSources: ['Gmail'] }
+      },
+      priority: 'Critical',
+      dueDate: '2026-11-26',
+      contact: 'Reply Guest',
+      company: 'Reply Co',
+      eventName: 'Synthetic Reply Needed',
+      channel: 'Gmail',
+      nextAction: 'Reply to the newest inbound message',
+      lastActivity: '2026-11-24T16:00:00.000Z',
+      review: false,
+      vendor: false,
+      qualification: { missing: [], stage: 'Needs Discovery' },
+      draft: { recipient: '', recipientRecorded: false, recipientVerified: false, readyToApprove: false, readyToSend: false, sendEnabled: false },
+      timeline: [{ at: '2026-11-24T16:00:00.000Z', source: 'Gmail', direction: 'inbound', summary: '', contentAvailable: false }]
+    },
+    {
+      id: 'event:evt-today',
+      eventId: 'evt-today',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Open pipeline status with recent or new inquiry evidence.',
+        evidence: { eventId: 'evt-today', dueDate: '2026-11-25', pipelineStage: 'open' }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-25',
+      contact: 'Today Guest',
+      company: 'Today Co',
+      eventName: 'Synthetic Due Today',
+      channel: 'unknown',
+      nextAction: 'Call while the follow-up is due today',
+      lastActivity: '2026-11-25',
+      review: false,
+      vendor: false,
+      qualification: { stage: 'New Lead' },
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-missing-due',
+      eventId: 'evt-missing-due',
+      bucket: 'follow_up_due',
+      classification: {
+        kind: 'follow_up_due',
+        reason: 'Classification can say follow-up due, but a missing calendar due date stays undated.',
+        evidence: { eventId: 'evt-missing-due', dueDate: null }
+      },
+      priority: 'Low',
+      dueDate: '',
+      contact: 'Missing Due Guest',
+      company: 'Missing Due Co',
+      eventName: 'Synthetic Missing Due',
+      channel: 'unknown',
+      nextAction: 'Capture a valid due date before treating this as overdue',
+      lastActivity: '2026-11-20',
+      review: false,
+      vendor: false,
+      qualification: { stage: 'Needs Discovery' },
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-bad-date',
+      eventId: 'evt-bad-date',
+      bucket: 'follow_up_due',
+      classification: {
+        kind: 'follow_up_due',
+        reason: 'An invalid calendar due date cannot establish overdue.',
+        evidence: { eventId: 'evt-bad-date', dueDate: '2026-02-30' }
+      },
+      priority: 'Low',
+      dueDate: '2026-02-30',
+      contact: 'Bad Date Guest',
+      company: 'Bad Date Co',
+      eventName: 'Synthetic Invalid Due',
+      channel: 'unknown',
+      nextAction: 'Replace the invalid due date',
+      lastActivity: '2026-11-19',
+      review: false,
+      vendor: false,
+      qualification: { stage: 'Needs Discovery' },
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'sms:sms-amb',
+      eventId: '',
+      bucket: 'unassigned',
+      classification: {
+        kind: 'needs_review',
+        reason: 'More than one event id matches, or no stable event id is present.',
+        evidence: { uncertainMatch: true, missingEventId: true, candidateEventIds: ['evt-a', 'evt-b'] }
+      },
+      priority: 'Medium',
+      dueDate: '',
+      contact: 'Ambiguous Contact',
+      company: '',
+      eventName: 'Ambiguous SMS Match',
+      channel: 'SMS',
+      nextAction: 'Review ambiguous SMS association before assigning an event.',
+      lastActivity: '2026-11-23T12:00:00.000Z',
+      review: true,
+      vendor: false,
+      qualification: { missing: ['email'] },
+      draft: { recipient: '', recipientRecorded: false, recipientVerified: false, readyToApprove: false, readyToSend: false, sendEnabled: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-done',
+      eventId: 'evt-done',
+      bucket: 'resolved',
+      classification: {
+        kind: 'resolved',
+        reason: 'Closed-won or completed status excludes this row from the active queue.',
+        evidence: { eventId: 'evt-done', pipelineStage: 'closed_won' }
+      },
+      priority: 'Low',
+      dueDate: '2026-10-01',
+      contact: 'Resolved Guest',
+      company: 'Resolved Co',
+      eventName: 'Synthetic Resolved',
+      channel: 'unknown',
+      nextAction: 'No active follow-up',
+      lastActivity: '2026-10-01',
+      review: false,
+      vendor: false,
+      qualification: { stage: 'Completed' },
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'gmail:thread-vendor-1',
+      eventId: '',
+      bucket: 'vendor',
+      classification: {
+        kind: 'vendor_obligation',
+        reason: 'Vendor keywords in the mailbox subject or domain keep this out of sales prospects.',
+        evidence: { vendor: true, timelineSources: ['Gmail'] }
+      },
+      priority: '',
+      dueDate: '',
+      contact: 'Elevated Billing',
+      company: 'Elevated',
+      eventName: '',
+      channel: 'Gmail',
+      nextAction: 'Keep with vendor operations. This is not a sales lead.',
+      lastActivity: '2026-11-22T09:00:00.000Z',
+      review: false,
+      vendor: true,
+      qualification: {},
+      draft: { recipient: 'vendor.billing@example.test', recipientRecorded: true, recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-clash',
+      eventId: 'evt-clash',
+      bucket: 'new_inquiry',
+      classification: { kind: 'new_inquiry', reason: 'First conflicting copy.', evidence: { eventId: 'evt-clash' } },
+      priority: 'High',
+      dueDate: '2026-11-28',
+      contact: 'Clash Guest A',
+      company: 'Clash Co',
+      eventName: 'Synthetic Clash A',
+      channel: 'unknown',
+      nextAction: 'First conflicting next action',
+      lastActivity: '2026-11-21',
+      review: false,
+      vendor: false,
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-clash',
+      eventId: 'evt-clash',
+      bucket: 'awaiting_response',
+      classification: { kind: 'reply_required', reason: 'Second conflicting copy.', evidence: { eventId: 'evt-clash' } },
+      priority: 'Low',
+      dueDate: '2026-11-29',
+      contact: 'Clash Guest B',
+      company: 'Clash Co',
+      eventName: 'Synthetic Clash B',
+      channel: 'Gmail',
+      nextAction: 'Second conflicting next action',
+      lastActivity: '2026-11-22',
+      review: true,
+      vendor: false,
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-twin-recipient',
+      eventId: 'evt-twin-recipient',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Shared id with differing recorded recipient.',
+        evidence: { eventId: 'evt-twin-recipient', pipelineStage: 'open' }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-27',
+      contact: 'Twin Recipient Guest',
+      company: 'Twin Recipient Co',
+      eventName: 'Synthetic Twin Recipient',
+      channel: 'Gmail',
+      nextAction: 'Confirm the recorded recipient before review',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: 'first.twin@example.test', recipientRecorded: true, recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-twin-recipient',
+      eventId: 'evt-twin-recipient',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Shared id with differing recorded recipient.',
+        evidence: { eventId: 'evt-twin-recipient', pipelineStage: 'open' }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-27',
+      contact: 'Twin Recipient Guest',
+      company: 'Twin Recipient Co',
+      eventName: 'Synthetic Twin Recipient',
+      channel: 'Gmail',
+      nextAction: 'Confirm the recorded recipient before review',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: 'second.twin@example.test', recipientRecorded: true, recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-twin-evidence',
+      eventId: 'evt-twin-evidence',
+      bucket: 'event_task',
+      classification: {
+        kind: 'event_task',
+        reason: 'Shared id with differing classification evidence.',
+        evidence: { eventId: 'evt-twin-evidence', taskIds: ['task-evidence-a'] }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-28',
+      contact: 'Twin Evidence Guest',
+      company: 'Twin Evidence Co',
+      eventName: 'Synthetic Twin Evidence',
+      channel: 'unknown',
+      nextAction: 'Reconcile task evidence before treating as one row',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-twin-evidence',
+      eventId: 'evt-twin-evidence',
+      bucket: 'event_task',
+      classification: {
+        kind: 'event_task',
+        reason: 'Shared id with differing classification evidence.',
+        evidence: { eventId: 'evt-twin-evidence', taskIds: ['task-evidence-b'] }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-28',
+      contact: 'Twin Evidence Guest',
+      company: 'Twin Evidence Co',
+      eventName: 'Synthetic Twin Evidence',
+      channel: 'unknown',
+      nextAction: 'Reconcile task evidence before treating as one row',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: '',
+      eventId: 'evt-noid',
+      bucket: 'needs_review',
+      classification: {
+        kind: 'needs_review',
+        reason: 'Missing stable action id cannot enter the active queue.',
+        evidence: { missingEventId: false, eventId: 'evt-noid' }
+      },
+      priority: 'Low',
+      dueDate: '2026-11-30',
+      contact: 'Missing Id Guest',
+      company: 'Missing Id Co',
+      eventName: 'Synthetic Missing Id',
+      channel: 'SMS',
+      nextAction: 'Assign a stable action id before listing this row',
+      lastActivity: '2026-11-24',
+      review: true,
+      vendor: false,
+      draft: { recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      id: 'event:evt-ws-evidence',
+      eventId: 'evt-ws-evidence',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Whitespace-only evidence disagreement must conflict.',
+        evidence: { eventId: 'evt-ws-evidence', note: 'exact match note' }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-27',
+      contact: 'Whitespace Evidence Guest',
+      company: 'Whitespace Evidence Co',
+      eventName: 'Synthetic Whitespace Evidence',
+      channel: 'Gmail',
+      nextAction: 'Reconcile evidence whitespace before collapsing',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: 'ws.evidence@example.test', recipientRecorded: true, recipientVerified: false, body: 'Shared draft body' },
+      timeline: []
+    },
+    {
+      id: 'event:evt-ws-evidence',
+      eventId: 'evt-ws-evidence',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Whitespace-only evidence disagreement must conflict.',
+        evidence: { eventId: 'evt-ws-evidence', note: 'exact match note ' }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-27',
+      contact: 'Whitespace Evidence Guest',
+      company: 'Whitespace Evidence Co',
+      eventName: 'Synthetic Whitespace Evidence',
+      channel: 'Gmail',
+      nextAction: 'Reconcile evidence whitespace before collapsing',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: 'ws.evidence@example.test', recipientRecorded: true, recipientVerified: false, body: 'Shared draft body' },
+      timeline: []
+    },
+    {
+      id: 'event:evt-draft-body',
+      eventId: 'evt-draft-body',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Draft body disagreement must conflict.',
+        evidence: { eventId: 'evt-draft-body', pipelineStage: 'open' }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-27',
+      contact: 'Draft Body Guest',
+      company: 'Draft Body Co',
+      eventName: 'Synthetic Draft Body',
+      channel: 'Gmail',
+      nextAction: 'Reconcile draft content before collapsing',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: 'draft.body@example.test', recipientRecorded: true, recipientVerified: false, body: 'Draft revision A' },
+      timeline: []
+    },
+    {
+      id: 'event:evt-draft-body',
+      eventId: 'evt-draft-body',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Draft body disagreement must conflict.',
+        evidence: { eventId: 'evt-draft-body', pipelineStage: 'open' }
+      },
+      priority: 'Medium',
+      dueDate: '2026-11-27',
+      contact: 'Draft Body Guest',
+      company: 'Draft Body Co',
+      eventName: 'Synthetic Draft Body',
+      channel: 'Gmail',
+      nextAction: 'Reconcile draft content before collapsing',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { recipient: 'draft.body@example.test', recipientRecorded: true, recipientVerified: false, body: 'Draft revision B' },
+      timeline: []
+    },
+    {
+      id: 'event:evt-reorder',
+      eventId: 'evt-reorder',
+      bucket: 'new_inquiry',
+      classification: {
+        kind: 'new_inquiry',
+        reason: 'Reordered keys with identical values still collapse.',
+        evidence: { eventId: 'evt-reorder', pipelineStage: 'open' }
+      },
+      priority: 'Low',
+      dueDate: '2026-12-01',
+      contact: 'Reorder Guest',
+      company: 'Reorder Co',
+      eventName: 'Synthetic Reorder Keys',
+      channel: 'unknown',
+      nextAction: 'Keep one row when only object key order differs',
+      lastActivity: '2026-11-24',
+      review: false,
+      vendor: false,
+      draft: { body: 'Identical draft', recipient: '', recipientVerified: false },
+      timeline: []
+    },
+    {
+      draft: { recipientVerified: false, recipient: '', body: 'Identical draft' },
+      vendor: false,
+      review: false,
+      timeline: [],
+      lastActivity: '2026-11-24',
+      nextAction: 'Keep one row when only object key order differs',
+      channel: 'unknown',
+      eventName: 'Synthetic Reorder Keys',
+      company: 'Reorder Co',
+      contact: 'Reorder Guest',
+      dueDate: '2026-12-01',
+      priority: 'Low',
+      classification: {
+        evidence: { pipelineStage: 'open', eventId: 'evt-reorder' },
+        reason: 'Reordered keys with identical values still collapse.',
+        kind: 'new_inquiry'
+      },
+      bucket: 'new_inquiry',
+      eventId: 'evt-reorder',
+      id: 'event:evt-reorder'
+    }
+  ],
   sources: { events: 3 },
   gmail: { blocker: 'Production writes are off.' }
 };
@@ -819,6 +1314,101 @@ try {
   assert.match(await page.locator('#commandView').innerText(), /Synthetic Lead/);
   assert.match(await page.locator('#commandView').innerText(), /Due /);
   assert.match(await page.locator('#commandView').innerText(), /not a conversion rate/);
+  assert.match(await page.locator('#commandView').innerText(), /does not approve, send, or confirm receipt/i);
+  assert.equal(await page.locator('#commandView [data-decision="approve"]').count(), 0);
+  assert.equal(await page.locator('#commandView button:text-is("Approve"), #commandView button:text-is("Send"), #commandView button:text-is("Confirm receipt")').count(), 0);
+  const defaultVisible = await page.evaluate(() => [...document.querySelectorAll('.action-card')].filter((card) => !card.hidden).map((card) => ({
+    id: card.getAttribute('data-record-id'),
+    name: card.querySelector('strong')?.textContent || '',
+    classification: card.getAttribute('data-classification'),
+    priority: card.getAttribute('data-priority'),
+    dueState: card.getAttribute('data-due-state'),
+    overdue: card.getAttribute('data-overdue')
+  })));
+  assert.deepEqual(defaultVisible.map((row) => row.id), [
+    'event:evt-reply',
+    'event:evt-lead',
+    'event:evt-today',
+    'sms:sms-amb',
+    'event:evt-bad-date',
+    'event:evt-reorder',
+    'event:evt-missing-due'
+  ]);
+  assert.equal(defaultVisible.some((row) => row.classification === 'resolved'), false);
+  assert.equal(defaultVisible.some((row) => row.classification === 'vendor_obligation'), false);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-lead"]').count(), 1);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-reorder"]').count(), 1);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-clash"]').count(), 0);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-twin-recipient"]').count(), 0);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-twin-evidence"]').count(), 0);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-ws-evidence"]').count(), 0);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-draft-body"]').count(), 0);
+  assert.equal(await page.locator('.action-card:has-text("Synthetic Missing Id")').count(), 0);
+  assert.equal(await page.locator('[data-action-integrity="conflict"]').count(), 1);
+  assert.equal(await page.locator('[data-conflict-id="event:evt-clash"]').count(), 1);
+  assert.equal(await page.locator('[data-conflict-id="event:evt-twin-recipient"]').count(), 1);
+  assert.equal(await page.locator('[data-conflict-id="event:evt-twin-evidence"]').count(), 1);
+  assert.equal(await page.locator('[data-conflict-id="event:evt-ws-evidence"]').count(), 1);
+  assert.equal(await page.locator('[data-conflict-id="event:evt-draft-body"]').count(), 1);
+  assert.match(await page.locator('[data-action-integrity="conflict"]').innerText(), /Integrity review required/i);
+  assert.match(await page.locator('[data-action-integrity="conflict"]').innerText(), /5 conflicting action ids/i);
+  assert.equal(await page.locator('[data-action-integrity="missing-id"]').count(), 1);
+  assert.equal(await page.locator('[data-missing-id="(missing:1)"]').count(), 1);
+  assert.match(await page.locator('[data-action-integrity="missing-id"]').innerText(), /Synthetic Missing Id/);
+  assert.match(await page.locator('[data-action-integrity="missing-id"]').innerText(), /missing a stable id/i);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-lead"]').getAttribute('data-due-state'), 'overdue');
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-lead"]').getAttribute('data-overdue'), 'yes');
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-today"]').getAttribute('data-due-state'), 'due');
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-today"]').getAttribute('data-overdue'), 'no');
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-missing-due"]').getAttribute('data-due-state'), 'undated');
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-missing-due"]').getAttribute('data-overdue'), 'no');
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-bad-date"]').getAttribute('data-due-state'), 'unknown');
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-bad-date"]').getAttribute('data-overdue'), 'no');
+  assert.match(await page.locator('.action-card[data-record-id="event:evt-bad-date"]').innerText(), /Due date invalid or unavailable/);
+  const orderedNames = await page.evaluate(() => [...document.querySelectorAll('.action-card')].map((card) => card.querySelector('strong')?.textContent || ''));
+  assert.ok(orderedNames.indexOf('Synthetic Reply Needed') < orderedNames.indexOf('Synthetic Lead'));
+  assert.ok(orderedNames.indexOf('Synthetic Lead') < orderedNames.indexOf('Ambiguous SMS Match'));
+  assert.equal(await page.locator('[data-action-filter="action"][aria-pressed="true"]').count(), 1);
+  assert.equal(await page.locator('#actionSearch').getAttribute('aria-label'), 'Search Action Required');
+  const leadReviewHref = await page.locator('.action-card[data-record-id="event:evt-lead"] [data-review-link]').getAttribute('href');
+  assert.match(leadReviewHref || '', /record=event%3Aevt-lead/);
+  assert.match(leadReviewHref || '', /#inboxReviewTitle$/);
+  assert.match(await page.locator('.action-card[data-record-id="event:evt-lead"] [data-review-link]').getAttribute('aria-label') || '', /Does not approve or send/i);
+  assert.equal(await page.locator('#commandView').innerText().then((text) => text.includes('PRIVATE_FIXTURE_BODY_MUST_STAY_COLLAPSED')), false);
+  await page.locator('.action-card[data-record-id="event:evt-lead"] .action-evidence summary').click();
+  await page.waitForFunction(() => {
+    const details = document.querySelector('.action-card[data-record-id="event:evt-lead"] .action-evidence');
+    return details && details.open === true;
+  });
+  const evidenceText = await page.locator('.action-card[data-record-id="event:evt-lead"] .action-evidence').innerText();
+  assert.match(evidenceText, /open task is overdue/i);
+  assert.match(evidenceText, /task-1/);
+  assert.match(evidenceText, /Stored addresses are not verified recipients/i);
+  assert.match(evidenceText, /stored\.lead@example\.test/);
+  assert.equal(evidenceText.includes('PRIVATE_FIXTURE_BODY_MUST_STAY_COLLAPSED'), false);
+  assert.match(evidenceText, /Message text stays collapsed here/);
+  assert.equal(/verified recipient/i.test(evidenceText) && !/not verified recipients/i.test(evidenceText), false);
+  await page.locator('[data-action-filter="resolved"]').click();
+  await page.waitForFunction(() => {
+    const visible = [...document.querySelectorAll('.action-card')].filter((card) => !card.hidden);
+    return visible.length === 1 && visible[0].getAttribute('data-classification') === 'resolved';
+  });
+  assert.match(await page.locator('.action-card:not([hidden])').innerText(), /Synthetic Resolved/);
+  await page.locator('[data-action-filter="reply_required"]').click();
+  await page.waitForFunction(() => {
+    const visible = [...document.querySelectorAll('.action-card')].filter((card) => !card.hidden);
+    return visible.length === 1 && /Synthetic Reply Needed/i.test(visible[0].textContent || '');
+  });
+  await page.locator('[data-action-filter="due"]').click();
+  await page.waitForFunction(() => {
+    const visible = [...document.querySelectorAll('.action-card')].filter((card) => !card.hidden);
+    return visible.length === 2
+      && visible.every((card) => card.getAttribute('data-due-state') === 'due' || card.getAttribute('data-due-state') === 'overdue')
+      && visible.some((card) => card.getAttribute('data-record-id') === 'event:evt-lead')
+      && visible.some((card) => card.getAttribute('data-record-id') === 'event:evt-today');
+  });
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-missing-due"]:not([hidden])').count(), 0);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-bad-date"]:not([hidden])').count(), 0);
   const sortedBefore = await page.evaluate(() => [...document.querySelectorAll('.action-card')].map((card) => card.querySelector('strong')?.textContent || ''));
   await page.locator('[data-action-filter="all"]').click();
   await page.locator('#actionSearch').fill('Synthetic Lead');

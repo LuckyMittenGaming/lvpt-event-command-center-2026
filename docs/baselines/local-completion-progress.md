@@ -121,16 +121,21 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | IMPLEMENTED_TESTED (T10 classification + supervisor revision) |
+| Status | IMPLEMENTED_TESTED (T10 + T11 + supervisor revisions) |
 | Date/time | 2026-11-25 |
 | Dependencies | R03 |
-| Files inspected | `lib/action-inbox.mjs`, `app/api/sync/action-inbox/route.ts`, `app/api/sync/_owner-read.ts`, `public/v2/js/unified-hub.js`, `public/v2/js/event-status.js`, `tests/action-inbox.test.mjs`, `tests/owner-read-guard.test.mjs`, `remaining-spec.md` R05 |
-| Files changed | `lib/action-inbox.mjs`, `tests/action-inbox.test.mjs`, `docs/baselines/local-completion-progress.md` |
-| Exact test commands | `node .\tests\action-inbox.test.mjs` (post-revision); prior related `owner-read-guard` / `rcs-staging` already green |
-| Exit codes | action-inbox **0** |
-| Evidence | Synthetic matrix covers new_inquiry, reply_required, follow_up_due, payment_confirmation, event_task, vendor_obligation, needs_review, resolved with explicit `classification.evidence`. Inbound reply requirements stay distinct from overdue follow-ups. Stable-ID dedup + event/task conflicts + ambiguous SMS remain reviewable. Vendors and resolved excluded from `counts.actionRequired` / default hub action filter. Route keeps `denyPrivateRead` before provider reads; no mutation exports; `writesPerformed`/`sendEnabled` false. **Revision:** removed booked-without-tasks `event_task` fallback; `event_task` requires explicit open-task evidence (`task:` id or booked + `taskIds`); booked-plain fixture asserts `needs_review` (not `event_task`); booked-with-open-task still `event_task`. Not LIVE_VERIFIED. |
-| Remaining blocker | Full R05 browser filter/search/ordering acceptance still available via `tests/command-center-browser.test.mjs` if not already covered; authenticated staging later (R22). |
-| Next task | R06 / CRM attribution, or remaining R05 browser verification if orchestrator continues R05 |
+| Files inspected | `lib/action-inbox.mjs`, `app/api/sync/action-inbox/route.ts`, `public/v2/js/unified-hub.js`, `public/v2/unified-hub.css`, `tests/action-inbox.test.mjs`, `tests/command-center-browser.test.mjs`, `remaining-spec.md` R05, `.orchestrator/current-prompt.md` |
+| Files changed (T10) | `lib/action-inbox.mjs`, `tests/action-inbox.test.mjs` |
+| Files changed (T11) | `public/v2/js/unified-hub.js`, `public/v2/unified-hub.css`, `tests/command-center-browser.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/action-inbox.test.mjs,tests/command-center-browser.test.mjs` |
+| Exit codes | Targeted verification **0** (action-inbox 0; browser 0) after third supervisor revision |
+| Evidence (T10) | Synthetic matrix covers new_inquiry, reply_required, follow_up_due, payment_confirmation, event_task, vendor_obligation, needs_review, resolved with explicit `classification.evidence`. Inbound reply requirements stay distinct from overdue follow-ups. Stable-ID dedup + event/task conflicts + ambiguous SMS remain reviewable. Vendors and resolved excluded from `counts.actionRequired` / default hub action filter. Route keeps `denyPrivateRead` before provider reads; no mutation exports; `writesPerformed`/`sendEnabled` false. Booked-without-tasks stays `needs_review`; booked-with-open-task is `event_task`. |
+| Evidence (T11) | Action Required UI: search + visible status filters with `aria-pressed`; priority-then-due ordering; expandable minimal evidence; exact event/review links; stored Gmail not verified; no approve/send/receipt controls; `actionUi` state preserved. |
+| Evidence (T11 revision 1) | `dueState()` validates real calendar dates; missing due → `undated`, invalid/unavailable today → `unknown`; never infers overdue from `follow_up_due`. Browser regressions for due today / missing / invalid dates and conflicting IDs. |
+| Evidence (T11 revision 2) | Same-ID disagreements and missing ids surface as integrity exceptions; identical copies collapse; recipient/evidence twin conflicts covered. |
+| Evidence (T11 revision 3) | `canonicalizeActionValue()` preserves strings exactly and builds sorted `Object.create(null)` objects. `actionRecordSignature()` serializes the full record (no lossy projections); omit-set reserved only for proven non-semantic keys. Browser regressions: evidence whitespace-only conflict, draft body conflict, reordered-key identical collapse; navigation assertions preserved. Not LIVE_VERIFIED. |
+| Remaining blocker | Authenticated staging later (R22). |
+| Next task | R06 / CRM attribution |
 
 ### R06 — Complete CRM, SEO attribution and conversion reporting
 
@@ -398,7 +403,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10 **IMPLEMENTED_TESTED** (evidence-based actionable inbox classification) |
-| Next authorized task | R05 remaining browser/UI acceptance if required, else R06 — CRM / SEO attribution / conversion |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED** (classification + inbox interactions + exact canonical signature revision) |
+| Next authorized task | R06 — CRM / SEO attribution / conversion |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

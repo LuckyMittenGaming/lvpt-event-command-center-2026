@@ -141,11 +141,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING / gap fill) |
+| Status | IMPLEMENTED_TESTED (T12 lifecycle + attribution + original-raw revision) |
+| Date/time | 2026-11-25 |
 | Dependencies | R05 |
-| Evidence | Acquisition/channel separation; `conversion.rate` stays null per matrix |
-| Remaining blocker | No cohort period defined — do not invent |
-| Next task | Preserve attribution rules; report gaps explicitly |
+| Files inspected | `lib/action-inbox.mjs`, `public/v2/js/event-status.js`, `public/v2/js/lifecycle-command-center.js`, `public/v2/js/unified-hub.js`, `tests/action-inbox.test.mjs`, `tests/event-status.test.mjs`, `remaining-spec.md` R06, `.orchestrator/current-prompt.md` |
+| Files changed (T12) | `lib/action-inbox.mjs`, `public/v2/js/event-status.js`, `public/v2/js/lifecycle-command-center.js`, `tests/event-status.test.mjs`, `tests/crm-attribution.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/action-inbox.test.mjs,tests/event-status.test.mjs,tests/crm-attribution.test.mjs` |
+| Exit codes | Targeted verification **0** (action-inbox 0; event-status 0; crm-attribution 0) after original-raw revision |
+| Evidence (T12) | Raw lifecycle preserved on event rows as `lifecycleRaw` beside normalized `pipelineStage`. Outcome Unverified is distinct stage `outcome_unverified` (not generic unknown); needsOutcomeReview remains true. Declined/cancelled/closed/completed stay out of `activeProspectEventIds` / action queue. Acquisition kinds organic/referral/form/utm/recorded/unknown stay separate from Gmail/SMS/RCS `channel`; empty leadSource stays unknown; UTM does not invent from Phone/channel. Valid events counted once; conflicting ids reported in `pipeline.excluded.eventConflicts`. `conversion.rate` remains null. No analytics provider or GHL schema change. Not LIVE_VERIFIED. |
+| Evidence (T12 revision) | `lifecycleRaw` copies exact `event.status` (not normalized `lifecycle.raw`). `classifyStatus` / `eventLane` return original `raw` plus `normalized` matching value. Unicode-dash (`\u2014`/`\u2013`) and repeated-whitespace fixtures assert exact original preservation while stages stay correct. Pipeline subgroup matchers use `normalized \|\| raw`. |
+| Remaining blocker | No eligible cohort/period for a real conversion rate — intentionally unavailable. Authenticated staging later (R22). |
+| Next task | R07 / proposal and event portfolio |
 
 ### R07 — Verify proposal and event portfolio accuracy
 
@@ -403,7 +409,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED** (classification + inbox interactions + exact canonical signature revision) |
-| Next authorized task | R06 — CRM / SEO attribution / conversion |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12 **IMPLEMENTED_TESTED** (lifecycle raw + acquisition/channel separation) |
+| Next authorized task | R07 — proposal and event portfolio accuracy |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

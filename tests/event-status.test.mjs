@@ -2,24 +2,62 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { classifyStatus, eventLane, normalizeEventDate, quoteCoverage } = require('../public/v2/js/event-status.js');
+const { classifyStatus, eventLane, normalizeEventDate, normalizeStatus, quoteCoverage } = require('../public/v2/js/event-status.js');
 
 const cases = [
   ['Invoice Sent / Awaiting Deposit', 'invoice_awaiting_deposit', 'pipeline'],
   ['Booked — Payment Processing', 'payment_processing', 'active'],
   ['Booked - Payment Processing', 'payment_processing', 'active'],
   ['Client Declined', 'declined', 'past'],
-  ['Outcome Unverified', 'unknown', 'review'],
+  ['Outcome Unverified', 'outcome_unverified', 'review'],
   ['Closed', 'unknown_closure', 'past'],
   ['Booked', 'booked', 'active'],
   ['Invoice Sent', 'invoice_sent', 'pipeline'],
-  ['New Lead', 'open', 'pipeline']
+  ['New Lead', 'open', 'pipeline'],
+  ['Needs Discovery', 'open', 'pipeline'],
+  ['Quote Needed', 'open', 'pipeline'],
+  ['Proposal Sent', 'open', 'pipeline'],
+  ['Completed', 'completed', 'past'],
+  ['Declined', 'declined', 'past'],
+  ['Cancelled', 'cancelled', 'past']
 ];
 for (const [status, stage, lane] of cases) {
-  assert.equal(classifyStatus(status).stage, stage, status);
-  assert.equal(eventLane({ status, eventDate: '2026-12-20' }, '2026-11-24').lane, lane, status);
-  assert.equal(eventLane({ status, eventDate: '2026-12-20' }, '2026-11-24').raw.includes(status.replace('—', '-').split('-')[0].trim()) || true, true);
+  const classified = classifyStatus(status);
+  assert.equal(classified.stage, stage, status);
+  assert.equal(classified.raw, status, `exact original preserved for ${status}`);
+  assert.equal(classified.normalized, normalizeStatus(status), status);
+  const laneInfo = eventLane({ status, eventDate: '2026-12-20' }, '2026-11-24');
+  assert.equal(laneInfo.lane, lane, status);
+  assert.equal(laneInfo.raw, status, status);
+  assert.equal(laneInfo.normalized, classified.normalized, status);
 }
+
+const unicodeDash = 'Booked \u2014 Payment Processing';
+const unicodeClassified = classifyStatus(unicodeDash);
+assert.equal(unicodeClassified.raw, unicodeDash);
+assert.equal(unicodeClassified.normalized, 'Booked - Payment Processing');
+assert.equal(unicodeClassified.stage, 'payment_processing');
+assert.notEqual(unicodeClassified.stage, 'booked');
+assert.equal(eventLane({ status: unicodeDash, eventDate: '2026-12-20' }, '2026-11-24').raw, unicodeDash);
+assert.equal(eventLane({ status: unicodeDash, eventDate: '2026-12-20' }, '2026-11-24').normalized, 'Booked - Payment Processing');
+
+const enDash = 'Booked \u2013 Payment Processing';
+assert.equal(classifyStatus(enDash).raw, enDash);
+assert.equal(classifyStatus(enDash).normalized, 'Booked - Payment Processing');
+assert.equal(classifyStatus(enDash).stage, 'payment_processing');
+
+const messyWhitespace = '  Needs   Discovery  ';
+const messyClassified = classifyStatus(messyWhitespace);
+assert.equal(messyClassified.raw, messyWhitespace);
+assert.equal(messyClassified.normalized, 'Needs Discovery');
+assert.equal(messyClassified.stage, 'open');
+assert.equal(eventLane({ status: messyWhitespace, eventDate: '2026-12-20' }, '2026-11-24').raw, messyWhitespace);
+assert.equal(eventLane({ status: messyWhitespace, eventDate: '2026-12-20' }, '2026-11-24').lane, 'pipeline');
+
+assert.equal(eventLane({ status: 'Outcome Unverified', eventDate: '2026-12-20' }, '2026-11-24').needsOutcomeReview, true);
+assert.equal(classifyStatus('Outcome Unverified').stage, 'outcome_unverified');
+assert.notEqual(classifyStatus('Outcome Unverified').stage, 'unknown');
+assert.notEqual(classifyStatus('Closed').stage, 'completed');
 assert.equal(classifyStatus('Booked — Payment Processing').stage, 'payment_processing');
 assert.notEqual(classifyStatus('Booked — Payment Processing').stage, 'booked');
 assert.equal(eventLane({ status: 'New Lead', eventDate: '2026-01-02' }, '2026-11-24').lane, 'past');

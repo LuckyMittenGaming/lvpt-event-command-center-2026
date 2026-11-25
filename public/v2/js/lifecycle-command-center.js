@@ -459,8 +459,8 @@
     if (snapshotBlocks(view, 'Sales Pipeline', 'Present & Future Opportunities')) return;
     const items = events.filter((event) => isPipeline(event) || laneOf(event).lane === 'review');
     const groups = [
-      { label: 'New & Discovery', match: (event) => laneOf(event).stage === 'open' && /^(new lead|needs discovery)$/i.test(laneOf(event).raw) },
-      { label: 'Quote & Proposal', match: (event) => laneOf(event).stage === 'open' && /^(quote needed|proposal sent)$/i.test(laneOf(event).raw) },
+      { label: 'New & Discovery', match: (event) => laneOf(event).stage === 'open' && /^(new lead|needs discovery)$/i.test(laneOf(event).normalized || laneOf(event).raw) },
+      { label: 'Quote & Proposal', match: (event) => laneOf(event).stage === 'open' && /^(quote needed|proposal sent)$/i.test(laneOf(event).normalized || laneOf(event).raw) },
       { label: 'Invoice, not booked', match: (event) => laneOf(event).stage === 'invoice_sent' || laneOf(event).stage === 'invoice_awaiting_deposit' },
       { label: 'Needs review', match: (event) => laneOf(event).lane === 'review' }
     ];

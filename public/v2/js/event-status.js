@@ -12,14 +12,15 @@
   }
 
   function classifyStatus(value) {
-    const raw = normalizeStatus(value);
-    const key = raw.toLowerCase();
+    const raw = value == null ? '' : String(value);
+    const normalized = normalizeStatus(value);
+    const key = normalized.toLowerCase();
     let stage = 'unknown';
     if (!key || /^(unknown|n\/a|not provided|tbd)$/.test(key)) stage = 'unknown';
     else if (/^(declined|lost|closed lost|not moving forward|client declined)$/.test(key)) stage = 'declined';
     else if (/^(cancelled|canceled)$/.test(key)) stage = 'cancelled';
     else if (key === 'closed won') stage = 'closed_won';
-    else if (key === 'outcome unverified') stage = 'unknown';
+    else if (key === 'outcome unverified') stage = 'outcome_unverified';
     else if (key === 'closed') stage = 'unknown_closure';
     else if (/^(completed|complete|resolved|done)$/.test(key)) stage = 'completed';
     else if (/^booked\s*-\s*payment processing$/.test(key)) stage = 'payment_processing';
@@ -27,7 +28,7 @@
     else if (/^(deposit paid|booked|pre-production|event day|paid in full)$/.test(key)) stage = 'booked';
     else if (key === 'invoice sent') stage = 'invoice_sent';
     else if (/^(new lead|needs discovery|quote needed|proposal sent)$/.test(key)) stage = 'open';
-    return { raw, stage, timeZone: TIME_ZONE };
+    return { raw, normalized, stage, timeZone: TIME_ZONE };
   }
 
   function todayIso(now) {
@@ -61,7 +62,19 @@
     if (closed || past) lane = 'past';
     else if (classified.stage === 'booked' || classified.stage === 'payment_processing') lane = 'active';
     else if (classified.stage === 'open' || classified.stage === 'invoice_sent' || classified.stage === 'invoice_awaiting_deposit') lane = 'pipeline';
-    return { raw: classified.raw, stage: classified.stage, lane, past, completed: classified.stage === 'completed', needsOutcomeReview: classified.stage === 'unknown' || classified.stage === 'unknown_closure', date, timeZone: TIME_ZONE };
+    return {
+      raw: classified.raw,
+      normalized: classified.normalized,
+      stage: classified.stage,
+      lane,
+      past,
+      completed: classified.stage === 'completed',
+      needsOutcomeReview: classified.stage === 'unknown'
+        || classified.stage === 'unknown_closure'
+        || classified.stage === 'outcome_unverified',
+      date,
+      timeZone: TIME_ZONE
+    };
   }
 
   function recordedTarget(event) {

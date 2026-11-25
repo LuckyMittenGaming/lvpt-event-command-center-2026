@@ -86,16 +86,19 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | **VERIFIED_EXISTING** (T6 + supervisor revision) |
+| Status | **VERIFIED_EXISTING** (T6 identity + T7 navigation) |
 | Date/time | 2026-11-25 |
 | Dependencies | R00, R01 |
-| Files inspected | `public/v2/js/core.js` (`current()` exact-id lookup, no first-event fallback), `public/v2/js/authoritative-finance.js` (generation/`still()` guards, `explicitEventId`, `clearEventSurfaces`), `public/v2/js/lifecycle-command-center.js` (record generation, invalid Unavailable, delayed ledger paint guard, `clearRecordSurfaces`), `public/v2/js/sheet-snapshot.js`, `public/v2/js/dashboard-base.js`, `public/v2/js/dashboard-upgrades.js`, `public/v2/js/unified-hub.js` |
-| Files changed | `tests/command-center-browser.test.mjs` only; identity owners unchanged — no regression |
-| Exact test commands | `node .\tests\command-center-browser.test.mjs` |
-| Exit codes | browser regression **0** |
-| Evidence | Exact `data-task-id` / `data-record-event` binding; client/company input values; document counts; **both** selected-event report actions (`pre` and `post`) isolated for lead and delayed-active records; invalid event Unavailable + invalid task missing note without opening another record; rapid open discards stale event; delayed ledger race: open lead → switch active before release → only `$222`/active staff/docs/`pre`+`post` reports; unauthorized path generates private `post` report first (asserts Lead-Only Proposal Packet / Lead Client Co present), then refresh clears that same output plus `[data-record-event]` and editor company fields. Never restored first-event fallback. |
-| Remaining blocker | None for R03/T6. Live authenticated acceptance remains R22+ |
-| Next task | R04 |
+| Files inspected (T6) | `public/v2/js/core.js`, `public/v2/js/authoritative-finance.js`, `public/v2/js/lifecycle-command-center.js`, `public/v2/js/sheet-snapshot.js`, `public/v2/js/dashboard-base.js`, `public/v2/js/dashboard-upgrades.js`, `public/v2/js/unified-hub.js` |
+| Files inspected (T7) | `public/v2/js/lifecycle-command-center.js` (ten `data-command-view` entry points, expandable task panel, `View associated event`, `data-back-list`/`data-close-task`, `listMemory` scroll, `popstate`/`history.back`, manual `scrollRestoration`), `public/v2/js/unified-hub.js` (`lvptRememberActionView`, `actionUi` filter/query/scroll restore), `tests/command-center-browser.test.mjs`, `tests/command-center-acceptance.test.mjs` |
+| Files changed (T6) | `tests/command-center-browser.test.mjs` only; identity owners unchanged |
+| Files changed (T7) | `tests/command-center-browser.test.mjs`, `tests/command-center-acceptance.test.mjs`; navigation owners unchanged — no demonstrated regression |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/command-center-browser.test.mjs,tests/command-center-acceptance.test.mjs` |
+| Exit codes | Targeted verify **0** (browser **0**, acceptance **0**) |
+| Evidence (T6) | Exact `data-task-id` / `data-record-event` binding; client/company input values; document counts; **both** selected-event report actions (`pre` and `post`) isolated for lead and delayed-active records; invalid event Unavailable + invalid task missing note without opening another record; rapid open discards stale event; delayed ledger race; unauthorized path clears private report + record surfaces. Never restored first-event fallback. |
+| Evidence (T7) | Opening a task keeps Priority open tasks list + Close; View associated event binds exact `evt-lead`; Back to list returns to expanded task then Close restores overview scroll; proposal search `zzz-filter` restored; Action Required filter `all` + search `Synthetic Lead` + scroll + card sort restored via Back to list; finance record Back/Forward restores Event Finance without `sms-review` redirect; all ten views exercised at 375px with active nav + no overflow + no sign-in redirect; authenticated Close/Back stay on `/v2/`. Acceptance static checks for `popstate`, `scrollRestoration`, `history.back`, back/close controls, ten view ids, and `actionUi` memory. |
+| Remaining blocker | None for R03. Live authenticated acceptance remains R22+ |
+| Next task | R04 / T8 |
 
 ### R04 — Verify and complete executive dashboard
 
@@ -383,7 +386,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6 **VERIFIED_EXISTING** (pre+post report isolation + unauthorized private-report clear; identity owners unchanged) |
-| Next authorized task | R04 — executive dashboard |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING** (identity + navigation/list restoration; owners unchanged) |
+| Next authorized task | R04 / T8 — executive metrics and evidence labels |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

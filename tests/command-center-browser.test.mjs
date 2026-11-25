@@ -325,14 +325,18 @@ try {
   assert.match(taskView, /Send proposal/);
   assert.match(taskView, /Synthetic Lead/);
   assert.equal(await page.locator('[data-open-task-panel="task-1"]').count(), 1);
+  assert.match(await page.locator('[data-view-event="evt-lead"]').innerText(), /View associated event/i);
+  assert.equal(await page.locator('[data-close-task]').count(), 1);
   assert.equal(taskView.includes('Floor Lead'), false);
   assert.equal(taskView.includes('$222'), false);
   assert.equal(await page.locator('#eventEditorPanel').isVisible(), false);
   assert.equal(await page.locator('#reportCenter').isVisible(), false);
   assert.equal(page.url().includes('Synthetic'), false);
+  assert.equal(page.url().includes('sms-review'), false);
   await page.goBack();
   await page.waitForFunction(() => !document.querySelector('[data-open-task-panel="task-1"]'));
   assert.match(await page.locator('#commandView').innerText(), /Priority open tasks/);
+  assert.equal(page.url().includes('sms-review'), false);
   await page.goForward();
   await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]'));
   await page.evaluate(() => document.querySelector('[data-view-event="evt-lead"]').click());
@@ -340,6 +344,8 @@ try {
     const record = document.querySelector('[data-record-event="evt-lead"]');
     return record && record.innerText.includes('$111.00');
   });
+  assert.equal(await page.locator('[data-record-event="evt-lead"]').getAttribute('data-record-event'), 'evt-lead');
+  assert.equal(page.url().includes('sms-review'), false);
   const record = await page.locator('[data-record-event="evt-lead"]').innerText();
   assert.match(record, /Synthetic Lead/);
   assert.match(record, /Lead Host/);
@@ -374,8 +380,14 @@ try {
   });
   await page.evaluate(() => document.querySelector('[data-back-list]').click());
   await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]'));
+  assert.match(await page.locator('#commandView').innerText(), /Priority open tasks/);
+  assert.equal(page.url().includes('sms-review'), false);
+  assert.match(page.url(), /\/v2\//);
   await page.evaluate(() => document.querySelector('[data-close-task]').click());
   await page.waitForFunction(() => !document.querySelector('[data-open-task-panel]') && /Priority open tasks/.test(document.querySelector('#commandView').innerText));
+  assert.equal(page.url().includes('sms-review'), false);
+  assert.match(page.url(), /\/v2\//);
+  assert.equal(await page.locator('#ownerSignInLink').count(), 1);
   const restored = await page.evaluate(() => window.scrollY);
   assert.ok(Math.abs(restored - listScroll) < 80, `scroll ${restored} vs ${listScroll}`);
   await page.evaluate(() => { document.body.style.minHeight = ''; window.lvptOpenRecord('evt-active'); window.lvptOpenRecord('evt-lead'); });
@@ -447,14 +459,25 @@ try {
   assert.match(await page.locator('#commandView').innerText(), /Send proposal/);
   await page.locator('[data-command-view="finance"]').click();
   await page.waitForTimeout(300);
-  await page.locator('#commandView [data-view-record="evt-lead"]').click();
+  await page.waitForFunction(() => /Invoice by invoice|Event finance/i.test(document.querySelector('#commandView')?.innerText || ''));
+  await page.evaluate(() => document.querySelector('#commandView [data-view-record="evt-lead"]').click());
   await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
   const fromFinance = await page.locator('[data-record-event="evt-lead"]').innerText();
   assert.match(fromFinance, /Discovery and setup/);
   assert.match(fromFinance, /\$111\.00/);
   assert.equal(fromFinance.includes('$222'), false);
   assert.match(fromFinance, /No save control/);
-  await page.locator('[data-back-list]').click();
+  assert.equal(page.url().includes('sms-review'), false);
+  await page.goBack();
+  await page.waitForFunction(() => !document.querySelector('[data-record-event]') && /Invoice by invoice|Event finance/i.test(document.querySelector('#commandView')?.innerText || ''));
+  assert.equal(page.url().includes('sms-review'), false);
+  assert.equal(await page.locator('[data-command-view="finance"].active').count(), 1);
+  await page.goForward();
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+  await page.evaluate(() => document.querySelector('[data-back-list]').click());
+  await page.waitForFunction(() => !document.querySelector('[data-record-event]') && /Invoice by invoice|Event finance/i.test(document.querySelector('#commandView')?.innerText || ''));
+  assert.equal(page.url().includes('sms-review'), false);
+  assert.match(page.url(), /\/v2\//);
   await page.locator('[data-command-view="communications"]').click();
   await page.waitForTimeout(300);
   assert.equal(pictureGets, afterReady);
@@ -466,13 +489,35 @@ try {
   assert.equal(communicationsReady.includes('no new threads'), false);
   await page.locator('[data-command-view="action"]').click();
   await page.waitForTimeout(400);
+  await page.waitForFunction(() => document.querySelectorAll('.action-card').length > 0);
   assert.match(await page.locator('#commandView').innerText(), /Synthetic Lead/);
   assert.match(await page.locator('#commandView').innerText(), /Due /);
   assert.match(await page.locator('#commandView').innerText(), /not a conversion rate/);
-  await page.locator('#commandView [data-view-record="evt-lead"]').click();
+  const sortedBefore = await page.evaluate(() => [...document.querySelectorAll('.action-card')].map((card) => card.querySelector('strong')?.textContent || ''));
+  await page.locator('[data-action-filter="all"]').click();
+  await page.locator('#actionSearch').fill('Synthetic Lead');
+  await page.waitForFunction(() => {
+    const visible = [...document.querySelectorAll('.action-card')].filter((card) => !card.hidden);
+    return visible.length > 0 && visible.every((card) => /Synthetic Lead/i.test(card.textContent || ''));
+  });
+  await page.evaluate(() => { document.body.style.minHeight = '2400px'; window.scrollTo(0, 420); });
+  await page.waitForFunction(() => window.scrollY >= 400);
+  const actionScroll = await page.evaluate(() => window.scrollY);
+  await page.evaluate(() => document.querySelector('#commandView [data-view-record="evt-lead"]').click());
   await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
   assert.match(await page.locator('[data-record-event="evt-lead"]').innerText(), /Send proposal/);
-  await page.locator('[data-command-view="action"]').click();
+  assert.equal(page.url().includes('sms-review'), false);
+  const rememberedActionScroll = await page.evaluate(() => window.lvptActionUi ? window.lvptActionUi.scroll : 0);
+  assert.ok(Math.abs(rememberedActionScroll - actionScroll) < 80, `remembered scroll ${rememberedActionScroll} vs ${actionScroll}`);
+  await page.evaluate(() => document.querySelector('[data-back-list]').click());
+  await page.waitForFunction(() => document.querySelector('#actionSearch') && document.querySelectorAll('.action-card').length > 0);
+  assert.equal(await page.locator('#actionSearch').inputValue(), 'Synthetic Lead');
+  assert.equal(await page.locator('[data-action-filter="all"].active').count(), 1);
+  const sortedAfter = await page.evaluate(() => [...document.querySelectorAll('.action-card')].map((card) => card.querySelector('strong')?.textContent || ''));
+  assert.deepEqual(sortedAfter, sortedBefore);
+  await page.waitForFunction((y) => Math.abs(window.scrollY - y) < 80, rememberedActionScroll);
+  assert.equal(page.url().includes('sms-review'), false);
+  assert.match(page.url(), /\/v2\//);
   await page.locator('#actionSearch').fill('zzzz-no-match');
   await page.waitForFunction(() => document.querySelectorAll('.action-card:not([hidden])').length === 0);
   const searchScroll = await page.evaluate(() => window.scrollY);
@@ -486,14 +531,43 @@ try {
   assert.equal(health.includes('AUTH REQUIRED'), false);
   assert.equal(await overflow(), true);
 
+  const tenViews = [
+    ['overview', /Confirmed upcoming|Priority open tasks/],
+    ['action', /One inbox|Synthetic Lead|Action required/i],
+    ['pipeline', /Synthetic Lead|Pipeline/i],
+    ['active', /Synthetic Booked|Active/i],
+    ['archive', /Synthetic Past|Past/i],
+    ['proposals', /Proposal Library|Recorded on the sheet/i],
+    ['followup', /Send proposal|Follow-Up|follow/i],
+    ['finance', /Invoice by invoice|Event finance/i],
+    ['communications', /Gmail|Owner session|Communications/i],
+    ['health', /Source health|What ran/i]
+  ];
   await page.setViewportSize({ width: 375, height: 800 });
+  for (const [viewId, marker] of tenViews) {
+    await page.locator(`[data-command-view="${viewId}"]`).click();
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator(`[data-command-view="${viewId}"].active`).count(), 1);
+    assert.match(await page.locator('#commandView').innerText(), marker);
+    assert.equal(page.url().includes('sms-review'), false);
+    assert.equal(await overflow(), true);
+    assert.equal(await page.locator('#commandNav').isVisible(), true);
+  }
   await page.locator('[data-command-view="overview"]').click();
   await page.locator('[data-open-task="task-1"]').click();
   assert.match(await page.locator('#commandView').innerText(), /Priority open tasks/);
+  assert.equal(await page.locator('[data-open-task-panel="task-1"]').count(), 1);
+  assert.match(await page.locator('[data-view-event="evt-lead"]').innerText(), /View associated event/i);
   assert.equal(await page.locator('#eventEditorPanel').isVisible(), false);
+  assert.equal(page.url().includes('sms-review'), false);
   await page.waitForTimeout(200);
   assert.equal(await overflow(), true);
   assert.equal(await page.locator('#commandNav').isVisible(), true);
+  await page.locator('[data-view-event="evt-lead"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+  await page.locator('[data-back-list]').click();
+  await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]') || /Priority open tasks/.test(document.querySelector('#commandView')?.innerText || ''));
+  assert.equal(page.url().includes('sms-review'), false);
 
   mode = 'delay-ledger';
   releaseLedger = null;

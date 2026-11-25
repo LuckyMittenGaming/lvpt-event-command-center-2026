@@ -169,8 +169,21 @@ assert.match(nav, /Cost not recorded/);
 assert.equal(nav.includes('Projected Profit'), false);
 assert.match(nav, /\['overview','Overview'\]/);
 assert.match(nav, /data-command-view="\$\{view\}"/);
+assert.match(nav, /popstate/);
+assert.match(nav, /scrollRestoration/);
+assert.match(nav, /history\.back/);
+assert.match(nav, /data-back-list/);
+assert.match(nav, /data-close-task/);
+assert.match(nav, /View associated event/);
+assert.match(hub, /lvptRememberActionView/);
+assert.match(hub, /actionUi\.filter/);
+assert.match(hub, /actionUi\.query/);
+assert.match(hub, /actionUi\.scroll/);
 for (const label of ['Overview', 'Action Required', 'Pipeline', 'Active Events', 'Past Events', 'Proposals', 'Client Follow-Up', 'Event Finance', 'Communications', 'Source Health']) {
   assert.match(nav, new RegExp(label));
+}
+for (const viewId of ['overview', 'action', 'pipeline', 'active', 'archive', 'proposals', 'followup', 'finance', 'communications', 'health']) {
+  assert.match(nav, new RegExp(`\\['${viewId}',`));
 }
 assert.match(lifecycleCss, /\.command-nav\{display:flex;[^}]*overflow-x:auto/);
 assert.match(lifecycleCss, /@media\(max-width:1120px\)/);

@@ -18,14 +18,14 @@ Rules:
 | Field | Value |
 | --- | --- |
 | Branch | `ai-build/command-center-loop` |
-| HEAD | `8703954b84a8d3535169f7d31ec2dfb286860b42` |
-| Upstream | `origin/feature/command-center-completion-20261124` (ahead 1) |
+| HEAD | includes `1c9b1ec` (pinned playwright-core 1.65.1) |
+| Upstream | `origin/feature/command-center-completion-20261124` |
 | Candidate included | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` (ancestor of HEAD) |
-| Working tree | Clean tracked tree; untracked `.orchestrator/` only |
-| Node | v24.22.1 (CI uses 22) |
+| Working tree | Browser harness + local-test-environment docs; untracked `.orchestrator/` |
+| Node | v24.22.1 (CI uses 22) — recorded in `local-test-environment.md` |
 | npm | 11.17.0 |
-| Chrome | Present under Program Files |
-| playwright-core | Missing locally |
+| Chrome | Program Files Chrome 158 resolved by harness; `LVPT_CHROME_PATH` supported |
+| playwright-core | Available locally (`1.65.1`); browser regression exit 0 |
 | Newest completed phase baseline | `docs/baselines/phase-07m-production-sync.md` |
 
 ---
@@ -50,13 +50,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED |
+| Status | IMPLEMENTED_TESTED for T2 browser path; verify script still T3 |
+| Date/time | 2026-11-25 |
 | Dependencies | R00 |
-| Files inspected (preview) | `tests/command-center-browser.test.mjs` (hard-coded `/usr/bin/google-chrome`), `package.json` (no playwright-core), Chrome path present |
-| Files changed | None |
-| Evidence | Chrome found; playwright-core import fails; verify script absent |
-| Remaining blocker | BLOCKED_ENVIRONMENT until Windows Chrome path + dependency/availability decision |
-| Next task | Implement R01 after R00 |
+| Files inspected | `tests/command-center-browser.test.mjs`, `package.json` (`playwright-core` 1.65.1 via `1c9b1ec`), installed Chrome under Program Files, CLI discovery for `cursor` / `cursor-agent` |
+| Files changed (T2) | `tests/command-center-browser.test.mjs` (LVPT_CHROME_PATH + Windows/Linux resolution; actionable missing-dep failure; assertions preserved), `docs/baselines/local-test-environment.md` |
+| Exact test commands | `node --version`; `npm.cmd --version`; CLI discovery; `node -e "import('playwright-core')..."`; invalid `LVPT_CHROME_PATH` probe; `node .\tests\command-center-browser.test.mjs` |
+| Exit codes | playwright-core available; browser harness **exit 0**; invalid override **exit 1** |
+| Evidence | Windows Chrome auto-resolve; Linux candidates retained; synthetic local HTTP only; no paid browser service; T2 did not edit manifests |
+| Remaining blocker | T3 still owns `scripts/verify-command-center.ps1` |
+| Next task | T3 / R01 verify script |
 
 ### R02 — Establish local orchestration safety
 
@@ -364,7 +367,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00 |
-| Next authorized task | R01 |
-| Stop conditions currently active | None for documentation; R01 has environment gaps (`playwright-core`, Linux Chrome path) |
+| Last completed task | R00; R01 T2 browser executable resolution **IMPLEMENTED_TESTED** |
+| Next authorized task | T3 / R01 `scripts/verify-command-center.ps1` |
+| Stop conditions currently active | None for T2 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent |

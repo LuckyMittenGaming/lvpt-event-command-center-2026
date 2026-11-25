@@ -1,9 +1,90 @@
 import assert from 'node:assert/strict';
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { homedir, platform } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright-core';
+
+function windowsChromeCandidates() {
+  const localAppData = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local');
+  return [
+    join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe')
+  ];
+}
+
+function linuxChromeCandidates() {
+  return [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium'
+  ];
+}
+
+function chromeCandidatesForPlatform() {
+  if (platform() === 'win32') return windowsChromeCandidates();
+  return linuxChromeCandidates();
+}
+
+function assertExecutableFile(path, label) {
+  if (!existsSync(path)) {
+    throw new Error(`${label} "${path}" does not exist. Install Google Chrome or set LVPT_CHROME_PATH to an installed Chrome/Chromium executable.`);
+  }
+  let stats;
+  try {
+    stats = statSync(path);
+  } catch (error) {
+    throw new Error(`${label} "${path}" could not be read (${error.message}).`);
+  }
+  if (!stats.isFile()) {
+    throw new Error(`${label} "${path}" is not a file.`);
+  }
+  try {
+    accessSync(path, constants.R_OK);
+  } catch (error) {
+    throw new Error(`${label} "${path}" is not readable (${error.message}).`);
+  }
+}
+
+function resolveChromeExecutable() {
+  const override = typeof process.env.LVPT_CHROME_PATH === 'string' ? process.env.LVPT_CHROME_PATH.trim() : '';
+  if (override) {
+    assertExecutableFile(override, 'LVPT_CHROME_PATH');
+    return override;
+  }
+
+  const candidates = chromeCandidatesForPlatform();
+  for (const candidate of candidates) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+
+  throw new Error(
+    `No Chrome executable found for browser regression on ${platform()}. ` +
+    `Checked: ${candidates.join(', ')}. ` +
+    `Install Google Chrome or set LVPT_CHROME_PATH. Do not skip this test.`
+  );
+}
+
+async function loadPlaywrightChromium() {
+  try {
+    const mod = await import('playwright-core');
+    if (!mod?.chromium) {
+      throw new Error('playwright-core loaded without a chromium export');
+    }
+    return mod.chromium;
+  } catch (error) {
+    throw new Error(
+      `playwright-core is required for command-center browser regression but is not available (${error.message}). ` +
+      `Do not skip this test and do not use a paid browser service. ` +
+      `Install the pinned playwright-core development dependency with npm.cmd ci (declared in package.json).`
+    );
+  }
+}
+
+const executablePath = resolveChromeExecutable();
+const chromium = await loadPlaywrightChromium();
 
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
@@ -103,7 +184,7 @@ const server = createServer((request, response) => {
 
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const port = server.address().port;
-const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
+const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
 await page.route('**/api/**', async (route) => {
   const request = route.request();

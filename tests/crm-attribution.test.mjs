@@ -189,4 +189,187 @@ assert.equal(inbox.pipeline.conversion.rate, null);
 assert.match(inbox.pipeline.conversion.reason, /not a conversion rate/i);
 assert.equal(inbox.pipeline.conversion.numerator, inbox.pipeline.stages.booked);
 
+const crm = require('../public/v2/js/lifecycle-command-center.js');
+
+const utmLines = crm.acquisitionChannelLines(byId('event:evt-utm'));
+assert.equal(utmLines.kind, 'utm');
+assert.equal(utmLines.channel, 'Gmail');
+assert.match(utmLines.acquisitionText, /Acquisition:.*utm/i);
+assert.match(utmLines.channelText, /^Channel: Gmail$/);
+assert.match(utmLines.combined, /Channel is not an acquisition source/i);
+assert.equal(utmLines.kind === utmLines.channel, false);
+
+const smsLines = crm.acquisitionChannelLines(byId('event:evt-unknown-source'));
+assert.equal(smsLines.kind, 'unknown');
+assert.equal(smsLines.channel, 'SMS');
+assert.match(smsLines.acquisitionText, /Acquisition: Unknown/i);
+assert.match(smsLines.channelText, /^Channel: SMS$/);
+assert.notEqual(smsLines.kind, 'SMS');
+
+const referralFromSourceOnly = crm.acquisitionChannelLines({
+  source: 'Referral from partner',
+  channel: 'Gmail'
+});
+assert.equal(referralFromSourceOnly.kind, 'referral');
+assert.equal(referralFromSourceOnly.channel, 'Gmail');
+assert.match(referralFromSourceOnly.combined, /Acquisition:.*referral/i);
+assert.match(referralFromSourceOnly.combined, /Channel: Gmail/);
+
+const sheetSummary = crm.summarizeEventAcquisition([
+  { id: 'a', status: 'New Lead', leadSource: 'Organic Search' },
+  { id: 'b', status: 'Booked', leadSource: 'Referral' },
+  { id: 'c', status: 'Booked - Payment Processing', leadSource: 'Website form' },
+  { id: 'd', status: 'New Lead', utmSource: 'google', utmCampaign: 'brand', leadSource: 'Phone' },
+  { id: 'e', status: 'Needs Discovery', leadSource: '' }
+]);
+assert.equal(sheetSummary.sources.organic, 1);
+assert.equal(sheetSummary.sources.referral, 1);
+assert.equal(sheetSummary.sources.form, 1);
+assert.equal(sheetSummary.sources.utm, 1);
+assert.equal(sheetSummary.sources.unknown, 1);
+assert.equal(sheetSummary.bookedShare.numerator, 1);
+assert.equal(sheetSummary.bookedShare.denominator, 5);
+assert.equal(sheetSummary.rate, null);
+assert.match(sheetSummary.rateLabel, /Unavailable/i);
+assert.match(sheetSummary.cohort, /Unavailable/i);
+assert.match(sheetSummary.period, /Unavailable/i);
+assert.match(sheetSummary.denominator, /Unavailable/i);
+assert.match(sheetSummary.bookedShare.text, /Booked share:/i);
+assert.match(sheetSummary.bookedShare.note, /not a conversion rate/i);
+assert.match(sheetSummary.reason, /not a conversion rate/i);
+
+const unavailablePanel = crm.formatAttributionPanel(crm.conversionReport(inbox.pipeline));
+assert.match(unavailablePanel, /data-crm-attribution="panel"/);
+assert.match(unavailablePanel, /data-crm-conversion-rate="unavailable"/);
+assert.match(unavailablePanel, /Cohort: Unavailable/i);
+assert.match(unavailablePanel, /Period: Unavailable/i);
+assert.match(unavailablePanel, /Denominator: Unavailable/i);
+assert.match(unavailablePanel, /Booked share:/i);
+assert.match(unavailablePanel, /not a conversion rate/i);
+assert.equal(/conversion rate:\s*\d/i.test(unavailablePanel), false);
+assert.match(unavailablePanel, /data-crm-source-kind="organic"/);
+assert.match(unavailablePanel, /Acquisition source stays separate from communication channel/i);
+
+const eligible = crm.conversionReport({
+  denominator: 10,
+  stages: { booked: 2 },
+  sources: { organic: 4, referral: 3, form: 1, utm: 1, recorded: 1, unknown: 0 },
+  conversion: {
+    cohort: '2026 Q3 website form leads',
+    period: '2026-07-01 to 2026-09-30',
+    outcomeNumerator: 2,
+    outcomeDenominator: 8,
+    numerator: 2,
+    denominator: 10,
+    rate: 0.25,
+    reason: 'Eligible cohort conversion uses the outcome denominator.'
+  }
+});
+assert.equal(eligible.canComputeRate, true);
+assert.equal(eligible.rate, 0.25);
+assert.match(eligible.cohort, /2026 Q3 website form leads/);
+assert.match(eligible.period, /2026-07-01 to 2026-09-30/);
+assert.match(eligible.denominator, /Conversion denominator: 8/);
+assert.match(eligible.rateLabel, /25\.0%/);
+assert.match(eligible.reason, /Eligible cohort conversion uses the outcome denominator/);
+assert.equal(/No eligible cohort and period are defined/i.test(eligible.reason), false);
+assert.match(eligible.bookedShare.text, /Booked share: 2 of 10/);
+assert.match(eligible.bookedShare.note, /not a conversion rate/i);
+
+const eligiblePanel = crm.formatAttributionPanel(eligible);
+assert.match(eligiblePanel, /data-crm-conversion-rate="0\.25"/);
+assert.match(eligiblePanel, /Cohort: 2026 Q3 website form leads/);
+assert.match(eligiblePanel, /Period: 2026-07-01 to 2026-09-30/);
+assert.match(eligiblePanel, /Denominator: Conversion denominator: 8/);
+assert.match(eligiblePanel, /Eligible cohort conversion uses the outcome denominator/);
+assert.equal(/No eligible cohort and period are defined/i.test(eligiblePanel), false);
+assert.match(eligiblePanel, /Booked share: 2 of 10/);
+assert.match(eligiblePanel, /not a conversion rate/i);
+
+const derivedWithoutSuppliedRate = crm.conversionReport({
+  denominator: 10,
+  stages: { booked: 2 },
+  conversion: {
+    cohort: '2026 Q3 website form leads',
+    period: '2026-07-01 to 2026-09-30',
+    outcomeNumerator: 2,
+    outcomeDenominator: 8
+  }
+});
+assert.equal(derivedWithoutSuppliedRate.canComputeRate, true);
+assert.equal(derivedWithoutSuppliedRate.rate, 0.25);
+assert.match(derivedWithoutSuppliedRate.reason, /derived from the validated cohort outcome counts/i);
+assert.equal(/No eligible cohort and period are defined/i.test(derivedWithoutSuppliedRate.reason), false);
+
+const negativeCounts = crm.conversionReport({
+  denominator: 10,
+  conversion: {
+    cohort: '2026 Q3 website form leads',
+    period: '2026-07-01 to 2026-09-30',
+    outcomeNumerator: -1,
+    outcomeDenominator: 8,
+    rate: 0.25
+  }
+});
+assert.equal(negativeCounts.canComputeRate, false);
+assert.equal(negativeCounts.rate, null);
+assert.match(negativeCounts.reason, /must not be negative/i);
+
+const numeratorExceedsDenominator = crm.conversionReport({
+  denominator: 10,
+  conversion: {
+    cohort: '2026 Q3 website form leads',
+    period: '2026-07-01 to 2026-09-30',
+    outcomeNumerator: 9,
+    outcomeDenominator: 8,
+    rate: 1
+  }
+});
+assert.equal(numeratorExceedsDenominator.canComputeRate, false);
+assert.equal(numeratorExceedsDenominator.rate, null);
+assert.match(numeratorExceedsDenominator.reason, /exceeds the outcome denominator/i);
+
+const inconsistentRate = crm.conversionReport({
+  denominator: 10,
+  conversion: {
+    cohort: '2026 Q3 website form leads',
+    period: '2026-07-01 to 2026-09-30',
+    outcomeNumerator: 2,
+    outcomeDenominator: 8,
+    rate: 0.5
+  }
+});
+assert.equal(inconsistentRate.canComputeRate, false);
+assert.equal(inconsistentRate.rate, null);
+assert.match(inconsistentRate.reason, /does not match the validated outcome counts/i);
+
+const inconsistentDenominators = crm.conversionReport({
+  denominator: 10,
+  conversion: {
+    cohort: '2026 Q3 website form leads',
+    period: '2026-07-01 to 2026-09-30',
+    outcomeNumerator: 2,
+    outcomeDenominator: 8,
+    cohortDenominator: 10,
+    rate: 0.25
+  }
+});
+assert.equal(inconsistentDenominators.canComputeRate, false);
+assert.equal(inconsistentDenominators.rate, null);
+assert.match(inconsistentDenominators.reason, /outcome denominators are inconsistent/i);
+
+const missingOutcomeNumerator = crm.conversionReport({
+  denominator: 10,
+  conversion: {
+    cohort: '2026 Q3 website form leads',
+    period: '2026-07-01 to 2026-09-30',
+    outcomeDenominator: 8,
+    numerator: 2,
+    rate: 0.25
+  }
+});
+assert.equal(missingOutcomeNumerator.canComputeRate, false);
+assert.equal(missingOutcomeNumerator.rate, null);
+assert.match(missingOutcomeNumerator.reason, /outcome numerator and outcome denominator/i);
+
 console.log('crm-attribution tests passed');

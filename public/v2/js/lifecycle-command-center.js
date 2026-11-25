@@ -1,8 +1,260 @@
-(() => {
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.LVPTCrmAttribution = api;
+})(typeof window === 'undefined' ? null : window, function () {
+  'use strict';
+
+  const SOURCE_KIND_LABELS = {
+    organic: 'Organic search',
+    referral: 'Referral',
+    form: 'Website form',
+    utm: 'UTM attribution',
+    recorded: 'Other known source',
+    unknown: 'Unknown source'
+  };
+
+  function text(value, max) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max || 180);
+  }
+
+  function recorded(value, max) {
+    const clean = text(value, max);
+    if (!clean || clean === '0' || /^(not provided|tbd|unknown|n\/a)$/i.test(clean)) return '';
+    return clean;
+  }
+
+  function classifyLeadSource(leadSource) {
+    if (!leadSource) return { kind: 'unknown', label: '' };
+    if (/^(organic|seo|organic search)$/i.test(leadSource)) return { kind: 'organic', label: leadSource };
+    if (/referral/i.test(leadSource)) return { kind: 'referral', label: leadSource };
+    if (/\bform\b/i.test(leadSource)) return { kind: 'form', label: leadSource };
+    return { kind: 'recorded', label: leadSource };
+  }
+
+  function acquisitionOf(row) {
+    if (!row || typeof row !== 'object') {
+      return { kind: 'unknown', label: '', leadSource: '', utmSource: '', utmCampaign: '' };
+    }
+    if (recorded(row.acquisitionKind)) {
+      return {
+        kind: String(row.acquisitionKind),
+        label: recorded(row.acquisitionLabel) || recorded(row.acquisitionLeadSource) || '',
+        leadSource: recorded(row.acquisitionLeadSource) || recorded(row.leadSource) || '',
+        utmSource: recorded(row.acquisitionUtmSource) || recorded(row.utmSource) || recorded(row.utm_source) || '',
+        utmCampaign: recorded(row.acquisitionUtmCampaign) || recorded(row.utmCampaign) || recorded(row.utm_campaign) || ''
+      };
+    }
+    const leadSource = recorded(row.leadSource) || recorded(row.acquisitionLeadSource) || '';
+    const utmSource = recorded(row.utmSource || row.utm_source || row.acquisitionUtmSource);
+    const utmCampaign = recorded(row.utmCampaign || row.utm_campaign || row.acquisitionUtmCampaign);
+    const utm = [utmSource, utmCampaign].filter(Boolean);
+    if (utm.length) {
+      return { kind: 'utm', label: utm.join(' / '), leadSource, utmSource, utmCampaign };
+    }
+    if (leadSource) {
+      const classified = classifyLeadSource(leadSource);
+      return { kind: classified.kind, label: classified.label, leadSource, utmSource: '', utmCampaign: '' };
+    }
+    const fallback = recorded(row.source);
+    if (fallback && fallback !== 'Unknown') {
+      const classified = classifyLeadSource(fallback);
+      return { kind: classified.kind, label: classified.label, leadSource: fallback, utmSource: '', utmCampaign: '' };
+    }
+    return { kind: 'unknown', label: '', leadSource: '', utmSource: '', utmCampaign: '' };
+  }
+
+  function channelOf(row) {
+    const channel = recorded(row && row.channel);
+    return channel || 'unknown';
+  }
+
+  function acquisitionChannelLines(row) {
+    const acquired = acquisitionOf(row);
+    const channel = channelOf(row);
+    const kindLabel = SOURCE_KIND_LABELS[acquired.kind] || acquired.kind;
+    const acquisitionText = acquired.kind === 'unknown'
+      ? 'Acquisition: Unknown (not recorded)'
+      : `Acquisition: ${acquired.label || kindLabel} (${acquired.kind})`;
+    const channelText = `Channel: ${channel}`;
+    return {
+      kind: acquired.kind,
+      label: acquired.label,
+      channel,
+      acquisitionText,
+      channelText,
+      combined: `${acquisitionText}. ${channelText}. Channel is not an acquisition source.`,
+      kindLabel
+    };
+  }
+
+  function emptySources() {
+    return { organic: 0, referral: 0, form: 0, utm: 0, recorded: 0, unknown: 0 };
+  }
+
+  function finiteCount(value) {
+    if (value == null || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function conversionReport(pipeline) {
+    const pipe = pipeline && typeof pipeline === 'object' ? pipeline : {};
+    const conversion = pipe.conversion && typeof pipe.conversion === 'object' ? pipe.conversion : null;
+    const stages = pipe.stages && typeof pipe.stages === 'object' ? pipe.stages : {};
+    const sources = pipe.sources && typeof pipe.sources === 'object' ? { ...emptySources(), ...pipe.sources } : emptySources();
+    const listDenominator = finiteCount(pipe.denominator);
+    const bookedNumeratorRaw = conversion ? finiteCount(conversion.numerator) : null;
+    const bookedNumerator = bookedNumeratorRaw != null
+      ? bookedNumeratorRaw
+      : finiteCount(stages.booked);
+    const bookedDenominatorRaw = conversion ? finiteCount(conversion.denominator) : null;
+    const bookedDenominator = bookedDenominatorRaw != null ? bookedDenominatorRaw : listDenominator;
+    const bookedShareValid = bookedNumerator != null
+      && bookedDenominator != null
+      && bookedNumerator >= 0
+      && bookedDenominator >= 0
+      && bookedNumerator <= bookedDenominator;
+    const cohort = recorded(conversion && conversion.cohort, 240);
+    const period = recorded(conversion && conversion.period, 240);
+    const outcomeNumerator = conversion ? finiteCount(conversion.outcomeNumerator) : null;
+    const outcomeDenominator = conversion ? finiteCount(conversion.outcomeDenominator) : null;
+    const suppliedRate = conversion && conversion.rate != null ? finiteCount(conversion.rate) : null;
+    const hasCohort = Boolean(cohort);
+    const hasPeriod = Boolean(period);
+    const unavailableReason = 'No eligible cohort and period are defined, so a conversion rate is unavailable. The booked count is a share of events on this list, not a conversion rate.';
+    const suppliedReason = recorded(conversion && conversion.reason, 500);
+    let canComputeRate = false;
+    let rateValue = null;
+    let denial = '';
+
+    if (!hasCohort || !hasPeriod) {
+      denial = unavailableReason;
+    } else if (outcomeNumerator == null || outcomeDenominator == null) {
+      denial = 'Conversion rate is unavailable because a valid outcome numerator and outcome denominator were not both provided.';
+    } else if (outcomeNumerator < 0 || outcomeDenominator < 0) {
+      denial = 'Conversion rate is unavailable because outcome counts must not be negative.';
+    } else if (outcomeDenominator === 0) {
+      denial = 'Conversion rate is unavailable because the outcome denominator must be greater than zero.';
+    } else if (outcomeNumerator > outcomeDenominator) {
+      denial = 'Conversion rate is unavailable because the outcome numerator exceeds the outcome denominator.';
+    } else if (
+      Number.isInteger(outcomeNumerator) === false
+      || Number.isInteger(outcomeDenominator) === false
+    ) {
+      denial = 'Conversion rate is unavailable because outcome counts must be whole numbers.';
+    } else {
+      const derivedRate = outcomeNumerator / outcomeDenominator;
+      const alternateOutcomeDenominator = conversion ? finiteCount(conversion.cohortDenominator) : null;
+      if (
+        alternateOutcomeDenominator != null
+        && alternateOutcomeDenominator !== outcomeDenominator
+      ) {
+        denial = 'Conversion rate is unavailable because outcome denominators are inconsistent.';
+      } else if (suppliedRate != null) {
+        if (suppliedRate < 0 || suppliedRate > 1) {
+          denial = 'Conversion rate is unavailable because the supplied rate is outside the valid 0 to 1 range.';
+        } else if (Math.abs(suppliedRate - derivedRate) > 0.0001) {
+          denial = 'Conversion rate is unavailable because the supplied rate does not match the validated outcome counts.';
+        } else {
+          canComputeRate = true;
+          rateValue = derivedRate;
+        }
+      } else {
+        canComputeRate = true;
+        rateValue = derivedRate;
+      }
+    }
+
+    const reason = canComputeRate
+      ? (suppliedReason || 'Conversion rate derived from the validated cohort outcome counts.')
+      : (denial || suppliedReason || unavailableReason);
+
+    return {
+      cohort: hasCohort ? cohort : 'Unavailable — no eligible cohort is defined',
+      period: hasPeriod ? period : 'Unavailable — no conversion date range is defined',
+      denominator: canComputeRate
+        ? `Conversion denominator: ${outcomeDenominator}`
+        : 'Unavailable — no consistent outcome denominator is defined for conversion',
+      rate: canComputeRate ? rateValue : null,
+      rateLabel: canComputeRate ? `Conversion rate: ${(rateValue * 100).toFixed(1)}%` : 'Conversion rate: Unavailable',
+      reason,
+      bookedShare: {
+        label: 'Booked share',
+        numerator: bookedShareValid ? bookedNumerator : null,
+        denominator: bookedShareValid ? bookedDenominator : null,
+        text: bookedShareValid
+          ? `Booked share: ${bookedNumerator} of ${bookedDenominator} events with explicit Booked status`
+          : 'Booked share: Unavailable',
+        note: 'Booked share is not a conversion rate.'
+      },
+      sources,
+      canComputeRate
+    };
+  }
+
+  function normalizeStatus(value) {
+    return String(value ?? '').replace(/[\u2012\u2013\u2014\u2015]/g, '-').replace(/\s+/g, ' ').trim();
+  }
+
+  function isExplicitBooked(event) {
+    if (recorded(event && event.pipelineStage) === 'booked') return true;
+    return /^booked$/i.test(normalizeStatus(event && event.status));
+  }
+
+  function summarizeEventAcquisition(events) {
+    const list = Array.isArray(events) ? events : [];
+    const sources = emptySources();
+    let booked = 0;
+    list.forEach((event) => {
+      const acquired = acquisitionOf(event);
+      if (Object.prototype.hasOwnProperty.call(sources, acquired.kind)) sources[acquired.kind] += 1;
+      else sources.recorded += 1;
+      if (isExplicitBooked(event)) booked += 1;
+    });
+    return conversionReport({
+      denominator: list.length,
+      stages: { booked },
+      sources,
+      conversion: {
+        numerator: booked,
+        denominator: list.length,
+        rate: null,
+        reason: 'No eligible cohort and period are defined, so a conversion rate is unavailable. The booked count is a share of events on this list, not a conversion rate.'
+      }
+    });
+  }
+
+  function formatAttributionPanel(report, escapeHtml) {
+    const esc = typeof escapeHtml === 'function'
+      ? escapeHtml
+      : (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const safe = report && typeof report === 'object' ? report : conversionReport(null);
+    const sourceBits = Object.keys(SOURCE_KIND_LABELS).map((kind) => {
+      const count = safe.sources && Number.isFinite(Number(safe.sources[kind])) ? Number(safe.sources[kind]) : 0;
+      return `<li data-crm-source-kind="${esc(kind)}">${esc(SOURCE_KIND_LABELS[kind])}: ${esc(count)}</li>`;
+    }).join('');
+    const booked = safe.bookedShare || {};
+    return `<section class="hub-callout" data-crm-attribution="panel"><strong>CRM attribution</strong><p data-crm-conversion-rate="${esc(safe.rate == null ? 'unavailable' : String(safe.rate))}">${esc(safe.rateLabel)}</p><p data-crm-cohort>${esc(`Cohort: ${safe.cohort}`)}</p><p data-crm-period>${esc(`Period: ${safe.period}`)}</p><p data-crm-denominator>${esc(`Denominator: ${safe.denominator}`)}</p><p data-crm-booked-share>${esc(booked.text || 'Booked share: Unavailable')}. ${esc(booked.note || 'Booked share is not a conversion rate.')}</p><p class="muted">${esc(safe.reason)}</p><p><strong>Recorded acquisition sources</strong></p><ul data-crm-acquisition-sources>${sourceBits}</ul><p class="muted">Acquisition source stays separate from communication channel (Gmail, SMS, RCS).</p></section>`;
+  }
+
+  return {
+    SOURCE_KIND_LABELS,
+    acquisitionOf,
+    channelOf,
+    acquisitionChannelLines,
+    conversionReport,
+    summarizeEventAcquisition,
+    formatAttributionPanel
+  };
+});
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   const VIEW_KEY = 'lvptCommandCenterView';
   const APP_KEY = 'lvptAppSyncKey';
   let recordOpen = false;
   const statusApi = () => window.LVPTEventStatus;
+  const crmApi = () => window.LVPTCrmAttribution;
   const proposals = [
     { id:'proposal-nium', client:'NIUM', title:'NIUM VIP Casino Lounge', project:'lvpt-nium-proposal', url:'https://lvpt-nium-proposal.vercel.app/', status:'Accepted / Booked', updated:'2026-07-16', eventId:'evt-nium-2026', tags:['Palms Place','Casino Night','Custom Assets','Transportation'], notes:'Enterprise proposal with venue comparisons, custom chips/cards/felts, premium catering, open bar and transportation.' },
     { id:'proposal-neo-2026', client:'Mosaic Events / NEO', title:'NEO Reunion 2026', project:'mosaic-neo-2026-proposal', url:'https://mosaic-neo-2026-proposal.vercel.app/', status:'Updated Proposal', updated:'2026-08-13', eventId:'evt-neo-reunion-2026', tags:['Training','Tournament','Ritz-Carlton','Repeat Client'], notes:'Year-two training and tournament proposal with premium instructor positioning and event improvements.' },
@@ -428,7 +680,11 @@
     const quoteLines = (event.quote || []).map((line) => `<li>${escapeHtml(line.name || line.category || 'Line')} · qty ${escapeHtml(line.quantity)} · price ${escapeHtml(line.unitPrice)} · cost ${line.internalCost == null || line.internalCost === '' ? 'not recorded' : escapeHtml(line.internalCost)}</li>`).join('') || '<li>No quote lines on this event.</li>';
     const compliance = (event.compliance || []).map((item) => `<li>${escapeHtml(item.name || 'Requirement')} · ${escapeHtml(item.status || 'Not recorded')} · ${escapeHtml(item.dueDate || 'No due date')}</li>`).join('') || '<li>No compliance row on this event.</li>';
     const post = event.postEvent || {};
-    return `<h3>Discovery and setup</h3><div class="lifecycle-summary">${recordedLine('Planning', setup.planningStage)}${recordedLine('Budget range', setup.budgetRange)}${recordedLine('Venue status', setup.venueStatus)}${recordedLine('Owner', setup.internalOwner)}</div><h3>Quote lines</h3><ul>${quoteLines}</ul><h3>Compliance</h3><ul>${compliance}</ul><h3>Documents</h3><p>${(event.documents || []).length} document rows on this event. File bytes are not opened here.</p><h3>Inbox</h3><p>${(event.emailActivity || []).length} stored mail rows on this event. A stored row is not a full thread.</p><h3>Venue and logistics</h3><div class="lifecycle-summary">${recordedLine('Venue', event.venue)}${recordedLine('City', event.city)}${recordedLine('Setup', setup.setupTime)}${recordedLine('Strike', setup.strikeTime)}</div><h3>Post-event</h3><div class="lifecycle-summary">${recordedLine('Feedback', post.clientFeedback)}${recordedLine('Rebooking', post.rebookingLikelihood)}</div><p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`;
+    const acquired = crmApi() ? crmApi().acquisitionOf(event) : { kind: 'unknown', label: '', leadSource: '', utmSource: '', utmCampaign: '' };
+    const acquisitionLabel = acquired.kind === 'unknown'
+      ? 'Unknown (not recorded)'
+      : `${acquired.label || acquired.kind} (${acquired.kind})`;
+    return `<h3>Discovery and setup</h3><div class="lifecycle-summary">${recordedLine('Planning', setup.planningStage)}${recordedLine('Budget range', setup.budgetRange)}${recordedLine('Venue status', setup.venueStatus)}${recordedLine('Owner', setup.internalOwner)}</div><h3>CRM attribution</h3><div class="lifecycle-summary" data-crm-record-attribution>${recordedLine('Acquisition source', acquisitionLabel)}${recordedLine('Recorded lead source', acquired.leadSource || 'Not recorded')}${recordedLine('UTM source', acquired.utmSource || 'Not recorded')}${recordedLine('UTM campaign', acquired.utmCampaign || 'Not recorded')}<div><span>Communication channel</span><strong>Not inferred from acquisition. Channel evidence stays on Communications / Action Required.</strong></div></div><h3>Quote lines</h3><ul>${quoteLines}</ul><h3>Compliance</h3><ul>${compliance}</ul><h3>Documents</h3><p>${(event.documents || []).length} document rows on this event. File bytes are not opened here.</p><h3>Inbox</h3><p>${(event.emailActivity || []).length} stored mail rows on this event. A stored row is not a full thread.</p><h3>Venue and logistics</h3><div class="lifecycle-summary">${recordedLine('Venue', event.venue)}${recordedLine('City', event.city)}${recordedLine('Setup', setup.setupTime)}${recordedLine('Strike', setup.strikeTime)}</div><h3>Post-event</h3><div class="lifecycle-summary">${recordedLine('Feedback', post.clientFeedback)}${recordedLine('Rebooking', post.rebookingLikelihood)}</div><p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`;
   }
   function renderRecord(view, eventId) {
     const generation = (window.lvptRecordGeneration = (window.lvptRecordGeneration || 0) + 1);
@@ -468,7 +724,10 @@
       const matches = items.filter(group.match);
       return `<section class="pipeline-column"><div class="pipeline-column-head"><h3>${escapeHtml(group.label)}</h3><span class="pipeline-column-count">${matches.length}</span></div><div class="pipeline-cards">${matches.map(pipelineCard).join('') || '<div class="command-empty">None</div>'}</div></section>`;
     }).join('');
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Booked events are listed in Active, not in a handoff column. Dates use America/Los_Angeles.')}<div class="command-view-body">${summarizeQuotes(items)}<p><a class="btn small" href="#" data-command-jump="active">Open Active events</a></p><div class="pipeline-board top-gap">${columns}</div></div></div>`;
+    const attribution = crmApi()
+      ? crmApi().formatAttributionPanel(crmApi().summarizeEventAcquisition(events), escapeHtml)
+      : '';
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Booked events are listed in Active, not in a handoff column. Dates use America/Los_Angeles.')}<div class="command-view-body">${attribution}${summarizeQuotes(items)}<p><a class="btn small" href="#" data-command-jump="active">Open Active events</a></p><div class="pipeline-board top-gap">${columns}</div></div></div>`;
     view.querySelector('[data-command-jump="active"]')?.addEventListener('click', (clickEvent) => { clickEvent.preventDefault(); setCommandView('active'); });
     bindEventOpeners(view);
   }
@@ -479,7 +738,8 @@
     const value = quote.priced ? (quote.linePartial ? `Partial lines ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents)) : quote.recordedZero ? 'Recorded zero' : quote.targetState === 'recorded' ? `Recorded target ${moneyCents(quote.recordedTargetCents)}` : 'Unpriced';
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const next = String(event.nextAction || '').trim().slice(0, 90) || 'No next action recorded';
-    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate)}</p><div class="pipeline-card-meta"><span>${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${proposal ? ' · Proposal linked' : ''}</p></button>`;
+    const acquired = crmApi() ? crmApi().acquisitionChannelLines(event) : { kind: 'unknown', acquisitionText: 'Acquisition: Unknown (not recorded)' };
+    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span>${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${proposal ? ' · Proposal linked' : ''}</p></button>`;
   }
 
   function renderPortfolio(view, mode) {

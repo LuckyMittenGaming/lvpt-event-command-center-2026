@@ -1,0 +1,249 @@
+{
+  "purpose": "READ-ONLY evidence handoff to Cursor; NOT a deployment file or authorization",
+  "source": "User-supplied November 21 2026 8:46 PM LVPT_PATCH diagnostic log, previously shared in this conversation",
+  "important": "Historical ETags are for audit matching ONLY. Do not PATCH using them. Re-fetch event via Advanced Calendar service and validate a fresh ETag, ownership, status, date, attendees, and conference data. All writes require separate approval.",
+  "calendars": {
+    "operations": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+    "sales": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+    "proposals": "c_e68f6233ff8a0e2fb22168ee24da99dc06e0416d652a0e1b964d3a88f5c0935b@group.calendar.google.com",
+    "confirmed": "c_972d7e50b66cba545967cf0f8de32d22990e6e8aa98051bdfa34b9122ed7962c@group.calendar.google.com"
+  },
+  "patchCandidates": [
+    {
+      "eventId": "bq7th2lis1p5dq0n9vv5hqmtok",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a0a78195ff7c8a0-joycevenetian",
+      "historicalEtag": "\"3589157238401502\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "i1bda5g9usd1pb6rnht9g7u99g",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a0feaed6e132db9-venuefeasibility",
+      "historicalEtag": "\"3590453225349214\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "neen6fp4lkipntjildvlug8pag",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a1103615d047784-clientdecision",
+      "historicalEtag": "\"3590194055477886\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "8t2f59a9clftb8grf1tgrutif4",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a16b8891d4a7770-bookingpayment",
+      "historicalEtag": "\"3589754838027934\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "ov3gqkv6g49meo9lbld2iad51c",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a17b46e09a272df-bookingpayment",
+      "historicalEtag": "\"3589157240548894\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "gvth60bvatdciotc88nmv74aa8",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a1bed5c2d1df7df-discoveryreply",
+      "historicalEtag": "\"3590453235668606\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "bumn1n8p8s9cp2q27dkb1tk010",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a1c67469016c306-clientdecision",
+      "historicalEtag": "\"3590194066318942\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "6lf2a7dte90d6040tr4qpr2gro",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a1d76cf9dfafdc4-wynnavailability",
+      "historicalEtag": "\"3589675667551326\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "j38iq5k7liies0oavambdtblmo",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a1d7503cc983f54-clientdecision",
+      "historicalEtag": "\"3589848470563134\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "pll561gsgk28e8uldqvbtabrbg",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a1d7040c8853895-timechangeconfirm",
+      "historicalEtag": "\"3589243650650974\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "pe5u1inod26kk31mcq03gvf89g",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a1d72076f909e47-finalpayment",
+      "historicalEtag": "\"3590366901265854\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "r7vabu23rm3d9g5crtph78eqgg",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a1d8a6f27318b66-servicerecovery",
+      "historicalEtag": "\"3589337241401854\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "q8f6lsoe37bhqckicl18eftso4",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a1e489547ec192b-clientdecision",
+      "historicalEtag": "\"3589675668755166\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "3rrgcddu2qfgek0m9qcgmqkruc",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "calendar": "operations",
+      "taskId": "gmail-task-1a1eae8c91203b91-pokergocall",
+      "historicalEtag": "\"3590194068917086\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "dri6e13421i1dc7q8fe1c1e5ec",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a1ea80f87c9972f-tasksyncfailure",
+      "historicalEtag": "\"3590021252874814\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "h2cf4q85tuurc5d3rs8jkvl1g8",
+      "calendarId": "c_e68f6233ff8a0e2fb22168ee24da99dc06e0416d652a0e1b964d3a88f5c0935b@group.calendar.google.com",
+      "calendar": "proposals",
+      "taskId": "gmail-task-1a1f5465289712d1-clientdecision",
+      "historicalEtag": "\"3590280428972990\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "1khm17g8ca6kfb62tt0el3ktgk",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a1f5d69c2088b29-discoveryreply",
+      "historicalEtag": "\"3590280429994014\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    },
+    {
+      "eventId": "sq419e6iloj79vd1st84r4n95k",
+      "calendarId": "c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com",
+      "calendar": "sales",
+      "taskId": "gmail-task-1a1f5df6298c515c-discoveryreply",
+      "historicalEtag": "\"3590280430946782\"",
+      "historicalStatus": "confirmed",
+      "historicalTransparency": null,
+      "historicalDriftReasons": [
+        "transparency"
+      ]
+    }
+  ],
+  "legacyRemindersForTwoUnresolvedTasks": [
+    {
+      "eventId": "kg49e1cfu2o9rvtkbq0l3erdeg",
+      "calendarId": "c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com",
+      "taskId": "gmail-task-1a1564e8e21a05f3-production",
+      "label": "CertaPro PowerPoint template",
+      "status": "confirmed",
+      "transparency": "transparent",
+      "notes": "Description starts INTERNAL OWNER REMINDER; task ID is line-wrapped; self business account is an attendee"
+    },
+    {
+      "eventId": "d0679uii6sfi6ig6metb4u21vc",
+      "calendarId": "c_972d7e50b66cba545967cf0f8de32d22990e6e8aa98051bdfa34b9122ed7962c@group.calendar.google.com",
+      "taskId": "gmail-task-1a189f1dffa1d00f-production",
+      "label": "Cowbell room and felt layout",
+      "status": "confirmed",
+      "transparency": "transparent",
+      "notes": "Description starts LVPT INTERNAL OWNER REMINDER; task ID is line-wrapped"
+    }
+  ]
+}

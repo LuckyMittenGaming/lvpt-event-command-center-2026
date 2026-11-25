@@ -115,28 +115,135 @@
     if (cents == null || !Number.isFinite(Number(cents))) return 'Unavailable';
     return (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   }
-  function overviewLedgerInner() {
-    const result = window.lvptOperatingPictureResult;
-    const pending = window.lvptOperatingPicturePromise && !result;
-    if (!result || result.ok === false || !result.data || !result.data.report || !result.data.report.money) {
-      return pending
-        ? '<p class="muted">Ledger-recorded receipts are still loading. A blank figure is not zero and not a bank balance.</p>'
-        : '<p class="muted">Ledger-recorded receipts did not load. This is not zero.</p><p><button type="button" class="btn" id="retryOverviewLedger">Retry ledger</button></p>';
+  function moneyCoverageReason(money) {
+    if (!money) return 'The money report was not returned on the shared operating-picture read.';
+    if (money.incompleteReason) return String(money.incompleteReason);
+    if (money.coverage === 'incomplete') return 'Ledger coverage is incomplete.';
+    if (money.coverage !== 'complete') return `Ledger coverage is ${money.coverage || 'unverified'}, not complete.`;
+    return '';
+  }
+  function moneyFieldLabel(money, field, cents, gaps) {
+    if (!money) return 'Unavailable';
+    const incompleteFields = Array.isArray(money.incompleteFields) ? money.incompleteFields : null;
+    const incomplete = new Set(incompleteFields || []);
+    const reason = moneyCoverageReason(money);
+    const withReason = (label) => (reason ? `${label} — ${reason}` : label);
+    if (gaps || incomplete.has(field)) return withReason('Incomplete');
+    const coverageComplete = money.coverage === 'complete';
+    // Incomplete/unverified coverage must not show numeric totals just because incompleteFields is absent or empty.
+    // Only an explicit non-empty incompleteFields list that omits this field is field-level completeness evidence.
+    if (!coverageComplete) {
+      const fieldLevelComplete = Boolean(incompleteFields && incompleteFields.length > 0 && !incomplete.has(field));
+      if (!fieldLevelComplete) {
+        return withReason(money.coverage === 'incomplete' ? 'Incomplete' : 'Unavailable');
+      }
     }
-    const money = result.data.report.money;
-    const receipts = money.verifiedClientReceiptsCents == null ? 'Unavailable' : ledgerAmount(money.verifiedClientReceiptsCents);
-    const outstanding = money.openClientExposureCents == null ? 'Unavailable' : ledgerAmount(money.openClientExposureCents);
-    return `<div class="lifecycle-summary"><div><span>Ledger-recorded receipts</span><strong>${escapeHtml(receipts)}</strong><p class="muted">Not a bank receipt.</p></div><div><span>Ledger outstanding</span><strong>${escapeHtml(outstanding)}</strong><p class="muted">Open balances on the sheet. Not drawable cash.</p></div></div>`;
+    if (cents == null || !Number.isFinite(Number(cents))) return 'Unavailable';
+    return ledgerAmount(cents);
+  }
+  function overviewPictureState() {
+    const result = window.lvptOperatingPictureResult;
+    const pending = Boolean(window.lvptOperatingPicturePromise && !result);
+    if (!result || result.ok === false || !result.data || !result.data.report) {
+      return { ready: false, pending, data: null, money: null };
+    }
+    return { ready: true, pending: false, data: result.data, money: result.data.report.money || null };
+  }
+  function overviewRetryControl() {
+    return '<p><button type="button" class="btn" data-retry-operating-picture>Retry ledger</button></p>';
+  }
+  function moneyCoverageComplete(money) {
+    return Boolean(money) && money.coverage === 'complete' && !(money.incompleteFields || []).length && !money.verifiedClientReceiptGaps;
+  }
+  function overviewPaymentsSections(report, money) {
+    if (!report || !Object.prototype.hasOwnProperty.call(report, 'payments')) {
+      return `<h3>Open client balances</h3><p class="hub-warning">Unavailable. The payments collection was not returned on the shared operating-picture read. This is not an empty balance list.</p><h3>Open vendor bills</h3><p class="hub-warning">Unavailable. The payments collection was not returned on the shared operating-picture read. This is not an empty vendor list.</p>`;
+    }
+    if (!Array.isArray(report.payments)) {
+      return `<h3>Open client balances</h3><p class="hub-warning">Unavailable. The payments collection was not a usable array. This is not an empty balance list.</p><h3>Open vendor bills</h3><p class="hub-warning">Unavailable. The payments collection was not a usable array. This is not an empty vendor list.</p>`;
+    }
+    if (!moneyCoverageComplete(money)) {
+      const reason = escapeHtml((money && (money.incompleteReason || money.coverage)) || 'Payments coverage is incomplete or not marked complete.');
+      return `<h3>Open client balances</h3><p class="hub-warning">Unavailable. Ledger coverage is incomplete (${reason}). Open balances are not treated as zero or empty.</p><h3>Open vendor bills</h3><p class="hub-warning">Unavailable. Ledger coverage is incomplete (${reason}). Open vendor bills are not treated as zero or empty.</p>`;
+    }
+    const payments = report.payments;
+    const deadlines = payments.filter((row) => row && row.eventId && row.role === 'client_receivable' && Number(row.balanceDueCents) > 0).slice(0, 4);
+    const vendorDue = payments.filter((row) => row && row.eventId && row.role === 'vendor_expense' && row.settlement && !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement)).slice(0, 3);
+    const deadlineHtml = deadlines.map((row) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(row.eventId)}">${escapeHtml(row.paymentId || 'Invoice')}</button> <span>${escapeHtml(ledgerAmount(row.balanceDueCents))} open · ${escapeHtml(row.dueDate || 'no due date')}</span></li>`).join('');
+    const vendorHtml = vendorDue.map((row) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(row.eventId)}">${escapeHtml(row.paymentId || 'Vendor bill')}</button> <span>${escapeHtml(ledgerAmount(row.invoiceTotalCents))} · ${escapeHtml(String(row.settlement || 'open').replaceAll('_', ' '))}</span></li>`).join('');
+    return `<h3>Open client balances</h3><p class="muted">Evidence: Payments rows on the shared operating picture. Coverage complete.</p><ul>${deadlineHtml || '<li>No open client balance was returned on the complete ledger read.</li>'}</ul><h3>Open vendor bills</h3><p class="muted">Evidence: vendor expense rows on the shared operating picture. Coverage complete.</p><ul>${vendorHtml || '<li>No open vendor bill was returned on the complete ledger read.</li>'}</ul>`;
+  }
+  function overviewExceptionsSection(picture) {
+    if (!picture || !Object.prototype.hasOwnProperty.call(picture, 'exceptions')) {
+      return `<h3>Actionable exceptions</h3><p class="hub-warning">Unavailable. The exceptions collection was not returned on the shared operating-picture read. This is not an empty exception list.</p>`;
+    }
+    if (!Array.isArray(picture.exceptions)) {
+      return `<h3>Actionable exceptions</h3><p class="hub-warning">Unavailable. The exceptions collection was not a usable array. This is not an empty exception list.</p>`;
+    }
+    const exceptionHtml = picture.exceptions.length
+      ? `<ul>${picture.exceptions.slice(0, 4).map((row) => `<li><strong>Unresolved exception</strong> ${escapeHtml(row.detail || row.id || 'Documented exception')}${row.includedInTotals === false ? ' Excluded from totals.' : ''}</li>`).join('')}</ul>`
+      : '<p class="muted">No unresolved finance exceptions were returned on the complete operating-picture read.</p>';
+    return `<h3>Actionable exceptions</h3><p class="muted">Evidence: documentedExceptions on the shared operating picture. These stay out of fabricated totals.</p>${exceptionHtml}`;
+  }
+  function overviewFreshnessLine(picture) {
+    if (!picture || !Object.prototype.hasOwnProperty.call(picture, 'jobs')) {
+      return 'Source freshness is unavailable. The jobs collection was not returned on the shared operating-picture read. It is not marked connected.';
+    }
+    if (!Array.isArray(picture.jobs)) {
+      return 'Source freshness is unavailable. The jobs collection was not a usable array. It is not marked connected.';
+    }
+    const sheetJob = picture.jobs.find((job) => job.id === 'financial-sync');
+    const heartbeat = picture.jobs.find((job) => job.id === 'sms-heartbeat');
+    return `Sheet ledger last success ${escapeHtml((sheetJob && sheetJob.lastSuccess) || 'not recorded')}. SMS heartbeat ${escapeHtml((heartbeat && heartbeat.status) || 'not verified')}. Source: shared operating-picture jobs. A stored row is not a heartbeat.`;
+  }
+  function overviewLedgerInner() {
+    const state = overviewPictureState();
+    if (!state.ready || !state.money) {
+      return state.pending
+        ? '<p class="muted">Ledger-recorded receipts, outstanding balances, and vendor commitments are still loading from the shared operating-picture read. A blank figure is not zero and not a bank balance.</p>'
+        : `<p class="muted">Ledger-recorded receipts, outstanding balances, and vendor commitments did not load from the shared operating-picture read. This is not zero.</p>${overviewRetryControl()}`;
+    }
+    const money = state.money;
+    const coverageNote = moneyCoverageReason(money);
+    const receipts = moneyFieldLabel(money, 'verifiedClientReceipts', money.verifiedClientReceiptGaps ? null : money.verifiedClientReceiptsCents, money.verifiedClientReceiptGaps);
+    const outstanding = moneyFieldLabel(money, 'openClientExposure', money.openClientExposureCents);
+    const vendor = moneyFieldLabel(money, 'vendorCommitted', money.vendorCommittedCents);
+    const coverageMuted = coverageNote
+      ? ` Coverage: ${escapeHtml(coverageNote)}`
+      : ' Coverage complete.';
+    return `<div class="lifecycle-summary"><div><span>Ledger-recorded receipts</span><strong>${escapeHtml(receipts)}</strong><p class="muted">Scope: Payments sheet via shared operating picture. Not a bank receipt. Incomplete means a conflicting or unidentified row was excluded.${coverageMuted}</p></div><div><span>Ledger outstanding</span><strong>${escapeHtml(outstanding)}</strong><p class="muted">Scope: open client balances on the sheet. Not drawable cash.${coverageMuted}</p></div><div><span>Open vendor obligations</span><strong>${escapeHtml(vendor)}</strong><p class="muted">Scope: vendor bills on the sheet that are not marked not-invoiced. Not bank-settled.${coverageMuted}</p></div><div><span>Drawable cash</span><strong>Unavailable</strong><p class="muted">${escapeHtml(money.drawableCashReason || 'Drawable cash is unavailable from the ledger.')}</p></div></div>`;
+  }
+  function overviewOperatingInner() {
+    const state = overviewPictureState();
+    if (!state.ready) {
+      return state.pending
+        ? '<p class="muted">Open balances, vendor bills, source freshness, and exceptions are waiting on the shared operating-picture read. An empty list is not shown as zero coverage.</p>'
+        : `<p class="muted">Open balances, vendor bills, source freshness, and exceptions are unavailable. The shared operating-picture read did not succeed. This is not an empty ledger.</p>${overviewRetryControl()}`;
+    }
+    const picture = state.data;
+    const freshness = overviewFreshnessLine(picture);
+    return `<p class="muted">${freshness} Approvals waiting: Unavailable on Overview. Open the review workspace. This page does not count a draft as an approval.</p>${overviewPaymentsSections(picture.report, state.money)}${overviewExceptionsSection(picture)}`;
   }
   function bindLedgerRetry(scope) {
-    scope.querySelector('#retryOverviewLedger')?.addEventListener('click', () => window.lvptReloadOperatingPicture && window.lvptReloadOperatingPicture());
-    scope.querySelector('#retryRecordLedger')?.addEventListener('click', () => window.lvptReloadOperatingPicture && window.lvptReloadOperatingPicture());
+    scope.querySelectorAll('[data-retry-operating-picture]').forEach((button) => {
+      button.addEventListener('click', () => window.lvptReloadOperatingPicture && window.lvptReloadOperatingPicture());
+    });
+    scope.querySelectorAll('#retryRecordLedger, [data-retry-record-ledger]').forEach((button) => {
+      button.addEventListener('click', () => window.lvptReloadOperatingPicture && window.lvptReloadOperatingPicture());
+    });
   }
   window.lvptPaintOverviewLedger = function () {
-    const node = document.getElementById('overviewLedger');
-    if (!node) return;
-    node.innerHTML = overviewLedgerInner();
-    bindLedgerRetry(node);
+    const ledger = document.getElementById('overviewLedger');
+    if (ledger) {
+      ledger.innerHTML = overviewLedgerInner();
+      bindLedgerRetry(ledger);
+    }
+    const operating = document.getElementById('overviewOperating');
+    if (operating) {
+      operating.innerHTML = overviewOperatingInner();
+      bindLedgerRetry(operating);
+      bindEventOpeners(operating);
+    }
   };
   function recordLedgerInner(eventId) {
     const result = window.lvptOperatingPictureResult;
@@ -254,7 +361,8 @@
       else if (quote.targetState !== 'recorded') unpriced += 1;
     });
     const profit = priced === 0 ? 'No complete line quotes' : costKnown === priced ? moneyCents(profitCents) : 'Cost not recorded';
-    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong></div><div><span>Recorded targets</span><strong>${targets ? moneyCents(targetCents) : 'None recorded'}</strong><p class="muted">${targets} explicit target quotes. Not added to line items. A budget is not a target.</p></div><div><span>Priced line items</span><strong>${moneyCents(priced ? pricedCents : null)}</strong><p class="muted">${priced} complete · ${partial} partial · ${unpriced} unpriced · ${recordedZero} recorded zero</p></div><div><span>Quote profit</span><strong>${escapeHtml(profit)}</strong><p class="muted">${costKnown} of ${priced} line quotes have a cost on every line. Missing cost is not zero.</p></div><div><span>Open tasks</span><strong>${items.reduce((sum, event) => sum + openTaskCount(event), 0)}</strong></div></div>`;
+    const costCoverage = priced === 0 ? 'No priced lines' : `${costKnown} of ${priced} priced`;
+    return `<div class="lifecycle-summary"><div><span>Records</span><strong>${items.length}</strong><p class="muted">Scope: signed-in sheet snapshot · Events.</p></div><div><span>Recorded targets</span><strong>${targets ? moneyCents(targetCents) : 'None recorded'}</strong><p class="muted">${targets} explicit target quotes from setup.targetQuote. Not added to priced line items. A budget is not a target.</p></div><div><span>Priced line items</span><strong>${moneyCents(priced ? pricedCents : null)}</strong><p class="muted">${priced} complete · ${partial} partial · ${unpriced} unpriced · ${recordedZero} recorded zero. Targets stay separate.</p></div><div><span>Cost coverage</span><strong>${escapeHtml(profit)}</strong><p class="muted">${escapeHtml(costCoverage)} line quotes have a cost on every line. Missing cost is not zero. A margin figure appears only when coverage is complete.</p></div><div><span>Open tasks</span><strong>${items.reduce((sum, event) => sum + openTaskCount(event), 0)}</strong><p class="muted">Scope: open Tasks rows on the sheet snapshot.</p></div></div>`;
   }
   function renderOverview(view) {
     if (snapshotBlocks(view, 'Overview', 'Current sheet')) return;
@@ -288,7 +396,7 @@
     }).join('');
     const listHtml = (rows) => rows.map((event) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(event.id)}">${escapeHtml(event.eventName || 'Untitled event')}</button> <span>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${escapeHtml(event.eventDate)}</span></li>`).join('');
     const missingNote = detail && detail.mode === 'missing' ? '<p class="hub-warning">That task is not in the signed-in snapshot. Another event was not opened.</p>' : '';
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. A task opens here. View associated event opens one record.')}<div class="command-view-body"><div id="overviewLedger">${overviewLedgerInner()}</div>${dailyOverview()}${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong></div><div><span>Active</span><strong>${count('active')}</strong></div><div><span>Past</span><strong>${count('past')}</strong></div><div><span>Needs review</span><strong>${count('review')}</strong></div></div>${missingNote}<h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Confirmed upcoming</h3><ul>${listHtml(confirmed) || '<li>No confirmed upcoming event.</li>'}</ul><h3>Dated inquiries and proposals</h3><ul>${listHtml(tentative) || '<li>No dated inquiry or proposal.</li>'}</ul><p class="muted">Booked and payment-processing events are confirmed. A past date does not complete an event. Unknown outcomes stay in Needs review.</p></div></div>`;
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. A task opens here. View associated event opens one record.')}<div class="command-view-body"><div id="overviewLedger">${overviewLedgerInner()}</div>${dailyOverview()}${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong><p class="muted">Sheet snapshot · Events. Tentative opportunities.</p></div><div><span>Active</span><strong>${count('active')}</strong><p class="muted">Sheet snapshot · confirmed and in progress.</p></div><div><span>Past</span><strong>${count('past')}</strong><p class="muted">Sheet snapshot · dated past. A past date is not completion.</p></div><div><span>Needs review</span><strong>${count('review')}</strong><p class="muted">Sheet snapshot · unverified outcomes.</p></div></div>${missingNote}<h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Confirmed upcoming</h3><p class="muted">Evidence: Booked / payment-processing on the sheet snapshot. Kept apart from dated inquiries.</p><ul>${listHtml(confirmed) || '<li>No confirmed upcoming event.</li>'}</ul><h3>Dated inquiries and proposals</h3><p class="muted">Evidence: pipeline lane with a recognized date on the sheet snapshot.</p><ul>${listHtml(tentative) || '<li>No dated inquiry or proposal.</li>'}</ul><p class="muted">Booked and payment-processing events are confirmed. A past date does not complete an event. Unknown outcomes stay in Needs review. Unanswered mail is not inferred here.</p></div></div>`;
     bindEventOpeners(view);
     bindLedgerRetry(view);
   }
@@ -309,19 +417,7 @@
       else if (task.dueDate === today) dueToday += 1;
     }));
     const newLeads = events.filter((event) => laneOf(event).lane === 'pipeline' && laneOf(event).stage === 'open').length;
-    const picture = window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok ? window.lvptOperatingPictureResult.data : null;
-    const payments = picture && picture.report && Array.isArray(picture.report.payments) ? picture.report.payments : [];
-    const deadlines = payments.filter((row) => row && row.eventId && row.role === 'client_receivable' && Number(row.balanceDueCents) > 0).slice(0, 4);
-    const vendorDue = payments.filter((row) => row && row.eventId && row.role === 'vendor_expense' && row.settlement && !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement)).slice(0, 3);
-    const deadlineHtml = deadlines.map((row) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(row.eventId)}">${escapeHtml(row.paymentId || 'Invoice')}</button> <span>${escapeHtml(ledgerAmount(row.balanceDueCents))} open · ${escapeHtml(row.dueDate || 'no due date')}</span></li>`).join('');
-    const vendorHtml = vendorDue.map((row) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(row.eventId)}">${escapeHtml(row.paymentId || 'Vendor bill')}</button> <span>${escapeHtml(String(row.settlement || 'open').replaceAll('_', ' '))}</span></li>`).join('');
-    const jobs = picture && Array.isArray(picture.jobs) ? picture.jobs : [];
-    const sheetJob = jobs.find((job) => job.id === 'financial-sync');
-    const heartbeat = jobs.find((job) => job.id === 'sms-heartbeat');
-    const freshness = picture
-      ? `Sheet ledger last success ${escapeHtml((sheetJob && sheetJob.lastSuccess) || 'not recorded')}. SMS heartbeat ${escapeHtml((heartbeat && heartbeat.status) || 'not verified')}. A stored row is not a heartbeat.`
-      : 'Source freshness is waiting on the ledger read. It is not marked connected.';
-    return `<div class="lifecycle-summary"><div><span>New and open leads</span><strong>${newLeads}</strong><p class="muted">Sheet stage only. Unanswered mail is not guessed from the event list.</p></div><div><span>Overdue tasks</span><strong>${overdue}</strong></div><div><span>Due today</span><strong>${dueToday}</strong></div><div><span>Undated open tasks</span><strong>${undated}</strong><p class="muted">Undated tasks stay open. They are not completed.</p></div></div><p class="muted">${freshness} Approvals waiting are opened in the review workspace. This page does not count a draft as an approval.</p><h3>Open client balances</h3><ul>${deadlineHtml || '<li>No open client balance was returned.</li>'}</ul><h3>Open vendor bills</h3><ul>${vendorHtml || '<li>No open vendor bill was returned.</li>'}</ul>`;
+    return `<div class="lifecycle-summary"><div><span>New and open leads</span><strong>${newLeads}</strong><p class="muted">Scope: sheet snapshot stage open in Pipeline. Unanswered mail is not guessed from the event list.</p></div><div><span>Overdue tasks</span><strong>${overdue}</strong><p class="muted">Scope: open Tasks on the sheet snapshot with due date before today. Due today is not overdue.</p></div><div><span>Due today</span><strong>${dueToday}</strong><p class="muted">Scope: open Tasks on the sheet snapshot due today.</p></div><div><span>Undated open tasks</span><strong>${undated}</strong><p class="muted">Scope: open Tasks without a due date. They stay open and are not completed.</p></div></div><div id="overviewOperating">${overviewOperatingInner()}</div>`;
   }
   function recordedLine(label, value) {
     const text = value == null || value === '' ? 'Not recorded' : value;

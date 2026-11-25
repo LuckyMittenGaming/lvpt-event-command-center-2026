@@ -92,7 +92,7 @@ const fixture = {
   events: [
     { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Lead Client Co', contactName: 'Synthetic Guest', status: 'New Lead', eventDate: '12/20/2026', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000' }, staff: [{ id: 'staff-lead', name: 'Lead Host', role: 'Host' }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-lead-1', name: 'Lead-Only Proposal Packet', category: 'Proposal' }] },
     { id: 'evt-partial', eventName: 'Synthetic Partial', status: 'Quote Needed', eventDate: '2026-12-18', quote: [{ quantity: 1, unitPrice: 100 }, { quantity: 1 }], tasks: [] },
-    { id: 'evt-budget', eventName: 'Synthetic Budget', status: 'Needs Discovery', eventDate: '2026-12-16', setup: { budgetRange: '$10,000–$20,000', targetQuote: 0 }, tasks: [] },
+    { id: 'evt-budget', eventName: 'Synthetic Budget', status: 'Needs Discovery', eventDate: '2026-12-16', setup: { budgetRange: '$10,000–$20,000', targetQuote: 0 }, tasks: [{ id: 'task-undated', title: 'Capture undated discovery', owner: 'Synthetic Owner', status: 'Open', priority: 'Low' }] },
     { id: 'evt-awaiting', eventName: 'Synthetic Awaiting', company: 'Private Client', status: 'Invoice Sent / Awaiting Deposit', eventDate: '2026-12-15', tasks: [] },
     { id: 'evt-processing', eventName: 'Synthetic Processing', company: 'Private Client', status: 'Booked — Payment Processing', eventDate: '2026-12-10', tasks: [] },
     { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', staff: [{ id: 'staff-floor', name: 'Floor Lead', role: 'Floor' }], tasks: [{ id: 'task-floor', title: 'Confirm the floor', owner: 'Synthetic Owner', dueDate: '2026-12-02', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-active-1', name: 'Active-Only Floor Diagram', category: 'Floor Plan' }, { id: 'doc-active-2', name: 'Active-Only Invoice Scan', category: 'Invoice' }] },
@@ -114,7 +114,9 @@ const ledger = {
   ],
   taskConflicts: [],
   events: fixture.events.map((event) => ({ id: event.id, eventName: event.eventName, company: event.company, status: event.status, staff: event.staff || [] })),
-  exceptions: [],
+  exceptions: [
+    { id: 'synthetic-exception', eventId: 'evt-lead', amountCents: 100, includedInTotals: false, detail: 'Synthetic exception stays out of totals.' }
+  ],
   report: {
     money: {
       verifiedClientReceiptsCents: 0,
@@ -132,17 +134,22 @@ const ledger = {
       profitReason: 'Tax treatment is not established. No tax rate was applied.',
       drawableCashReason: 'Drawable cash is unavailable.'
     },
-    counts: { payments: 2, clientInvoices: 2, vendorBills: 1, unclassified: 0, payouts: 2, payoutsExcludedAsDuplicateExpense: 0, amountOverlapsNotMerged: 0 },
+    counts: { payments: 3, clientInvoices: 2, vendorBills: 1, unclassified: 0, payouts: 2, payoutsExcludedAsDuplicateExpense: 0, amountOverlapsNotMerged: 0 },
     payments: [
       { eventId: 'evt-lead', paymentId: 'pay-lead', role: 'client_receivable', invoiceTotalCents: 11100, amountPaidCents: 1000, balanceDueCents: 10100, paymentStatus: 'Invoice Sent', settlement: 'issued', duplicateTreatment: '' },
-      { eventId: 'evt-active', paymentId: 'pay-booked', role: 'client_receivable', invoiceTotalCents: 22200, amountPaidCents: 2000, balanceDueCents: 20200, paymentStatus: 'Paid In Full', settlement: 'paid', duplicateTreatment: '' }
+      { eventId: 'evt-active', paymentId: 'pay-booked', role: 'client_receivable', invoiceTotalCents: 22200, amountPaidCents: 2000, balanceDueCents: 20200, paymentStatus: 'Paid In Full', settlement: 'paid', duplicateTreatment: '' },
+      { eventId: 'evt-active', paymentId: 'bill-vendor', role: 'vendor_expense', invoiceTotalCents: 20000, amountPaidCents: 0, balanceDueCents: 20000, paymentStatus: 'Invoice Received', settlement: 'issued', duplicateTreatment: '' }
     ],
     payouts: []
   },
   gmailActivityCount: 4,
   gmailThreadCount: 2,
   gmailQueue: [{ domainKey: 'example.test', lastMessageAt: '2026-11-20T18:00:00.000Z', lastDirection: 'inbound', subject: 'Synthetic header' }],
-  jobs: [{ id: 'gmail-production', name: 'Gmail production ingestion', coverage: 'read-complete', connected: true, detail: 'Bounded header read.' }]
+  jobs: [
+    { id: 'gmail-production', name: 'Gmail production ingestion', coverage: 'read-complete', connected: true, detail: 'Bounded header read.' },
+    { id: 'financial-sync', name: 'Financial source sync', lastSuccess: '2026-11-25T12:00:00.000Z', connected: true, detail: 'Synthetic sheet read.' },
+    { id: 'sms-heartbeat', name: 'Android SMS collector heartbeat', status: 'NOT VERIFIED', connected: false, detail: 'No heartbeat on this fixture.' }
+  ]
 };
 const inbox = {
   ok: true,
@@ -152,6 +159,73 @@ const inbox = {
   sources: { events: 3 },
   gmail: { blocker: 'Production writes are off.' }
 };
+
+const ledgerMissingCollections = {
+  ...ledger,
+  exceptions: undefined,
+  report: {
+    money: { ...ledger.report.money },
+    counts: { ...ledger.report.counts }
+  }
+};
+delete ledgerMissingCollections.exceptions;
+delete ledgerMissingCollections.report.payments;
+
+const ledgerIncompleteEmpty = {
+  ...ledger,
+  exceptions: [],
+  report: {
+    money: {
+      ...ledger.report.money,
+      coverage: 'incomplete',
+      incompleteFields: ['verifiedClientReceipts', 'openClientExposure', 'vendorCommitted'],
+      verifiedClientReceiptGaps: true,
+      incompleteReason: 'Conflicting or unidentified rows were excluded, so the marked totals are incomplete.'
+    },
+    counts: { ...ledger.report.counts, payments: 0, vendorBills: 0 },
+    payments: [],
+    payouts: []
+  }
+};
+
+const ledgerIncompleteZerosNoFields = {
+  ...ledger,
+  exceptions: [],
+  report: {
+    money: {
+      verifiedClientReceiptsCents: 0,
+      clientInvoiceTotalCents: 0,
+      openClientExposureCents: 0,
+      initiatedNotSettledCents: 0,
+      vendorCommittedCents: 0,
+      ownerPaidCents: 0,
+      ownerPlannedCents: 0,
+      verifiedContributionCents: null,
+      forecastMarginCents: null,
+      drawableCashCents: null,
+      coverage: 'incomplete',
+      incompleteFields: [],
+      verifiedClientReceiptGaps: false,
+      profitReason: 'Tax treatment is not established. No tax rate was applied.',
+      drawableCashReason: 'Drawable cash is unavailable.',
+      incompleteReason: 'Coverage is incomplete and no field-level completeness list was supplied.'
+    },
+    counts: { ...ledger.report.counts, payments: 0, vendorBills: 0 },
+    payments: [],
+    payouts: []
+  }
+};
+const ledgerIncompleteZerosAbsentFields = {
+  ...ledgerIncompleteZerosNoFields,
+  report: {
+    ...ledgerIncompleteZerosNoFields.report,
+    money: {
+      ...ledgerIncompleteZerosNoFields.report.money,
+      incompleteReason: 'Coverage is incomplete and incompleteFields was omitted.'
+    }
+  }
+};
+delete ledgerIncompleteZerosAbsentFields.report.money.incompleteFields;
 
 let mode = 'unauthorized';
 let pictureGets = 0;
@@ -213,6 +287,26 @@ await page.route('**/api/**', async (route) => {
   if (pathname === '/api/sync/operating-picture') {
     pictureGets += 1;
     if (mode === 'delay-ledger') await new Promise((resolve) => { releaseLedger = resolve; });
+    if (mode === 'picture-fail') {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'picture_unavailable', readOnly: true }) });
+      return;
+    }
+    if (mode === 'picture-missing-collections') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledgerMissingCollections) });
+      return;
+    }
+    if (mode === 'picture-incomplete-empty') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledgerIncompleteEmpty) });
+      return;
+    }
+    if (mode === 'picture-incomplete-zeros') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledgerIncompleteZerosNoFields) });
+      return;
+    }
+    if (mode === 'picture-incomplete-zeros-absent-fields') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledgerIncompleteZerosAbsentFields) });
+      return;
+    }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledger) });
     return;
   }
@@ -304,16 +398,158 @@ try {
   mode = 'ready';
   await openHub(1280, 800);
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
-  const afterReady = pictureGets;
+  let afterReady = pictureGets;
   await page.locator('[data-command-view="overview"]').click();
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => {
+    const text = document.querySelector('#commandView')?.innerText || '';
+    return /Ledger-recorded receipts/i.test(text) && /Open vendor obligations/i.test(text) && /\$500\.00/.test(text);
+  });
   const overview = await page.locator('#commandView').innerText();
   assert.match(overview, /Confirmed upcoming/);
   assert.match(overview, /Dated inquiries and proposals/);
   assert.match(overview, /ledger-recorded receipts/i);
+  assert.match(overview, /Scope: Payments sheet via shared operating picture/i);
+  assert.match(overview, /Open vendor obligations/i);
+  assert.match(overview, /\$200\.00/);
+  assert.match(overview, /\$500\.00/);
+  assert.match(overview, /\$0\.00/);
+  assert.match(overview, /Drawable cash[\s\S]*Unavailable/i);
+  assert.match(overview, /Recorded targets/i);
+  assert.match(overview, /Not added to priced line items/i);
+  assert.match(overview, /\$2,500\.00/);
+  assert.match(overview, /Priced line items/i);
+  assert.match(overview, /Cost coverage/i);
+  assert.match(overview, /Missing cost is not zero/i);
+  assert.match(overview, /Overdue tasks/i);
+  assert.match(overview, /Due today/i);
+  assert.match(overview, /Undated open tasks/i);
+  assert.match(overview, /Capture undated discovery|Undated open tasks[\s\S]*1/i);
+  assert.match(overview, /Approvals waiting: Unavailable on Overview/i);
+  assert.match(overview, /Synthetic exception stays out of totals/i);
+  assert.match(overview, /Excluded from totals/i);
+  assert.match(overview, /pay-lead/);
+  assert.match(overview, /bill-vendor/);
+  assert.match(overview, /Sheet ledger last success/i);
+  assert.match(overview, /SMS heartbeat/i);
+  assert.equal(overview.includes('Quote profit'), false);
   assert.equal(await page.locator('#eventEditorPanel').isVisible(), false);
   assert.equal(await page.locator('#reportCenter').isVisible(), false);
   assert.equal(await page.locator('#ownerSignInLink').count(), 1);
+  await page.evaluate(() => {
+    const result = window.lvptOperatingPictureResult;
+    if (!result || !result.data || !result.data.report || !result.data.report.money) throw new Error('operating picture missing');
+    result.data.report.money.incompleteFields = ['verifiedClientReceipts', 'openClientExposure', 'vendorCommitted'];
+    result.data.report.money.verifiedClientReceiptGaps = true;
+    result.data.report.money.coverage = 'incomplete';
+    result.data.report.money.incompleteReason = 'Conflicting or unidentified rows were excluded, so the marked totals are incomplete.';
+    window.lvptPaintOverviewLedger();
+  });
+  const incompleteOverview = await page.locator('#overviewLedger').innerText();
+  assert.match(incompleteOverview, /Incomplete/);
+  assert.equal(/\$500\.00/.test(incompleteOverview), false);
+  assert.equal(/\$200\.00/.test(incompleteOverview), false);
+  assert.equal(/\$0\.00/.test(incompleteOverview), false);
+  const incompleteOperating = await page.locator('#overviewOperating').innerText();
+  assert.match(incompleteOperating, /Unavailable[\s\S]*coverage is incomplete/i);
+  assert.equal(/No open client balance was returned on the complete ledger read/i.test(incompleteOperating), false);
+  assert.equal(/No open vendor bill was returned on the complete ledger read/i.test(incompleteOperating), false);
+  assert.equal(/pay-lead/.test(incompleteOperating), false);
+  await page.evaluate(() => {
+    const result = window.lvptOperatingPictureResult;
+    result.data.report.money.incompleteFields = [];
+    result.data.report.money.verifiedClientReceiptGaps = false;
+    result.data.report.money.coverage = 'complete';
+    result.data.report.money.incompleteReason = '';
+    window.lvptPaintOverviewLedger();
+  });
+
+  mode = 'picture-fail';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-retry-operating-picture]').length === 2);
+  assert.equal(await page.locator('#overviewLedger [data-retry-operating-picture]').count(), 1);
+  assert.equal(await page.locator('#overviewOperating [data-retry-operating-picture]').count(), 1);
+  assert.equal(await page.locator('#retryOverviewLedger').count(), 0);
+  const failedPicture = await page.locator('#commandView').innerText();
+  assert.match(failedPicture, /did not load|did not succeed/i);
+  assert.equal(failedPicture.includes('$500.00'), false);
+  assert.equal(/No open client balance was returned/i.test(failedPicture), false);
+  let retryGets = pictureGets;
+  mode = 'ready';
+  await page.locator('#overviewLedger [data-retry-operating-picture]').click();
+  await page.waitForFunction(() => /\$500\.00/.test(document.querySelector('#overviewLedger')?.innerText || ''));
+  assert.ok(pictureGets > retryGets);
+  assert.match(await page.locator('#overviewOperating').innerText(), /pay-lead/);
+
+  mode = 'picture-fail';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-retry-operating-picture]').length === 2);
+  retryGets = pictureGets;
+  mode = 'ready';
+  await page.locator('#overviewOperating [data-retry-operating-picture]').click();
+  await page.waitForFunction(() => /\$500\.00/.test(document.querySelector('#overviewLedger')?.innerText || ''));
+  assert.ok(pictureGets > retryGets);
+  assert.match(await page.locator('#overviewOperating').innerText(), /bill-vendor/);
+
+  mode = 'picture-missing-collections';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => /payments collection was not returned/i.test(document.querySelector('#overviewOperating')?.innerText || ''));
+  const missingCollections = await page.locator('#overviewOperating').innerText();
+  assert.match(missingCollections, /payments collection was not returned/i);
+  assert.match(missingCollections, /exceptions collection was not returned/i);
+  assert.equal(/No open client balance was returned on the complete ledger read/i.test(missingCollections), false);
+  assert.equal(/No unresolved finance exceptions were returned on the complete operating-picture read/i.test(missingCollections), false);
+  assert.equal(missingCollections.includes('pay-lead'), false);
+  assert.equal(missingCollections.includes('Synthetic exception'), false);
+
+  mode = 'picture-incomplete-empty';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => /coverage is incomplete/i.test(document.querySelector('#overviewOperating')?.innerText || ''));
+  const incompleteEmpty = await page.locator('#commandView').innerText();
+  assert.match(incompleteEmpty, /Incomplete/i);
+  assert.match(incompleteEmpty, /coverage is incomplete/i);
+  assert.equal(/No open client balance was returned on the complete ledger read/i.test(incompleteEmpty), false);
+  assert.equal(/No open vendor bill was returned on the complete ledger read/i.test(incompleteEmpty), false);
+  assert.match(incompleteEmpty, /No unresolved finance exceptions were returned on the complete operating-picture read/i);
+
+  mode = 'picture-incomplete-zeros';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => /no field-level completeness list was supplied/i.test(document.querySelector('#overviewLedger')?.innerText || ''));
+  const incompleteZeros = await page.locator('#overviewLedger').innerText();
+  assert.match(incompleteZeros, /Ledger-recorded receipts[\s\S]*Incomplete/i);
+  assert.match(incompleteZeros, /Ledger outstanding[\s\S]*Incomplete/i);
+  assert.match(incompleteZeros, /Open vendor obligations[\s\S]*Incomplete/i);
+  assert.match(incompleteZeros, /no field-level completeness list was supplied/i);
+  assert.equal(incompleteZeros.includes('$0.00'), false);
+  assert.equal(/\$0(\.00)?/.test(incompleteZeros), false);
+  assert.equal(/No open client balance was returned on the complete ledger read/i.test(await page.locator('#overviewOperating').innerText()), false);
+
+  mode = 'picture-incomplete-zeros-absent-fields';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => /incompleteFields was omitted/i.test(document.querySelector('#overviewLedger')?.innerText || ''));
+  const incompleteZerosAbsent = await page.locator('#overviewLedger').innerText();
+  assert.match(incompleteZerosAbsent, /Incomplete|Unavailable/i);
+  assert.match(incompleteZerosAbsent, /incompleteFields was omitted/i);
+  assert.equal(incompleteZerosAbsent.includes('$0.00'), false);
+  assert.equal(/\$0(\.00)?/.test(incompleteZerosAbsent), false);
+
+  mode = 'ready';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  afterReady = pictureGets;
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => /\$500\.00/.test(document.querySelector('#overviewLedger')?.innerText || ''));
   await page.evaluate(() => { document.body.style.minHeight = '2400px'; });
   await page.waitForFunction(() => document.body.scrollHeight > 2000);
   await page.evaluate(() => window.scrollTo(0, 640));
@@ -573,6 +809,22 @@ try {
   releaseLedger = null;
   await openHub(1280, 800);
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => {
+    const ledger = document.querySelector('#overviewLedger')?.innerText || '';
+    const operating = document.querySelector('#overviewOperating')?.innerText || '';
+    return /still loading/i.test(ledger) && /waiting on the shared operating-picture/i.test(operating);
+  });
+  const delayedOverview = await page.locator('#commandView').innerText();
+  assert.match(delayedOverview, /still loading/i);
+  assert.match(delayedOverview, /not zero/i);
+  assert.equal(delayedOverview.includes('$500.00'), false);
+  assert.equal(delayedOverview.includes('$200.00'), false);
+  assert.equal(/No open client balance was returned on the complete ledger read/i.test(delayedOverview), false);
+  assert.equal(/No open vendor bill was returned on the complete ledger read/i.test(delayedOverview), false);
+  assert.match(delayedOverview, /Recorded targets/i);
+  assert.match(delayedOverview, /Not added to priced line items/i);
+  assert.match(delayedOverview, /Confirmed upcoming/);
   await page.evaluate(() => window.lvptOpenRecord('evt-lead'));
   await page.waitForFunction(() => {
     const node = document.querySelector('[data-record-event="evt-lead"] [data-record-ledger]');

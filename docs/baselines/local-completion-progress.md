@@ -104,11 +104,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | IMPLEMENTED_TESTED (T8 + supervisor revisions) |
+| Date/time | 2026-11-25 |
 | Dependencies | R03 |
-| Evidence | Overview/hub sources; staging acceptance STAGING |
-| Remaining blocker | Authenticated staging owner confirmation later (R22) |
-| Next task | Verify compact overview / confirmed vs tentative separation |
+| Files inspected | `public/v2/js/lifecycle-command-center.js`, `public/v2/js/unified-hub.js`, `public/v2/js/authoritative-finance.js`, `public/v2/js/event-finance.js`, `public/v2/js/event-status.js`, `tests/command-center-browser.test.mjs`, `tests/event-finance.test.cjs`, `remaining-spec.md` R04, staging acceptance / completion matrix Overview rows |
+| Files changed | `public/v2/js/lifecycle-command-center.js`, `public/v2/js/unified-hub.js`, `tests/command-center-browser.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/command-center-browser.test.mjs,tests/event-finance.test.cjs` |
+| Exit codes | Targeted verify **0** (browser **0**, event-finance **0**) after coverage-honoring moneyFieldLabel revision |
+| Evidence | Compact Overview kept. Shared operating-picture read drives receipts, outstanding, vendor obligations, balances, freshness, exceptions. Prior revision: independent `payments`/`exceptions`/`jobs` validation; dual `[data-retry-operating-picture]` retry. **Latest revision:** `moneyFieldLabel` honors `money.coverage` — incomplete/unverified coverage does not render numeric totals when `incompleteFields` is absent/empty; shows Incomplete/Unavailable with visible coverage reason unless an explicit non-empty field-level incompleteness list omits that field. Browser regression: incomplete coverage + zero cents + empty/absent `incompleteFields` → no misleading `$0.00` for receipts, outstanding, or vendor obligations. Targets separate from priced lines; tasks remain navigable. Finance safeguards unchanged. |
+| Remaining blocker | Authenticated staging owner confirmation later (R22). Not LIVE_VERIFIED. |
+| Next task | R05 / actionable inbox |
 
 ### R05 — Complete actionable inbox behavior
 
@@ -386,7 +391,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING** (identity + navigation/list restoration; owners unchanged) |
-| Next authorized task | R04 / T8 — executive metrics and evidence labels |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8 **IMPLEMENTED_TESTED** (executive metrics + evidence labels) |
+| Next authorized task | R05 — Complete actionable inbox behavior |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

@@ -453,12 +453,13 @@
       const anchor = document.getElementById('metricsGrid');
       if (anchor) anchor.before(strip);
     }
-    strip.innerHTML = `<div><span>Operations hub</span><strong>Finance, communications, and source health use the same status labels. A stored row is not a heartbeat.</strong></div><div><span>Sends</span><strong>Off until you approve a specific message in the review workspace.</strong></div><a class="btn small" href="/sms-review/index.html#inboxReviewTitle">Open approvals</a><a class="btn small" href="#" data-command-jump="health">Check source health</a>`;
+    strip.innerHTML = `<div><span>Operations hub</span><strong>Finance, communications, and source health reuse the shared operating-picture read. A stored row is not a heartbeat. Missing coverage stays unavailable, not zero.</strong></div><div><span>Approvals waiting</span><strong>Unavailable on Overview. Evidence lives in the review workspace. A draft is not an approval. Sends stay off until you approve a specific message.</strong></div><a class="btn small" href="/sms-review/index.html#inboxReviewTitle">Open approvals</a><a class="btn small" href="#" data-command-jump="health">Check source health</a>`;
     strip.querySelector('[data-command-jump]').addEventListener('click', (event) => {
       event.preventDefault();
       const button = document.querySelector('[data-command-view="health"]');
       if (button) button.click();
     });
+    if (typeof window.lvptPaintOverviewLedger === 'function') window.lvptPaintOverviewLedger();
   };
 
   if (HUB_VIEWS.includes(localStorage.getItem('lvptCommandCenterView')) && typeof render === 'function') render();

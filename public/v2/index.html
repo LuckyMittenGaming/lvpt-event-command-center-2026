@@ -18,16 +18,16 @@
         <h1>2026 Event Command Center</h1>
         <p class="hero-copy">Create every event through a guided discovery workflow, then manage pricing, staffing, compliance, documents, email activity, reminders, and post-event follow-up from one record.</p>
         <div class="system-status-row">
-          <span class="status-pill" id="storageStatus">Browser storage active</span>
+          <span class="status-pill" id="storageStatus">Read only</span>
           <span class="status-pill pending" id="gmailHeroStatus">Gmail not checked</span>
           <span class="status-pill" id="documentStatus">Document vault ready</span>
         </div>
       </div>
       <div class="hero-actions">
-        <button class="btn primary" id="newEventTopBtn">+ Guided Event Setup</button>
-        <button class="btn" id="exportCsvBtn">Export CSV</button>
-        <button class="btn" id="exportJsonBtn">Export JSON</button>
-        <button class="btn danger" id="resetDataBtn">Reset Demo Data</button>
+        <button class="btn primary" id="newEventTopBtn" hidden>+ Guided Event Setup</button>
+        <button class="btn" id="exportCsvBtn" hidden>Export CSV</button>
+        <button class="btn" id="exportJsonBtn" hidden>Export JSON</button>
+        <button class="btn danger" id="resetDataBtn" hidden>Reset Demo Data</button>
       </div>
     </header>
 
@@ -41,7 +41,7 @@
             <p class="eyebrow small">Pipeline</p>
             <h2>Events</h2>
           </div>
-          <button class="btn small primary" id="newEventSideBtn">Add</button>
+          <button class="btn small primary" id="newEventSideBtn" hidden>Add</button>
         </div>
         <div class="filter-grid">
           <input class="input" id="searchInput" placeholder="Search events, companies, cities..." />

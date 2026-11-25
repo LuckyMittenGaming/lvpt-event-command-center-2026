@@ -142,6 +142,8 @@ assert.equal(rcsRecord.timeline.some((item) => item.direction === 'inbound'), tr
 assert.equal(rcsRecord.timeline.some((item) => item.direction === 'outbound'), true);
 assert.equal(rcsRecord.timeline.every((item) => item.contentAvailable === false), true);
 assert.equal(rcsRecord.contact, 'TEST');
-assert.equal(smsRecord.source, 'SMS');
+assert.equal(smsRecord.channel, 'SMS');
+assert.equal(smsRecord.source, 'Unknown');
+assert.equal(smsRecord.acquisitionKind, 'unknown');
 assert.equal(randomBytes(1).length, 1);
 console.log('rcs staging contract tests passed');

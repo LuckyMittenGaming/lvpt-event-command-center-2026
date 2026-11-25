@@ -1,5 +1,7 @@
 import { jsonNoStore, supabaseEndpoint, supabaseHeaders } from '../_lib';
+import { denyPrivateRead } from '../../../sync/_owner-read';
 import { collectorHealth, publicRcsRecord } from '../../../../../lib/rcs-staging.mjs';
+import { RCS_HEARTBEAT_PREREQUISITE } from '../../../../../lib/source-reliability.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +20,8 @@ function sameOrigin(request: Request): boolean {
 }
 
 export async function GET(request: Request) {
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
   if (process.env.VERCEL_ENV === 'production') {
     return jsonNoStore({ ok: false, reason: 'preview_only', pairing: 'unpaired', sendEnabled: false }, 403);
   }
@@ -69,6 +73,8 @@ export async function GET(request: Request) {
     encryption: 'aes-256-gcm-server-validated',
     endToEndEncryption: false,
     lastSuccess: '',
+    heartbeat: 'unverified',
+    verificationPrerequisite: RCS_HEARTBEAT_PREREQUISITE,
     lastIngestionAt,
     newestMessageAt,
     lastFailure: readOk ? '' : 'rcs_metadata_unavailable',

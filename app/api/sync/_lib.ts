@@ -22,7 +22,7 @@ export function authorizeAppRequest(request: Request): boolean {
   return safeCompare(request.headers.get('x-lvpt-sync-key') || '', syncEnvironment.appSyncKey);
 }
 
-export async function appsScriptRequest<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+export async function appsScriptRequest<T>(action: string, payload: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
   if (!syncConfigured()) {
     throw new Error('Apps Script environment variables are incomplete.');
   }
@@ -37,6 +37,7 @@ export async function appsScriptRequest<T>(action: string, payload: Record<strin
     }),
     cache: 'no-store',
     redirect: 'follow',
+    signal: typeof timeoutMs === 'number' ? AbortSignal.timeout(timeoutMs) : undefined,
   });
 
   const text = await response.text();

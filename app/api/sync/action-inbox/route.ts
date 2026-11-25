@@ -1,24 +1,17 @@
 import { appsScriptRequest, syncConfigured } from '../_lib';
+import { denyPrivateRead } from '../_owner-read';
 import { jsonNoStore, ready, supabaseEndpoint, supabaseHeaders } from '../../sms/staging/_lib';
 import { buildActionInbox } from '../../../../lib/action-inbox.mjs';
 import { publicRcsRecord } from '../../../../lib/rcs-staging.mjs';
 import { matchThreads } from '../../../../lib/sms-bridge.mjs';
+import { classifySmsScan, observedTime, SMS_PAGE_CAP, SMS_PAGE_SIZE } from '../../../../lib/sms-scan-health.mjs';
+import { classifyGmailHeaderRead } from '../../../../lib/source-reliability.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 type Raw = Record<string, unknown>;
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return true;
-  try {
-    return new URL(origin).host.toLowerCase() === new URL(request.url).host.toLowerCase();
-  } catch {
-    return false;
-  }
-}
 
 function text(value: unknown, max: number): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -33,53 +26,96 @@ function keyBytes(): Buffer | null {
   }
 }
 
-async function smsThreads(events: Array<{ id?: string; contactPhone?: string }>): Promise<{ threads: Array<Record<string, unknown>>; storedMessages: number; newestAt: string; fresh: boolean }> {
-  if (!ready()) return { threads: [], storedMessages: 0, newestAt: '', fresh: false };
+function offlineScan(configured: boolean) {
+  return classifySmsScan({
+    configured,
+    pages: [{ ok: false, reason: 'offline' }],
+    now: Date.now()
+  });
+}
+
+async function smsThreads(events: Array<{ id?: string; contactPhone?: string }>) {
+  const now = Date.now();
   const key = keyBytes();
-  if (!key) return { threads: [], storedMessages: 0, newestAt: '', fresh: false };
-  const rows: Array<{ contact_hash: string; direction: string; timestamp_ms: number }> = [];
-  let after = 0;
-  let newest = 0;
-  for (let page = 0; page < 8; page += 1) {
-    const query = new URLSearchParams({
-      select: 'contact_hash,direction,timestamp_ms,sms_id',
-      tenant_id: 'eq.lvpt-owner-pilot',
-      sms_id: `gt.${after}`,
-      order: 'sms_id.asc',
-      limit: '1000'
-    });
-    const response = await fetch(supabaseEndpoint(`lvpt_sms_staging?${query}`), {
-      headers: supabaseHeaders(),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(12_000)
-    });
-    if (!response.ok) break;
-    const batch = await response.json() as Array<Record<string, unknown>>;
-    if (!Array.isArray(batch) || batch.length === 0) break;
-    for (const row of batch) {
-      const smsId = Number(row.sms_id);
-      const stamp = Number(row.timestamp_ms) || 0;
-      if (Number.isSafeInteger(smsId) && smsId > after) after = smsId;
-      if (stamp > newest) newest = stamp;
-      rows.push({
-        contact_hash: String(row.contact_hash || ''),
-        direction: String(row.direction || ''),
-        timestamp_ms: stamp
-      });
-    }
-    if (batch.length < 1000) break;
+  if (!ready() || !key) {
+    return { threads: [] as Array<Record<string, unknown>>, health: classifySmsScan({ configured: false, pages: [], now }) };
   }
-  const threads = matchThreads(rows, events, key);
-  const newestAt = newest ? new Date(newest).toISOString() : '';
-  const fresh = Boolean(newestAt) && Date.now() - Date.parse(newestAt) < 14 * 86400000;
-  return { threads, storedMessages: rows.length, newestAt, fresh };
+  const pages: Array<Record<string, unknown>> = [];
+  const matchRows: Array<{ contact_hash: string; direction: string; timestamp_ms: number }> = [];
+  let after = 0;
+  for (let page = 0; page < SMS_PAGE_CAP; page += 1) {
+    try {
+      const query = new URLSearchParams({
+        select: 'contact_hash,direction,timestamp_ms,sms_id,received_at',
+        tenant_id: 'eq.lvpt-owner-pilot',
+        sms_id: `gt.${after}`,
+        order: 'sms_id.asc',
+        limit: String(SMS_PAGE_SIZE)
+      });
+      const response = await fetch(supabaseEndpoint(`lvpt_sms_staging?${query}`), {
+        headers: supabaseHeaders(),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(12_000)
+      });
+      if (!response.ok) {
+        pages.push({ ok: false, reason: 'http' });
+        break;
+      }
+      let batch: unknown;
+      try {
+        batch = await response.json();
+      } catch {
+        pages.push({ ok: false, reason: 'invalid_body' });
+        break;
+      }
+      if (!Array.isArray(batch)) {
+        pages.push({ ok: false, reason: 'invalid_body' });
+        break;
+      }
+      let cursor = after;
+      const summary: Array<{ timestamp_ms: unknown; received_at: unknown }> = [];
+      for (const row of batch) {
+        if (!row || typeof row !== 'object') continue;
+        const record = row as Record<string, unknown>;
+        const smsId = Number(record.sms_id);
+        if (Number.isSafeInteger(smsId) && smsId > cursor) cursor = smsId;
+        summary.push({ timestamp_ms: record.timestamp_ms, received_at: record.received_at });
+        const messageAt = observedTime(record.timestamp_ms, now);
+        matchRows.push({
+          contact_hash: String(record.contact_hash || ''),
+          direction: String(record.direction || ''),
+          timestamp_ms: messageAt ? Number(record.timestamp_ms) : 0
+        });
+      }
+      const advanced = cursor > after;
+      after = cursor;
+      pages.push({ ok: true, rows: summary, full: batch.length >= SMS_PAGE_SIZE });
+      if (batch.length < SMS_PAGE_SIZE) break;
+      if (!advanced) {
+        pages.push({ ok: false, reason: 'cursor_stalled' });
+        break;
+      }
+    } catch {
+      pages.push({ ok: false, reason: 'offline' });
+      break;
+    }
+  }
+  const health = classifySmsScan({ configured: true, pages, now });
+  let threads: Array<Record<string, unknown>> = [];
+  try {
+    threads = matchThreads(matchRows, events, key);
+  } catch {
+    threads = [];
+  }
+  return { threads, health };
 }
 
 export async function GET(request: Request) {
   if (process.env.VERCEL_ENV === 'production') {
     return jsonNoStore({ ok: false, reason: 'preview_only', sendEnabled: false }, 403);
   }
-  if (!sameOrigin(request)) return jsonNoStore({ ok: false, reason: 'same_origin_required', sendEnabled: false }, 403);
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
   if (!syncConfigured()) return jsonNoStore({ ok: false, reason: 'sheet_unconfigured', sendEnabled: false }, 503);
   try {
     const listed = await appsScriptRequest<{ events?: Raw[] }>('listEvents');
@@ -109,7 +145,10 @@ export async function GET(request: Request) {
         guestCount: Number(event.guestCount) || 0,
         leadSource: text(event.leadSource, 80),
         nextAction: text(event.nextAction, 180),
-        setup: { budgetRange: text(setup.budgetRange, 80), targetQuote: Number(setup.targetQuote) || 0 },
+        setup: {
+          budgetRange: text(setup.budgetRange, 80),
+          ...(setup && Object.prototype.hasOwnProperty.call(setup, 'targetQuote') && Number.isFinite(Number(setup.targetQuote)) ? { targetQuote: Number(setup.targetQuote) } : {})
+        },
         quote: quote.slice(0, 40).map((line) => ({
           quantity: Number(line.quantity) || 0,
           unitPrice: Number(line.unitPrice) || 0
@@ -131,18 +170,35 @@ export async function GET(request: Request) {
         eventId: text(event.id, 120),
         title: text(task.title, 180),
         dueDate: text(task.dueDate, 20),
-        status: text(task.status, 40)
+        status: text(task.status, 40),
+        owner: text(task.owner, 80)
       }));
     });
 
     const gmailThreads: Array<Record<string, string>> = [];
-    const keys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
+    const gmailKeys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
+    const gmailReads: Array<{ domain: string; ok: boolean; reason?: string; providerPartial?: boolean; threads?: Array<{ lastMessageAt: string }> }> = [];
+    let gmailCapped = false;
     const started = Date.now();
-    for (const eventKey of keys) {
-      if (Date.now() - started > 15000) break;
+    for (const eventKey of gmailKeys) {
+      if (Date.now() - started > 15000) {
+        gmailCapped = true;
+        break;
+      }
       try {
-        const evidence = await appsScriptRequest<{ threads?: Raw[] }>('listGmailThreadEvidence', { eventKey });
-        (Array.isArray(evidence.threads) ? evidence.threads : []).forEach((thread) => {
+        const evidence = await appsScriptRequest<{ threads?: Raw[]; partial?: boolean }>('listGmailThreadEvidence', { eventKey }, 8000);
+        const threads = Array.isArray(evidence.threads) ? evidence.threads : null;
+        if (!threads) {
+          gmailReads.push({ domain: eventKey, ok: false, reason: 'invalid_body' });
+          continue;
+        }
+        gmailReads.push({
+          domain: eventKey,
+          ok: true,
+          providerPartial: evidence.partial === true,
+          threads: threads.map((thread) => ({ lastMessageAt: text(thread.lastMessageAt, 40) }))
+        });
+        threads.forEach((thread) => {
           gmailThreads.push({
             threadId: text(thread.threadId, 80),
             subject: text(thread.subject, 140),
@@ -152,18 +208,25 @@ export async function GET(request: Request) {
           });
         });
       } catch {
-        // A missed header read stays out of the inbox. Stored sheet rows remain.
+        gmailReads.push({ domain: eventKey, ok: false, reason: 'read_failed' });
       }
     }
+    const gmailHealth = classifyGmailHeaderRead({
+      requested: gmailKeys.length,
+      reads: gmailReads,
+      capped: gmailCapped,
+      storedNewest: newestGmail,
+      now: Date.now()
+    });
 
-    let sms = { threads: [] as Array<Record<string, unknown>>, storedMessages: 0, newestAt: '', fresh: false };
+    let sms = { threads: [] as Array<Record<string, unknown>>, health: offlineScan(true) };
     try {
       sms = await smsThreads(sourceEvents.map((event) => ({
         id: text(event.id, 120),
         contactPhone: text(event.contactPhone, 40)
       })));
     } catch {
-      sms = { threads: [], storedMessages: 0, newestAt: '', fresh: false };
+      sms = { threads: [], health: offlineScan(true) };
     }
 
     let rcsMessages: ReturnType<typeof publicRcsRecord>[] = [];
@@ -195,23 +258,67 @@ export async function GET(request: Request) {
       smsThreads: sms.threads,
       rcsMessages
     });
-    const gmailFresh = Boolean(newestGmail) && Date.now() - Date.parse(newestGmail) < 14 * 86400000;
     return jsonNoStore({
       ok: true,
       ...inbox,
       sources: {
         events: events.length,
         gmailRows,
-        newestGmail,
-        gmailFresh,
-        gmailHeaders: gmailThreads.length,
-        smsMessages: sms.storedMessages,
-        newestSms: sms.newestAt,
-        smsFresh: sms.fresh,
+        newestGmail: gmailHealth.storedNewestAt,
+        gmailFresh: false,
+        gmailHeaders: gmailHealth.headerThreads,
+        gmailHeader: {
+          coverage: gmailHealth.coverage,
+          connected: gmailHealth.connected,
+          partial: gmailHealth.partial,
+          unavailable: gmailHealth.unavailable,
+          readComplete: gmailHealth.readComplete,
+          metadataOnly: true,
+          fullThreadAccess: false,
+          domainsRequested: gmailHealth.domainsRequested,
+          domainsRead: gmailHealth.domainsRead,
+          headerThreads: gmailHealth.headerThreads,
+          countComplete: gmailHealth.countComplete,
+          newestHeaderAt: gmailHealth.newestHeaderAt,
+          newestHeaderAmongRead: gmailHealth.newestHeaderAmongRead,
+          storedNewestAt: gmailHealth.storedNewestAt,
+          invalidTimestamps: gmailHealth.invalidTimestamps,
+          fresh: false,
+          detail: gmailHealth.detail
+        },
+        smsMessages: sms.health.countComplete ? sms.health.storedMessages : null,
+        newestSms: sms.health.newestMessageAt,
+        newestSmsIngest: sms.health.newestIngestAt,
+        smsFresh: sms.health.fresh === true,
+        smsCoverage: sms.health.coverage,
+        sms: {
+          connected: sms.health.connected,
+          coverage: sms.health.coverage,
+          readComplete: sms.health.readComplete,
+          partial: sms.health.partial,
+          unavailable: sms.health.unavailable,
+          pagesRead: sms.health.pagesRead,
+          pageCap: sms.health.pageCap,
+          truncated: sms.health.truncated,
+          providerError: sms.health.providerError,
+          storedMessages: sms.health.storedMessages,
+          countComplete: sms.health.countComplete,
+          newestMessageAt: sms.health.newestMessageAt,
+          newestIngestAt: sms.health.newestIngestAt,
+          newestMessageAmongRead: sms.health.newestMessageAmongRead,
+          newestIngestAmongRead: sms.health.newestIngestAmongRead,
+          invalidMessageTimestamps: sms.health.invalidMessageTimestamps,
+          invalidIngestTimestamps: sms.health.invalidIngestTimestamps,
+          checkedAt: sms.health.checkedAt,
+          staleAfterHours: sms.health.staleAfterHours,
+          detail: sms.health.detail
+        },
         rcsMessages: rcsMessages.length,
         newestRcs: rcsMessages.reduce((latest, record) => record.messageAt > latest ? record.messageAt : latest, ''),
         messageTextIncluded: false
       },
+      smsProbe: sms.health.probe,
+      gmailProbe: gmailHealth.probe,
       gmail: {
         productionWrites: false,
         historicalRowsPreserved: gmailRows,

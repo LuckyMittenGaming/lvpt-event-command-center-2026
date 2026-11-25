@@ -4,6 +4,11 @@ import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { gmailConfigured } from '../../gmail/_lib';
 import { appsScriptRequest, syncConfigured } from '../_lib';
+import { denyPrivateRead } from '../_owner-read';
+import { jsonNoStore } from '../../sms/staging/_lib';
+import { collapseDuplicateIds } from '../../../../lib/action-inbox.mjs';
+import { observedTime, SMS_INGEST_STALE_HOURS } from '../../../../lib/sms-scan-health.mjs';
+import { classifyGmailHeaderRead, classifyStoredCollection } from '../../../../lib/source-reliability.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,16 +27,6 @@ function ledgerApi(): { buildLedger: (input: Record<string, unknown>) => Record<
 }
 
 type Raw = Record<string, unknown>;
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return true;
-  try {
-    return new URL(origin).host.toLowerCase() === new URL(request.url).host.toLowerCase();
-  } catch {
-    return false;
-  }
-}
 
 function text(value: unknown, max: number): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -82,9 +77,11 @@ function socketError(error: unknown): string {
 async function smsMeta(): Promise<Record<string, unknown>> {
   const attempt = new Date().toISOString();
   if (!smsStoreConfigured()) {
+    const unread = classifyStoredCollection({ storeReached: false, now: attempt });
     return {
       database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: 'SMS staging is not configured on this deployment.' },
-      upload: { status: 'UNVERIFIED', lastSuccess: '', recordsExamined: 0, recordsCreated: 0, detail: 'Upload freshness was not checked.' }
+      upload: unread.upload,
+      heartbeat: unread.heartbeat
     };
   }
   const url = (process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').trim().replace(/\/$/, '');
@@ -96,82 +93,91 @@ async function smsMeta(): Promise<Record<string, unknown>> {
       Prefer: 'count=exact'
     });
     if (ingest.status < 200 || ingest.status >= 300) {
+      const unread = classifyStoredCollection({ storeReached: false, now: attempt });
       return {
         database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` },
-        upload: { status: 'UNVERIFIED', lastSuccess: '', recordsExamined: 0, recordsCreated: 0, detail: 'Upload freshness was not checked.' }
+        upload: unread.upload,
+        heartbeat: unread.heartbeat
       };
     }
     const ingested = JSON.parse(ingest.body) as Array<{ received_at?: string }>;
-    const newestIngestAt = ingested[0]?.received_at || '';
+    const rawIngest = typeof ingested[0]?.received_at === 'string' ? ingested[0].received_at : '';
     const countMatch = ingest.contentRange.match(/\/(\d+)$/);
-    const message = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, headers);
-    const messages = message.status >= 200 && message.status < 300 ? JSON.parse(message.body) as Array<{ timestamp_ms?: number }> : [];
-    const newestMessageAt = messages[0]?.timestamp_ms ? new Date(Number(messages[0].timestamp_ms)).toISOString() : '';
-    const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
+    let messageTimeNote = 'not read';
+    try {
+      const message = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=timestamp_ms&tenant_id=eq.lvpt-owner-pilot&order=timestamp_ms.desc&limit=1`, headers);
+      if (message.status >= 200 && message.status < 300) {
+        const messages = JSON.parse(message.body) as Array<{ timestamp_ms?: unknown }>;
+        if (!Array.isArray(messages) || messages.length === 0) messageTimeNote = 'none';
+        else messageTimeNote = observedTime(messages[0]?.timestamp_ms, Date.now()) || 'not a valid timestamp';
+      }
+    } catch {
+      messageTimeNote = 'not read';
+    }
+    const cutoff = new Date(Date.now() - SMS_INGEST_STALE_HOURS * 3600000).toISOString();
     const recent = await httpsGet(`${url}/rest/v1/lvpt_sms_staging?select=received_at&tenant_id=eq.lvpt-owner-pilot&received_at=gte.${encodeURIComponent(cutoff)}&limit=1`, {
       ...headers,
       Prefer: 'count=exact'
     });
     const recentMatch = recent.status >= 200 && recent.status < 300 ? recent.contentRange.match(/\/(\d+)$/) : null;
     const recentCount = recentMatch ? Number(recentMatch[1]) : null;
-    const arriving = recentCount !== null && recentCount > 0;
-    const examined = countMatch ? Number(countMatch[1]) : ingested.length;
-    const rows = countMatch ? countMatch[1] : 'unknown';
+    const rowCount = countMatch ? Number(countMatch[1]) : null;
+    const stored = classifyStoredCollection({
+      storeReached: true,
+      newestIngestAt: rawIngest,
+      newestMessageAt: messageTimeNote === 'not read' ? '' : messageTimeNote === 'none' || messageTimeNote === 'not a valid timestamp' ? '' : messageTimeNote,
+      rowCount,
+      recentImportCount: recentCount,
+      heartbeat: null,
+      now: attempt
+    });
     return {
       database: {
         status: 'HEALTHY',
         lastAttempt: attempt,
         lastSuccess: '',
-        recordsExamined: examined,
+        recordsExamined: rowCount,
         recordsCreated: 0,
-        detail: `The metadata query succeeded. Stored rows ${rows}. A healthy database is not a fresh phone upload. Message text was not read.`
+        detail: `The metadata query succeeded. Stored rows ${rowCount === null ? 'not counted' : rowCount}. A healthy database is not a fresh phone upload and is not a device heartbeat. Message text was not read.`
       },
-      upload: {
-        status: arriving ? undefined : 'UNVERIFIED',
-        connected: arriving,
-        lastAttempt: '',
-        lastSuccess: arriving ? newestIngestAt : '',
-        recordsExamined: examined,
-        recordsCreated: 0,
-        staleAfterHours: 48,
-        detail: newestIngestAt
-          ? `Newest stored import ${newestIngestAt}. Newest stored message time ${newestMessageAt || 'unknown'}. Imports in the last 14 days: ${recentCount === null ? 'not counted' : recentCount}. ${arriving ? 'A stored row arrived within 14 days.' : 'No upload has arrived since the November 5 historical import.'} No server heartbeat is stored. Message text was not read.`
-          : 'The SMS store answered and has no imported rows. Message text was not read.'
-      }
+      upload: stored.upload,
+      heartbeat: stored.heartbeat
     };
   } catch (error) {
     const detail = `SMS metadata did not respond (${socketError(error)}). This stopped before an HTTP status. Message text was not read.`;
+    const unread = classifyStoredCollection({ storeReached: false, now: attempt });
     return {
       database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail },
-      upload: { status: 'UNVERIFIED', lastAttempt: '', lastSuccess: '', recordsExamined: 0, recordsCreated: 0, detail: 'Upload freshness was not checked because the database query did not finish.' }
+      upload: { ...unread.upload, detail: 'Upload freshness was not checked because the database query did not finish.' },
+      heartbeat: unread.heartbeat
     };
   }
 }
 
-async function gmailProbe(knownThreadIds: Set<string>): Promise<Record<string, unknown>> {
-  const attempt = new Date().toISOString();
+async function gmailProbe(knownThreadIds: Set<string>, storedNewest: string): Promise<Record<string, unknown>> {
   const keys = ['ows-aws', 'lithic', 'imperativex', 'kirkland', 'quinn-emanuel'];
   const queue: Array<Record<string, string>> = [];
-  let examined = 0;
+  const reads: Array<{ domain: string; ok: boolean; reason?: string; providerPartial?: boolean; threads?: Array<{ lastMessageAt: string }> }> = [];
   let duplicates = 0;
-  let reads = 0;
-  let newest = '';
-  const errors: string[] = [];
+  let capped = false;
   const started = Date.now();
   for (const eventKey of keys) {
     if (Date.now() - started > 20000) {
-      errors.push(`${eventKey} was not checked in this request`);
-      continue;
+      capped = true;
+      break;
     }
     try {
-      const evidence = await appsScriptRequest<Raw>('listGmailThreadEvidence', { eventKey });
-      reads += 1;
-      const threads = Array.isArray(evidence.threads) ? evidence.threads as Raw[] : [];
+      const evidence = await appsScriptRequest<Raw>('listGmailThreadEvidence', { eventKey }, 8000);
+      const threads = Array.isArray(evidence.threads) ? evidence.threads as Raw[] : null;
+      if (!threads) {
+        reads.push({ domain: eventKey, ok: false, reason: 'invalid_body' });
+        continue;
+      }
+      const headers = threads.map((thread) => ({ lastMessageAt: text(thread.lastMessageAt, 40) }));
+      reads.push({ domain: eventKey, ok: true, providerPartial: evidence.partial === true, threads: headers });
       threads.forEach((thread) => {
-        examined += 1;
         const threadId = text(thread.threadId, 80);
         const when = text(thread.lastMessageAt, 40);
-        if (when > newest) newest = when;
         if (threadId && knownThreadIds.has(threadId)) {
           duplicates += 1;
           return;
@@ -186,39 +192,42 @@ async function gmailProbe(knownThreadIds: Set<string>): Promise<Record<string, u
           });
         }
       });
-    } catch (error) {
-      errors.push(text(error instanceof Error ? error.message : 'read failed', 100));
+    } catch {
+      reads.push({ domain: eventKey, ok: false, reason: 'read_failed' });
     }
   }
+  const health = classifyGmailHeaderRead({
+    requested: keys.length,
+    reads,
+    capped,
+    storedNewest,
+    now: Date.now()
+  });
   return {
-    connected: false,
-    status: reads ? 'UNVERIFIED' : undefined,
-    lastAttempt: attempt,
-    recordsExamined: examined,
-    recordsCreated: 0,
+    ...health.probe,
     duplicates,
     queue,
-    newest,
-    detail: reads
-      ? `Authorized Apps Script read ${reads} domain searches and ${examined} header threads. ${duplicates} were already on the sheet. ${queue.length} are queued for review and were not assigned to an event. Newest header ${newest || 'none'}. No Gmail Activity row was written.`
-      : `No mailbox read completed. ${errors[0] || 'The Apps Script reader did not answer.'}`
+    newest: health.newestHeaderAt,
+    coverage: health.coverage,
+    metadataOnly: true,
+    fullThreadAccess: false,
+    detail: `${health.detail} ${duplicates} header threads were already on the sheet. ${queue.length} are queued for review and were not assigned to an event. No Gmail Activity row was written.`
   };
 }
 
 export async function GET(request: Request) {
   if (process.env.VERCEL_ENV === 'production') {
-    return Response.json({ ok: false, readOnly: true, reason: 'preview_only' }, { status: 403 });
+    return jsonNoStore({ ok: false, readOnly: true, reason: 'preview_only' }, 403);
   }
-  if (!sameOrigin(request)) {
-    return Response.json({ ok: false, readOnly: true, reason: 'same_origin_required' }, { status: 403 });
-  }
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
   if (!syncConfigured()) {
-    return Response.json({
+    return jsonNoStore({
       ok: false,
       readOnly: true,
       writesPerformed: false,
       message: 'The sheet connection is not configured on this deployment.'
-    }, { status: 503 });
+    }, 503);
   }
 
   try {
@@ -246,13 +255,13 @@ export async function GET(request: Request) {
     const payments = Array.isArray(ledger.paymentRecords) ? ledger.paymentRecords : null;
     const payouts = Array.isArray(ledger.payouts) ? ledger.payouts : null;
     if (!payments || !payouts) {
-      return Response.json({
+      return jsonNoStore({
         ok: false,
         readOnly: true,
         writesPerformed: false,
         paymentSourceStatus: 'not_connected',
         message: 'The live Apps Script response did not include every Payments row and every payout row.'
-      }, { status: 502 });
+      }, 502);
     }
 
     const finance = ledgerApi();
@@ -282,22 +291,26 @@ export async function GET(request: Request) {
       };
     }).filter((event) => event.id);
 
-    const tasks = eventRows.flatMap((event) => {
+    const taskRows = eventRows.flatMap((event) => {
       const eventId = text(event.id, 120);
       const rows = Array.isArray(event.tasks) ? event.tasks as Raw[] : [];
       return rows.map((task) => {
         const status = text(task.status, 40);
-        if (!text(task.id, 80) || closed(status)) return null;
+        const id = text(task.id, 80);
+        if (!id) return null;
         return {
-          id: text(task.id, 80),
+          id,
           eventId,
           title: text(task.title, 180),
           owner: text(task.owner, 40),
           dueDate: text(task.dueDate, 20),
           status
         };
-      }).filter(Boolean);
-    }).slice(0, 200);
+      }).filter((row): row is NonNullable<typeof row> => Boolean(row));
+    });
+    const taskLedger = collapseDuplicateIds(taskRows, ['eventId', 'title', 'owner', 'dueDate', 'status']);
+    const tasks = taskLedger.rows.filter((row) => !closed(String(row.status || ''))).slice(0, 200);
+    const taskConflicts = taskLedger.conflicts;
 
     let gmailRows = 0;
     let newestGmail = '';
@@ -315,10 +328,10 @@ export async function GET(request: Request) {
 
     const serverTime = typeof ledger.serverTime === 'string' ? ledger.serverTime : new Date().toISOString();
     const gmailReady = gmailConfigured();
-    const gmailLive = await gmailProbe(knownThreadIds);
+    const gmailLive = await gmailProbe(knownThreadIds, newestGmail);
     const sendEnabled = process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND === 'true';
 
-    return Response.json({
+    return jsonNoStore({
       ok: true,
       readOnly: true,
       writesPerformed: false,
@@ -330,35 +343,38 @@ export async function GET(request: Request) {
       paymentCount: payments.length,
       payoutCount: payouts.length,
       gmailActivityCount: gmailRows,
+      gmailThreadCount: knownThreadIds.size,
       newestSheetGmailAt: newestGmail,
       report,
       exceptions,
       events,
       tasks,
+      taskConflicts,
       gmailQueue: gmailLive.queue,
       jobs: [
-        { id: 'tasksync', name: 'Safe TaskSync', schedule: 'Hourly', nextExpected: 'Hourly in Apps Script. This deployment cannot read the trigger.', owner: 'LVPT Calendar Command Center', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable from this preview. runLVPTSafeTaskSync was not called and was not changed.' },
+        { id: 'tasksync', name: 'Safe TaskSync', schedule: 'Hourly', nextExpected: 'Hourly in Apps Script. This deployment cannot read the trigger.', owner: 'LVPT Calendar Command Center', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable from this preview. The hourly schedule is configuration, not proof that runLVPTSafeTaskSync ran. The writer was not called and was not changed.' },
         { id: 'client-lifecycle', name: 'Client lifecycle scan', schedule: 'Apps Script property only', nextExpected: 'Not scheduled by this preview.', owner: 'LVPT_LAST_CLIENT_SCAN_AT', connected: scanRead === 'present', lastSuccess: scanAt, staleAfterHours: 36, recordsExamined: 0, recordsCreated: 0, detail: scanRead === 'failed' ? 'The scan property could not be read.' : scanRead === 'present' ? `Last success ${scanAt}. A separate last-attempt time is not stored.` : 'The property was read and is empty. That is not a success.' },
         { id: 'morning-review', name: 'Morning client review', schedule: '8:00 AM ET', nextExpected: '8:00 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
         { id: 'evening-review', name: 'Evening client review', schedule: '7:00 PM ET', nextExpected: '7:00 PM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
         { id: 'executive-brief', name: 'Morning executive inbox brief', schedule: '8:01 AM ET', nextExpected: '8:01 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. No run history is stored for this job.' },
         { id: 'gmail-credentials', name: 'Gmail credentials', schedule: 'Server environment', owner: 'Vercel Gmail routes', connected: false, recordsExamined: 0, recordsCreated: 0, detail: gmailReady ? 'Vercel Gmail credentials exist. They are not the ingestion path.' : 'Vercel has no Gmail OAuth variables. The authorized reader is the existing Apps Script project, so a second OAuth client was not added.' },
         { id: 'gmail-staging', name: 'Gmail staging ingestion', schedule: 'Hourly Apps Script trigger, not installed', nextExpected: 'No staging trigger exists yet.', owner: 'LVPT Gmail Ingestion — Staging', observable: false, recordsExamined: 0, recordsCreated: 0, duplicates: 0, unmatched: 0, detail: 'This preview cannot read a staging Apps Script run. The business mailbox sign-in is required before that project can be created. A header read below is not an ingested row.' },
-        { id: 'gmail-production', name: 'Gmail production ingestion', schedule: 'Not enabled', nextExpected: 'No production writer is scheduled.', owner: 'Command Center Gmail Activity', ...gmailLive, unmatched: Array.isArray(gmailLive.queue) ? gmailLive.queue.length : 0, lastSuccess: '', recordsCreated: 0, detail: `${gmailLive.detail} Production Gmail Activity still has ${gmailRows} rows, newest stored date ${newestGmail || 'none'}. Appended to that sheet: 0.` },
+        { id: 'gmail-production', schedule: 'Not enabled', nextExpected: 'No production writer is scheduled.', owner: 'Command Center Gmail Activity', ...gmailLive, name: 'Gmail production ingestion', unmatched: Array.isArray(gmailLive.queue) ? gmailLive.queue.length : 0, lastSuccess: '', recordsCreated: 0, detail: `${gmailLive.detail} Production Gmail Activity still has ${gmailRows} stored rows. Appended to that sheet: 0.` },
         { id: 'sms-database', name: 'SMS database health', schedule: 'This metadata query', nextExpected: 'Each time this page reads metadata.', owner: 'LVPT SMS Staging', ...(sms.database as Record<string, unknown>) },
         { id: 'sms-upload', name: 'Android SMS upload freshness', schedule: 'LVPT SMS Test, about every 15 minutes when auto-sync is on', nextExpected: 'The phone decides. This server has no heartbeat.', owner: 'com.lvpt.smsbridge', ...(sms.upload as Record<string, unknown>) },
+        { id: 'sms-heartbeat', name: 'Android SMS collector heartbeat', schedule: 'Not read by this preview', nextExpected: 'Unknown until the approved handset reports last_success_at.', owner: 'com.lvpt.smsbridge', ...(sms.heartbeat as Record<string, unknown>) },
         { id: 'email-approval', name: 'Email approval workflow', schedule: 'Off', nextExpected: 'Off until a supervised send test.', owner: 'Owner approval gate', disabled: true, recordsExamined: 0, recordsCreated: 0, detail: sendEnabled ? 'The send switch is on. The reminder route still returns 403.' : 'Sending is disabled. A browser confirmation is not owner approval.' },
         { id: 'financial-sync', name: 'Financial source sync', schedule: 'This page read', nextExpected: 'Each time this page reads the sheet.', owner: 'Command Center Payments and Event Payouts', connected: true, lastAttempt: serverTime, lastSuccess: serverTime, recordsExamined: payments.length + payouts.length, recordsCreated: 0, staleAfterHours: 6, detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. No financial row was written.` }
       ]
-    });
+    }, 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ledger read failed.';
-    return Response.json({
+    return jsonNoStore({
       ok: false,
       readOnly: true,
       writesPerformed: false,
       paymentSourceStatus: 'not_connected',
       message
-    }, { status: 502 });
+    }, 502);
   }
 }

@@ -1,9 +1,9 @@
 function render(){
-  if(!events.length) selectedId=''; if(!current()&&events.length) selectedId=events[0].id;
+  if(!events.length || (selectedId && !events.some(event => event.id === selectedId))) selectedId='';
   renderMetrics(); renderAttention(); renderEventList(); renderEditor(); renderTab(); renderSystemStatuses();
 }
 function renderSystemStatuses(){
-  const gmail=$('#gmailHeroStatus'); gmail.textContent=gmailStatus.checked?(gmailStatus.configured?`Gmail ready: ${gmailStatus.email}`:'Gmail setup required'):'Gmail not checked'; gmail.className=`status-pill ${gmailStatus.configured?'':'pending'}`;
+  const gmail=$('#gmailHeroStatus'); gmail.textContent=gmailStatus.checked?(gmailStatus.configured?`Gmail ready: ${gmailStatus.email}`:'Gmail not verified'):'Gmail not checked'; gmail.className=`status-pill ${gmailStatus.configured?'':'pending'}`;
   const docs=events.reduce((sum,event)=>sum+event.documents.length,0); $('#documentStatus').textContent=`${docs} document${docs===1?'':'s'} indexed`;
 }
 function allDueItems(){
@@ -11,6 +11,12 @@ function allDueItems(){
 }
 function renderAttention(){ const due=allDueItems().filter(item=>daysFromToday(item.dueDate)<=7); const overdue=due.filter(item=>daysFromToday(item.dueDate)<0); const bar=$('#attentionBar'); if(!due.length){ bar.className='attention-bar'; bar.innerHTML=''; return; } bar.className='attention-bar show'; bar.innerHTML=`<div><strong>${overdue.length?`${overdue.length} overdue item${overdue.length===1?'':'s'}`:`${due.length} item${due.length===1?'':'s'} due this week`}</strong><p>${escapeHtml(due[0].event.eventName)} — ${escapeHtml(due[0].title)} (${escapeHtml(due[0].dueDate)})</p></div><button class="btn small" id="openDueEventBtn">Open Event</button>`; $('#openDueEventBtn').addEventListener('click',()=>{ selectedId=due[0].event.id; activeTab='tasks'; render(); }); }
 function renderMetrics(){
+  const snap = window.lvptSheetSnapshot;
+  if (!snap || snap.state !== 'ready') {
+    const label = !snap || snap.state === 'loading' ? 'Reading…' : snap.state === 'auth-required' ? 'Sign in required' : snap.state === 'empty' ? 'No sheet events' : 'Unavailable';
+    $('#metricsGrid').innerHTML = `<div class="metric"><span>Sheet events</span><strong>${label}</strong><div class="sub">Browser quote totals stay hidden until the authoritative sheet answers. A failed read is not zero.</div></div>`;
+    return;
+  }
   const quoted=events.reduce((sum,event)=>sum+quoteTotal(event),0); const paid=events.reduce((sum,event)=>sum+num(event.payment.amountPaid),0); const cost=events.reduce((sum,event)=>sum+quoteCost(event),0); const openTasks=events.flatMap(event=>event.tasks).filter(task=>!taskIsComplete(task)).length; const docs=events.reduce((sum,event)=>sum+event.documents.length,0); const avgSetup=events.length?Math.round(events.reduce((sum,event)=>sum+setupCompleteness(event).percent,0)/events.length):0;
   const metrics=[['Quoted Revenue',money(quoted),'All event records'],['Collected',money(paid),'Recorded payments'],['Outstanding',money(quoted-paid),'Quoted less collected'],['Est. Profit',money(quoted-cost),'Before unentered costs'],['Open Tasks',openTasks,'Across all events'],['Setup Complete',`${avgSetup}%`,'Average event intake'],['Documents',docs,'Invoices, receipts and files'],['Booked Events',events.filter(event=>['Booked','Pre-Production','Event Day','Completed','Closed Won'].includes(event.status)).length,'Operational pipeline']];
   $('#metricsGrid').innerHTML=metrics.map(metric=>`<div class="metric"><span>${metric[0]}</span><strong>${metric[1]}</strong><div class="sub">${metric[2]}</div></div>`).join('');
@@ -33,5 +39,5 @@ function paymentInput(field,label,value,type='text'){ return `<label>${label}<in
 function textarea(field,label,value){ return `<label>${label}<textarea class="input" data-field="${field}">${escapeHtml(value)}</textarea></label>`; }
 function updateField(field,value){ const event=current(); if(!event) return; event[field]=['guestCount','studentCount','probabilityToClose'].includes(field)?num(value):value; saveEvents('Saved'); renderMetrics(); renderAttention(); renderEventList(); renderTab(); }
 function updatePaymentField(field,value){ const event=current(); if(!event) return; event.payment[field]=['amountPaid','depositRequired'].includes(field)?num(value):value; saveEvents('Payment saved'); renderMetrics(); renderEventList(); renderTab(); }
-function deleteSelectedEvent(){ const event=current(); if(!event||!confirm(`Delete ${event.eventName}? This removes its browser-saved record and document index.`)) return; Promise.all(event.documents.map(doc=>deleteDocumentBlob(doc.id).catch(()=>{}))).finally(()=>{ events=events.filter(item=>item.id!==event.id); selectedId=events[0]?.id||''; saveEvents('Event deleted'); render(); }); }
+function deleteSelectedEvent(){ const event=current(); if(!event||!confirm(`Delete ${event.eventName}? This removes its browser-saved record and document index.`)) return; Promise.all(event.documents.map(doc=>deleteDocumentBlob(doc.id).catch(()=>{}))).finally(()=>{ events=events.filter(item=>item.id!==event.id); selectedId=''; saveEvents('Event deleted'); render(); }); }
 function duplicateSelectedEvent(){ const event=current(); if(!event) return; const copy=JSON.parse(JSON.stringify(event)); copy.id=id(); copy.eventName=`${event.eventName} Copy`; copy.status='New Lead'; copy.quote=copy.quote.map(item=>({...item,id:id()})); copy.tasks=copy.tasks.map(item=>({...item,id:id()})); copy.staff=copy.staff.map(item=>({...item,id:id()})); copy.compliance=copy.compliance.map(item=>({...item,id:id()})); copy.documents=[]; copy.emailActivity=[]; events.unshift(copy); selectedId=copy.id; saveEvents('Event duplicated without files or email activity'); render(); }

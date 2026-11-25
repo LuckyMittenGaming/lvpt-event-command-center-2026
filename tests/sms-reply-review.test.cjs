@@ -122,7 +122,7 @@ const c=controls.createController({
   onUpdate:()=>{updates++;},
   onNext:id=>advanced.push(id)
 });
-async function settle(){await new Promise(resolve=>setImmediate(resolve));}
+async function settle(){await new Promise(resolve=>setTimeout(resolve,15));}
 async function waitForCount(n) {
   for(let attempt=0;attempt<30 && posted.length<n;attempt++)
     await new Promise(resolve=>setTimeout(resolve,10));
@@ -257,7 +257,7 @@ async function sequence() {
   const copyButton=button(root,'Copy approved text and continue');
   assert(copyButton,'Approved email has explicit copy-and-continue control');
   copyButton.trigger('click');
-  for(let n=0;n<30 && copiedAdvance.length===0;n++)await settle();
+  for(let n=0;n<40 && copiedAdvance.length===0;n++)await settle();
   assert.deepEqual(copiedAdvance,[thread.threadId]);
   assert.equal(copies.length,1);
   assert(copies[0].includes('Matt Carpenter'));
@@ -285,7 +285,14 @@ async function sequence() {
   button(root,'Approve for manual copy').trigger('click');await waitForCount(8);
   root=new Node('div');failed.render(root,thread,context,q);
   button(root,'Copy approved text and continue').trigger('click');
-  await settle();await settle();
+  let copyBlocked=false;
+  for(let n=0;n<40 && !copyBlocked;n++){
+    await settle();
+    const probe=new Node('div');
+    failed.render(probe,thread,context,q);
+    copyBlocked=Boolean(read(probe,x=>String(x.textContent||'').includes('Copy blocked')));
+  }
+  assert(copyBlocked,'A failed clipboard copy must finish as blocked');
   assert.deepEqual(failedAdvance,[],
     'Clipboard error may never advance or discard the approved draft');
   assert.equal(failed.getActive()?.phase,'approved_for_manual_copy');

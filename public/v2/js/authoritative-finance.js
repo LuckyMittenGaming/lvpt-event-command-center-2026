@@ -11,6 +11,7 @@
   }
 
   function money(cents) {
+    if (cents === 'Incomplete') return 'Incomplete';
     if (cents === null || cents === undefined || !Number.isFinite(Number(cents))) return 'Unavailable';
     return (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   }
@@ -28,22 +29,19 @@
         grid.innerHTML = card('Sheet ledger', 'Unavailable', pictureError || 'The last read failed. Browser estimates are not shown as actuals.');
       } else {
         const report = picture.report.money || {};
-        const collected = report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents;
-        const named = ['evt-nium-2026', 'evt-neo-reunion-2026', 'evt-lineaje-2026'].map((id) => {
-          const row = (picture.report.byEvent || []).find((item) => item.eventId === id);
-          const label = id === 'evt-nium-2026' ? 'NIUM' : id === 'evt-neo-reunion-2026' ? 'NEO' : 'Lineaje';
-          if (!row) return card(label, 'No sheet invoice', 'No Payments row for this event.');
-          const unresolved = (picture.exceptions || []).filter((item) => item.eventId === id && item.includedInTotals === false).map((item) => item.detail).join(' ');
-          return card(label, money(row.collectedCents), `Outstanding ${money(row.outstandingCents)}. Invoice ${money(row.invoiceTotalCents)}. ${unresolved}`);
-        });
+        const incomplete = new Set(report.incompleteFields || []);
+        const shown = (field, cents) => incomplete.has(field) ? 'Incomplete' : (cents == null ? null : cents);
+        const collected = shown('verifiedClientReceipts', report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents);
+        const counts = picture.report.counts || {};
         grid.innerHTML = [
-          card('Client invoices', money(report.clientInvoiceTotalCents), 'Every client Payments row on the sheet.'),
-          card('Ledger collected', money(collected), 'Paid in full on the sheet. Not bank-verified.'),
-          card('Outstanding', money(report.openClientExposureCents), 'Open balances only. A received final is not outstanding.'),
-          ...named,
-          card('Owner paid', money(report.ownerPaidCents), 'Distributions marked Paid.'),
-          card('Owner planned', money(report.ownerPlannedCents), 'Planned draws are not expenses already paid.'),
-          card('Profit', money(report.forecastMarginCents), report.profitReason === 'vendor_ledger_incomplete' ? 'Unavailable until vendor bills are a complete ledger.' : 'From the same sheet ledger.')
+          card('Issued invoices', counts.issuedInvoices ?? '—', `Client payment rows ${counts.clientPaymentRows ?? counts.clientInvoices ?? '—'}. Not invoiced ${counts.notInvoicedRows ?? '—'}. Unknown status ${counts.unknownInvoiceRows ?? '—'}.`),
+          card('Ledger-recorded receipts', money(collected), 'Paid in full on the sheet. Not a verified bank receipt. Incomplete means a conflicting or unidentified row was excluded.'),
+          card('Outstanding', money(shown('openClientExposure', report.openClientExposureCents)), 'Open balances only. A received final is not outstanding.'),
+          card('Owner paid', money(shown('ownerPaid', report.ownerPaidCents)), 'Distributions marked Paid. Draws are not operating expenses.'),
+          card('Owner planned', money(shown('ownerPlanned', report.ownerPlannedCents)), 'Planned draws are not expenses already paid.'),
+          card('Ledger contribution', money(report.verifiedContributionCents), 'Recorded receipts minus recorded paid costs and recorded paid draws. Not bank-verified. Not drawable cash. Unavailable while a planned or unpaid obligation remains.'),
+          card('Forecast margin', money(report.forecastMarginCents), report.profitReason || 'Client invoices minus vendor bills and unlinked vendor payouts. Owner draws are not subtracted.'),
+          card('Drawable cash', 'Unavailable', report.drawableCashReason || 'Drawable cash is unavailable from the ledger.')
         ].join('');
       }
     }
@@ -55,10 +53,12 @@
         bar.innerHTML = '<div><strong>Task list unavailable</strong><p>Browser reminders stay hidden.</p></div>';
       } else {
         const tasks = Array.isArray(picture.tasks) ? picture.tasks : [];
+        const conflicts = Array.isArray(picture.taskConflicts) ? picture.taskConflicts : [];
         const first = tasks[0];
-        bar.className = tasks.length ? 'attention-bar show' : 'attention-bar';
-        bar.innerHTML = tasks.length
-          ? `<div><strong>${tasks.length} open sheet task${tasks.length === 1 ? '' : 's'}</strong><p>${esc(first.title)} · ${esc(first.dueDate || 'No due date')}</p></div>`
+        const conflictNote = conflicts.length ? `${conflicts.length} task id${conflicts.length === 1 ? '' : 's'} disagreed and ${conflicts.length === 1 ? 'is' : 'are'} excluded from this count.` : '';
+        bar.className = tasks.length || conflicts.length ? 'attention-bar show' : 'attention-bar';
+        bar.innerHTML = tasks.length || conflicts.length
+          ? `<div><strong>${tasks.length} open sheet task${tasks.length === 1 ? '' : 's'}</strong><p>${tasks.length ? `${esc(first.title)} · ${esc(first.dueDate || 'No due date')}` : 'No open task survived reconciliation.'}${conflictNote ? ` ${esc(conflictNote)}` : ''}</p></div>`
           : '';
       }
     }
@@ -78,11 +78,13 @@
     const reportGrid = document.querySelector('#generatedReportOutput .generated-report-metrics');
     if (reportGrid && picture && picture.report) {
       const report = picture.report.money;
+      const incomplete = new Set(report.incompleteFields || []);
+      const labelMoney = (field, cents) => incomplete.has(field) ? 'Incomplete' : money(cents);
       const values = [
-        ['Client invoices', money(report.clientInvoiceTotalCents)],
-        ['Ledger collected', money(report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents)],
-        ['Outstanding', money(report.openClientExposureCents)],
-        ['Profit', money(report.forecastMarginCents)]
+        ['Client invoices', labelMoney('clientInvoiceTotal', report.clientInvoiceTotalCents)],
+        ['Ledger collected', labelMoney('verifiedClientReceipts', report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents)],
+        ['Outstanding', labelMoney('openClientExposure', report.openClientExposureCents)],
+        ['Forecast margin', money(report.forecastMarginCents)]
       ];
       const cards = reportGrid.querySelectorAll(':scope > div');
       values.forEach(([label, value], index) => {
@@ -97,10 +99,31 @@
     return (picture.report.byEvent || []).find((row) => row.eventId === id) || null;
   }
 
+  function explicitEventId() {
+    if (!selectedId) return '';
+    return events.some((event) => event.id === selectedId) ? selectedId : '';
+  }
+
+  function clearEventSurfaces() {
+    const panel = document.getElementById('selectedEventTasksPanel');
+    if (panel) panel.innerHTML = '';
+    const paid = document.querySelector('[data-payment-field="amountPaid"]');
+    if (paid) paid.value = '';
+    const banner = document.querySelector('[data-sheet-ledger]');
+    if (banner) banner.remove();
+  }
+
   function applySheetSurfaces() {
-    const selected = typeof current === 'function' ? current() : null;
-    const selectedId = selected && selected.id;
-    const rollup = selectedId ? rollupFor(selectedId) : null;
+    const generation = window.lvptRecordGeneration || 0;
+    const selectedEventId = explicitEventId();
+    const visible = document.querySelector('[data-record-event]');
+    if (!selectedEventId || (visible && visible.getAttribute('data-record-event') !== selectedEventId) || Number(visible && visible.getAttribute('data-record-generation')) && Number(visible.getAttribute('data-record-generation')) !== generation) {
+      if (!selectedEventId || (visible && visible.getAttribute('data-record-event') !== selectedEventId)) clearEventSurfaces();
+      return;
+    }
+    const still = () => explicitEventId() === selectedEventId && (window.lvptRecordGeneration || 0) === generation;
+    if (!still()) return;
+    const rollup = rollupFor(selectedEventId);
     document.querySelectorAll('[data-payment-field]').forEach((field) => {
       field.readOnly = true;
       field.disabled = true;
@@ -123,7 +146,7 @@
     });
 
     const tab = document.getElementById('tabContent');
-    if (tab && selectedId) {
+    if (tab && still()) {
       let banner = tab.querySelector('[data-sheet-ledger]');
       if (!banner) {
         banner = document.createElement('div');
@@ -131,7 +154,7 @@
         banner.className = 'hub-warning';
         tab.prepend(banner);
       }
-      const rows = picture && picture.report ? picture.report.payments.filter((row) => row.eventId === selectedId && row.role === 'client_receivable') : [];
+      const rows = picture && picture.report ? picture.report.payments.filter((row) => row.eventId === selectedEventId && row.role === 'client_receivable') : [];
       const lines = rows.map((row) => `${row.paymentId}: ${money(row.invoiceTotalCents)} ${row.paymentStatus}, balance ${money(row.balanceDueCents)}`).join(' · ');
       const nextBanner = picture && rollup
         ? `Sheet ledger. Collected ${money(rollup.collectedCents)}. Outstanding ${money(rollup.outstandingCents)}. ${lines}`
@@ -140,11 +163,11 @@
     }
 
     const panel = document.getElementById('selectedEventTasksPanel');
-    if (panel && selectedId && picture && picture.eventRead === 'read') {
-      const tasks = (picture.tasks || []).filter((task) => task.eventId === selectedId);
-      const sheetEvent = (picture.events || []).find((event) => event.id === selectedId) || {};
+    if (panel && still() && picture && picture.eventRead === 'read') {
+      const tasks = (picture.tasks || []).filter((task) => task.eventId === selectedEventId);
+      const sheetEvent = (picture.events || []).find((event) => event.id === selectedEventId) || {};
       const staff = Array.isArray(sheetEvent.staff) ? sheetEvent.staff : [];
-      const deadlines = (picture.report.payments || []).filter((row) => row.eventId === selectedId && row.role === 'client_receivable' && row.balanceDueCents > 0);
+      const deadlines = (picture.report.payments || []).filter((row) => row.eventId === selectedEventId && row.role === 'client_receivable' && row.balanceDueCents > 0);
       const taskHtml = tasks.map((task) => `<article class="quick-task"><div class="quick-task-copy"><h3>${esc(task.title)}</h3><p>${esc(task.owner || 'Unassigned')} · ${esc(task.status || 'Open')} · ${esc(task.dueDate || 'No due date')}</p></div></article>`).join('') || '<div class="empty-state">No open sheet tasks for this event.</div>';
       const staffHtml = staff.length ? staff.map((person) => `${esc(person.role || 'Staff')} ${esc(person.name || '')} ${person.confirmed ? 'confirmed' : 'unconfirmed'}`).join(' · ') : 'No staffing rows on the sheet.';
       const dueHtml = deadlines.length ? deadlines.map((row) => `${esc(row.paymentId)} balance ${money(row.balanceDueCents)} due ${esc(row.dueDate || 'no date')}`).join(' · ') : 'No open client balance on the sheet.';
@@ -163,6 +186,9 @@
       const nextNote = picture && Array.isArray(picture.exceptions)
         ? picture.exceptions.map((row) => `<p><strong>Unresolved exception.</strong> ${esc(row.detail)}</p>`).join('')
         : '';
+      const activeView = document.querySelector('#commandNav [data-command-view].active');
+      const showExceptions = activeView && activeView.getAttribute('data-command-view') === 'finance';
+      note.hidden = !showExceptions;
       if (note.innerHTML !== nextNote) note.innerHTML = nextNote;
     }
   }
@@ -183,30 +209,60 @@
     paint();
   };
 
-  window.lvptLoadOperatingPicture = function () {
-    if (window.lvptOperatingPicturePromise) return window.lvptOperatingPicturePromise;
-    window.lvptOperatingPicturePromise = fetch('/api/sync/operating-picture', { cache: 'no-store' })
-      .then((response) => response.json().then((data) => ({ ok: response.ok, data })).catch(() => ({ ok: false, data: {} })))
+  let pictureGeneration = 0;
+  window.lvptLoadOperatingPicture = function (force) {
+    if (force) {
+      pictureGeneration += 1;
+      window.lvptOperatingPicturePromise = null;
+      window.lvptOperatingPictureResult = null;
+    }
+    const generation = pictureGeneration;
+    if (!force && window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.generation === generation) {
+      return Promise.resolve(window.lvptOperatingPictureResult);
+    }
+    if (!force && window.lvptOperatingPicturePromise) return window.lvptOperatingPicturePromise;
+    const request = fetch('/api/sync/operating-picture', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(50000) })
+      .then((response) => response.json().then((data) => ({ ok: response.ok, status: response.status, data })).catch(() => ({ ok: false, status: response.status, data: {} })))
       .then((result) => {
+        if (generation !== pictureGeneration) return result;
         loading = false;
         if (result.ok && result.data && result.data.ok) {
           picture = result.data;
           pictureError = '';
+          window.lvptOperatingPictureResult = { ok: true, status: result.status, data: result.data, generation };
         } else {
           picture = null;
-          pictureError = (result.data && result.data.message) || 'The sheet ledger is unavailable.';
+          window.lvptOperatingPicturePromise = null;
+          window.lvptOperatingPictureResult = null;
+          pictureError = result.status === 401
+            ? 'Owner sign-in required. The ledger was not read.'
+            : result.status === 0
+              ? 'The ledger read timed out. It was not marked disconnected.'
+              : ((result.data && (result.data.message || result.data.reason)) || 'The sheet ledger is unavailable.');
         }
         paint();
-        return picture;
+        if (typeof window.lvptPaintOverviewLedger === 'function') window.lvptPaintOverviewLedger();
+        if (typeof window.lvptPaintRecordLedger === 'function') window.lvptPaintRecordLedger();
+        return window.lvptOperatingPictureResult || { ok: false, status: result.status, data: result.data, generation };
       })
       .catch(() => {
+        if (generation !== pictureGeneration) return { ok: false, status: 0, data: { reason: 'timeout' } };
         loading = false;
         picture = null;
-        pictureError = 'The sheet ledger did not respond.';
+        window.lvptOperatingPicturePromise = null;
+        window.lvptOperatingPictureResult = null;
+        pictureError = 'The ledger read timed out. It was not marked disconnected.';
         paint();
-        return null;
+        if (typeof window.lvptPaintOverviewLedger === 'function') window.lvptPaintOverviewLedger();
+        if (typeof window.lvptPaintRecordLedger === 'function') window.lvptPaintRecordLedger();
+        return { ok: false, status: 0, data: { reason: 'timeout' }, generation };
       });
-    return window.lvptOperatingPicturePromise;
+    window.lvptOperatingPicturePromise = request;
+    return request;
+  };
+  window.lvptReloadOperatingPicture = function () {
+    loading = true;
+    return window.lvptLoadOperatingPicture(true);
   };
 
   const observer = new MutationObserver((records) => {

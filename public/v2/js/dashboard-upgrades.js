@@ -163,14 +163,14 @@
     const section=document.createElement('section');
     section.id='reportCenter';
     section.className='report-center panel';
-    section.innerHTML=`<div class="report-center-head"><button type="button" class="report-title-button" id="reportsTitleBtn">REPORTS</button><p>Generate a clean, read-only briefing from every part of the event record.</p><div class="report-type-buttons"><button type="button" class="btn primary" data-generate-report="pre">Pre-Event</button><button type="button" class="btn" data-generate-report="post">Post-Event</button><button type="button" class="btn" data-generate-report="overall">Overall</button></div><div class="report-context" id="reportContext"></div></div><div class="generated-report-actions"><button type="button" class="btn" id="printGeneratedReportBtn">Print / Save PDF</button><button type="button" class="btn" id="copyGeneratedReportBtn">Copy Report Text</button></div><div id="generatedReportOutput"></div>`;
+    section.innerHTML=`<div class="report-center-head"><button type="button" class="report-title-button" id="reportsTitleBtn">REPORTS</button><p>The selected-event report stays closed until you open it.</p><button type="button" class="btn" id="openRecordReportBtn">Open record report</button><div class="report-type-buttons"><button type="button" class="btn" data-generate-report="pre">Pre-Event</button><button type="button" class="btn" data-generate-report="post">Post-Event</button><button type="button" class="btn" data-generate-report="overall">Overall</button></div><div class="report-context" id="reportContext"></div></div><div class="generated-report-actions"><button type="button" class="btn" id="printGeneratedReportBtn">Print / Save PDF</button><button type="button" class="btn" id="copyGeneratedReportBtn">Copy Report Text</button></div><div id="generatedReportOutput" hidden></div>`;
     $('.layout-grid').after(section);
-    all('[data-generate-report]').forEach(button=>button.addEventListener('click',()=>generateVisualReport(button.dataset.generateReport)));
-    $('#reportsTitleBtn').addEventListener('click',()=>generateVisualReport(activeGeneratedReport));
+    all('[data-generate-report]').forEach(button=>button.addEventListener('click',()=>{ $('#generatedReportOutput').hidden=false; generateVisualReport(button.dataset.generateReport); }));
+    $('#openRecordReportBtn').addEventListener('click',()=>{ const output=$('#generatedReportOutput'); output.hidden=!output.hidden; if(!output.hidden) generateVisualReport(activeGeneratedReport||'pre'); });
+    $('#reportsTitleBtn').addEventListener('click',()=>{ $('#generatedReportOutput').hidden=false; generateVisualReport(activeGeneratedReport); });
     $('#printGeneratedReportBtn').addEventListener('click',()=>window.print());
     $('#copyGeneratedReportBtn').addEventListener('click',()=>navigator.clipboard.writeText($('#generatedReportOutput').innerText).then(()=>toast('Report copied')));
     refreshReportContext();
-    generateVisualReport('pre');
   }
 
   function refreshReportContext(){
@@ -184,9 +184,9 @@
     activeGeneratedReport=type;
     ensureReportCenter();
     const event=current();
+    $('#generatedReportOutput').hidden=false;
     $('#generatedReportOutput').innerHTML=type==='overall'?overallReport():event?selectedEventReport(event,type):'<div class="report-empty">Select an event to generate this report.</div>';
     refreshReportContext();
-    $('#reportCenter').scrollIntoView({behavior:'smooth',block:'start'});
   }
 
   renderReportsTab=function(event){

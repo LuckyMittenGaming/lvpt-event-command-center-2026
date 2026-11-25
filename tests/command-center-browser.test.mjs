@@ -90,12 +90,12 @@ const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const fixture = {
   events: [
-    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Private Client', contactName: 'Synthetic Guest', status: 'New Lead', eventDate: '12/20/2026', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000' }, staff: [{ id: 'staff-lead', name: 'Lead Host', role: 'Host' }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }] },
+    { id: 'evt-lead', eventName: 'Synthetic Lead', company: 'Lead Client Co', contactName: 'Synthetic Guest', status: 'New Lead', eventDate: '12/20/2026', venue: 'Synthetic Room', city: 'Las Vegas', state: 'NV', proposalUrl: 'https://example.test/lead', nextAction: 'Send the recorded proposal', setup: { targetQuote: 2500, budgetRange: '$5,000–$10,000' }, staff: [{ id: 'staff-lead', name: 'Lead Host', role: 'Host' }], tasks: [{ id: 'task-1', title: 'Send proposal', owner: 'Synthetic Owner', dueDate: '2026-11-21', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-lead-1', name: 'Lead-Only Proposal Packet', category: 'Proposal' }] },
     { id: 'evt-partial', eventName: 'Synthetic Partial', status: 'Quote Needed', eventDate: '2026-12-18', quote: [{ quantity: 1, unitPrice: 100 }, { quantity: 1 }], tasks: [] },
     { id: 'evt-budget', eventName: 'Synthetic Budget', status: 'Needs Discovery', eventDate: '2026-12-16', setup: { budgetRange: '$10,000–$20,000', targetQuote: 0 }, tasks: [] },
     { id: 'evt-awaiting', eventName: 'Synthetic Awaiting', company: 'Private Client', status: 'Invoice Sent / Awaiting Deposit', eventDate: '2026-12-15', tasks: [] },
     { id: 'evt-processing', eventName: 'Synthetic Processing', company: 'Private Client', status: 'Booked — Payment Processing', eventDate: '2026-12-10', tasks: [] },
-    { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', staff: [{ id: 'staff-floor', name: 'Floor Lead', role: 'Floor' }], tasks: [{ id: 'task-floor', title: 'Confirm the floor', owner: 'Synthetic Owner', dueDate: '2026-12-02', status: 'Open', priority: 'High' }] },
+    { id: 'evt-active', eventName: 'Synthetic Booked', company: 'Synthetic Active', status: 'Booked', eventDate: '2026-12-01', venue: 'Synthetic Hall', city: 'Las Vegas', state: 'NV', staff: [{ id: 'staff-floor', name: 'Floor Lead', role: 'Floor' }], tasks: [{ id: 'task-floor', title: 'Confirm the floor', owner: 'Synthetic Owner', dueDate: '2026-12-02', status: 'Open', priority: 'High' }], documents: [{ id: 'doc-active-1', name: 'Active-Only Floor Diagram', category: 'Floor Plan' }, { id: 'doc-active-2', name: 'Active-Only Invoice Scan', category: 'Invoice' }] },
     { id: 'evt-declined', eventName: 'Synthetic Declined', status: 'Client Declined', eventDate: '2026-12-18', tasks: [] },
     { id: 'evt-unknown', eventName: 'Synthetic Unverified', status: 'Outcome Unverified', eventDate: '2026-12-19', tasks: [] },
     { id: 'evt-closed', eventName: 'Synthetic Closed', status: 'Closed', eventDate: '2026-12-05', tasks: [] },
@@ -242,6 +242,43 @@ function overflow() {
   return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
 }
 
+const selectedEventReportTypes = ['pre', 'post'];
+
+async function assertSelectedEventReportIsolation(expected) {
+  const {
+    eventName,
+    company,
+    documentName,
+    staffName,
+    taskTitle,
+    forbidden = []
+  } = expected;
+  for (const reportType of selectedEventReportTypes) {
+    await page.evaluate((type) => {
+      const center = document.getElementById('reportCenter');
+      if (center) center.hidden = false;
+      const button = document.querySelector(`[data-generate-report="${type}"]`);
+      if (button) button.click();
+    }, reportType);
+    await page.waitForFunction((name) => {
+      const output = document.getElementById('generatedReportOutput');
+      return output && !output.hidden && (output.innerText || '').includes(name);
+    }, eventName);
+    const reportText = await page.locator('#generatedReportOutput').innerText();
+    const title = reportType === 'post' ? /Post-Event & After-Action Report/ : /Pre-Event Command Report/;
+    assert.match(reportText, title);
+    assert.match(reportText, new RegExp(eventName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(reportText, new RegExp(company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(reportText, new RegExp(documentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(reportText, new RegExp(staffName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(reportText, new RegExp(taskTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    for (const phrase of forbidden) {
+      assert.equal(reportText.includes(phrase), false, `${reportType} report leaked "${phrase}"`);
+    }
+    assert.match(await page.locator('#reportContext').innerText(), new RegExp(`Selected event: ${eventName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  }
+}
+
 try {
   mode = 'unauthorized';
   await openHub(1280, 800);
@@ -308,16 +345,33 @@ try {
   assert.match(record, /Lead Host/);
   assert.match(record, /Send proposal/);
   assert.match(record, /\$111\.00/);
+  assert.match(record, /1 document rows on this event/);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-task-id="task-1"]').count(), 1);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-task-id="task-floor"]').count(), 0);
   assert.equal(record.includes('Floor Lead'), false);
   assert.equal(record.includes('$222'), false);
   assert.equal(record.includes('Synthetic Booked'), false);
   assert.equal(record.includes('Confirm the floor'), false);
+  assert.equal(record.includes('Active-Only Floor Diagram'), false);
+  assert.equal(record.includes('2 document rows'), false);
   const editorText = await page.locator('#eventEditorPanel').textContent();
   assert.match(editorText, /Synthetic Lead/);
+  assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue(), 'Lead Client Co');
+  assert.equal(await page.locator('#eventEditorPanel [data-field="contactName"]').inputValue(), 'Synthetic Guest');
+  assert.equal(await page.locator('#eventEditorPanel [data-field="eventName"]').inputValue(), 'Synthetic Lead');
   assert.equal(editorText.includes('Floor Lead'), false);
   assert.equal(editorText.includes('$222'), false);
   assert.equal(editorText.includes('Synthetic Booked'), false);
+  assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue().then((value) => value.includes('Synthetic Active')), false);
   assert.equal(page.url().includes('Synthetic'), false);
+  await assertSelectedEventReportIsolation({
+    eventName: 'Synthetic Lead',
+    company: 'Lead Client Co',
+    documentName: 'Lead-Only Proposal Packet',
+    staffName: 'Lead Host',
+    taskTitle: 'Send proposal',
+    forbidden: ['Synthetic Booked', 'Synthetic Active', 'Floor Lead', 'Active-Only Floor Diagram', 'Confirm the floor', 'Active-Only Invoice Scan']
+  });
   await page.evaluate(() => document.querySelector('[data-back-list]').click());
   await page.waitForFunction(() => document.querySelector('[data-open-task-panel="task-1"]'));
   await page.evaluate(() => document.querySelector('[data-close-task]').click());
@@ -334,11 +388,23 @@ try {
   assert.equal(rapid.includes('Synthetic Booked'), false);
   await page.evaluate(() => window.lvptOpenRecord('not-a-real-event'));
   const missing = await page.locator('#commandView').innerText();
+  assert.match(missing, /Unavailable/);
   assert.match(missing, /not in the signed-in/);
   assert.equal(missing.includes('Synthetic Lead'), false);
   assert.equal(missing.includes('Synthetic Booked'), false);
+  assert.equal(missing.includes('Lead Client Co'), false);
   assert.equal(missing.includes('$111'), false);
   assert.equal(missing.includes('$222'), false);
+  assert.equal(await page.locator('[data-record-event]').count(), 0);
+  assert.match(await page.locator('#eventEditorPanel').innerText(), /No event selected/);
+  await page.evaluate(() => window.lvptOpenTask('evt-lead', 'not-a-real-task'));
+  const missingTask = await page.locator('#commandView').innerText();
+  assert.match(missingTask, /That task is not in the signed-in snapshot/);
+  assert.match(missingTask, /Another event was not opened/);
+  assert.equal(await page.locator('[data-open-task-panel="not-a-real-task"]').count(), 0);
+  assert.equal(await page.locator('[data-open-task-panel]').count(), 0);
+  assert.equal(await page.locator('[data-record-event]').count(), 0);
+  assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').count(), 0);
   await page.locator('[data-command-view="overview"]').click();
   await page.locator('[data-command-view="pipeline"]').click();
   await page.waitForTimeout(200);
@@ -433,9 +499,22 @@ try {
   releaseLedger = null;
   await openHub(1280, 800);
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.evaluate(() => window.lvptOpenRecord('evt-lead'));
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-record-event="evt-lead"] [data-record-ledger]');
+    return node && /still loading/i.test(node.textContent || '');
+  });
+  const waitingLead = await page.locator('[data-record-event="evt-lead"] [data-record-ledger]').innerText();
+  assert.equal(waitingLead.includes('222'), false);
+  assert.equal(waitingLead.includes('111'), false);
+  assert.equal(waitingLead.includes('Floor Lead'), false);
   await page.evaluate(() => window.lvptOpenRecord('evt-active'));
-  await page.waitForFunction(() => /still loading/i.test(document.querySelector('[data-record-ledger]')?.textContent || ''));
-  const waiting = await page.locator('[data-record-ledger]').innerText();
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-record-event="evt-active"] [data-record-ledger]');
+    return node && /still loading/i.test(node.textContent || '');
+  });
+  assert.equal(await page.locator('[data-record-event="evt-lead"]').count(), 0);
+  const waiting = await page.locator('[data-record-event="evt-active"] [data-record-ledger]').innerText();
   assert.equal(waiting.includes('222'), false);
   assert.equal(waiting.includes('111'), false);
   assert.equal(waiting.includes('Lead Host'), false);
@@ -447,9 +526,26 @@ try {
   assert.match(delayed, /Synthetic Booked/);
   assert.match(delayed, /Floor Lead/);
   assert.match(delayed, /\$222\.00/);
+  assert.match(delayed, /2 document rows on this event/);
+  assert.equal(await page.locator('[data-record-event="evt-active"] [data-task-id="task-floor"]').count(), 1);
+  assert.equal(await page.locator('[data-record-event="evt-active"] [data-task-id="task-1"]').count(), 0);
   assert.equal(delayed.includes('$111'), false);
   assert.equal(delayed.includes('Lead Host'), false);
   assert.equal(delayed.includes('Send proposal'), false);
+  assert.equal(delayed.includes('Lead Client Co'), false);
+  assert.equal(delayed.includes('Lead-Only Proposal Packet'), false);
+  assert.equal(delayed.includes('1 document rows'), false);
+  assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue(), 'Synthetic Active');
+  assert.equal(await page.locator('#eventEditorPanel [data-field="eventName"]').inputValue(), 'Synthetic Booked');
+  assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue().then((value) => value.includes('Lead Client')), false);
+  await assertSelectedEventReportIsolation({
+    eventName: 'Synthetic Booked',
+    company: 'Synthetic Active',
+    documentName: 'Active-Only Floor Diagram',
+    staffName: 'Floor Lead',
+    taskTitle: 'Confirm the floor',
+    forbidden: ['Synthetic Lead', 'Lead Client Co', 'Lead-Only Proposal Packet', 'Lead Host', 'Send proposal']
+  });
 
   mode = 'unavailable';
   await page.locator('#refreshSheetBtn').click();
@@ -474,17 +570,52 @@ try {
   assert.match(await page.locator('#snapshotBanner').innerText(), /unavailable/);
   const asset = await page.request.get(`http://127.0.0.1:${port}/v2/js/roster-nium.js`);
   assert.equal(asset.status(), 404);
+  mode = 'ready';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.evaluate(() => window.lvptOpenRecord('evt-lead'));
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+  assert.match(await page.locator('[data-record-event="evt-lead"]').innerText(), /Send proposal/);
+  assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue(), 'Lead Client Co');
+  await page.evaluate(() => {
+    const center = document.getElementById('reportCenter');
+    if (center) center.hidden = false;
+    const button = document.querySelector('[data-generate-report="post"]');
+    if (button) button.click();
+  });
+  await page.waitForFunction(() => {
+    const output = document.getElementById('generatedReportOutput');
+    return output && !output.hidden
+      && /Post-Event & After-Action Report/.test(output.innerText || '')
+      && /Lead-Only Proposal Packet/.test(output.innerText || '')
+      && /Lead Client Co/.test(output.innerText || '');
+  });
+  const privateReportBeforeAuthLoss = await page.locator('#generatedReportOutput').innerText();
+  assert.match(privateReportBeforeAuthLoss, /Synthetic Lead/);
+  assert.match(privateReportBeforeAuthLoss, /Lead Client Co/);
+  assert.match(privateReportBeforeAuthLoss, /Lead-Only Proposal Packet/);
+  assert.match(privateReportBeforeAuthLoss, /Lead Host/);
+  assert.match(privateReportBeforeAuthLoss, /Send proposal/);
+  assert.equal(privateReportBeforeAuthLoss.includes('Synthetic Booked'), false);
+  assert.equal(privateReportBeforeAuthLoss.includes('Active-Only Floor Diagram'), false);
   mode = 'unauthorized';
-  await page.locator('[data-command-view="overview"]').click();
   await page.locator('#refreshSheetBtn').click();
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'auth-required');
   assert.match(await page.locator('#snapshotBanner').innerText(), /Owner sign-in required/);
   const cleared = await page.locator('body').innerText();
   assert.equal(cleared.includes('Synthetic Lead'), false);
+  assert.equal(cleared.includes('Lead Client Co'), false);
   assert.equal(cleared.includes('Floor Lead'), false);
+  assert.equal(cleared.includes('Lead-Only Proposal Packet'), false);
   assert.equal(cleared.includes('$111'), false);
   assert.equal(cleared.includes('$222'), false);
   assert.equal(await page.locator('[data-record-event]').count(), 0);
+  assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').count(), 0);
+  if (await page.locator('#generatedReportOutput').count()) {
+    assert.equal(await page.locator('#generatedReportOutput').innerText(), '');
+  }
+  assert.equal(cleared.includes('Post-Event & After-Action Report'), false);
+  assert.match(await page.locator('#eventEditorPanel').innerText(), /No event selected/);
   assert.equal(posts.some((path) => path === '/api/sync/events' && false), false);
   assert.equal(posts.includes('/api/sync/events'), false);
   assert.equal(posts.includes('/api/gmail/send'), false);

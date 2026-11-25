@@ -86,11 +86,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | **VERIFIED_EXISTING** (T6 + supervisor revision) |
+| Date/time | 2026-11-25 |
 | Dependencies | R00, R01 |
-| Evidence | `public/v2/js/lifecycle-command-center.js`; browser + acceptance tests; completion matrix IMPLEMENTED+TESTED |
-| Remaining blocker | Windows browser harness (R01) before re-verification |
-| Next task | Verify existing; edit only on regression |
+| Files inspected | `public/v2/js/core.js` (`current()` exact-id lookup, no first-event fallback), `public/v2/js/authoritative-finance.js` (generation/`still()` guards, `explicitEventId`, `clearEventSurfaces`), `public/v2/js/lifecycle-command-center.js` (record generation, invalid Unavailable, delayed ledger paint guard, `clearRecordSurfaces`), `public/v2/js/sheet-snapshot.js`, `public/v2/js/dashboard-base.js`, `public/v2/js/dashboard-upgrades.js`, `public/v2/js/unified-hub.js` |
+| Files changed | `tests/command-center-browser.test.mjs` only; identity owners unchanged — no regression |
+| Exact test commands | `node .\tests\command-center-browser.test.mjs` |
+| Exit codes | browser regression **0** |
+| Evidence | Exact `data-task-id` / `data-record-event` binding; client/company input values; document counts; **both** selected-event report actions (`pre` and `post`) isolated for lead and delayed-active records; invalid event Unavailable + invalid task missing note without opening another record; rapid open discards stale event; delayed ledger race: open lead → switch active before release → only `$222`/active staff/docs/`pre`+`post` reports; unauthorized path generates private `post` report first (asserts Lead-Only Proposal Packet / Lead Client Co present), then refresh clears that same output plus `[data-record-event]` and editor company fields. Never restored first-event fallback. |
+| Remaining blocker | None for R03/T6. Live authenticated acceptance remains R22+ |
+| Next task | R04 |
 
 ### R04 — Verify and complete executive dashboard
 
@@ -378,7 +383,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED** (policy + dry-run loop; paid launch fail-closed) |
-| Next authorized task | R03 / T6 — selected-record identity and race safety |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6 **VERIFIED_EXISTING** (pre+post report isolation + unauthorized private-report clear; identity owners unchanged) |
+| Next authorized task | R04 — executive dashboard |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

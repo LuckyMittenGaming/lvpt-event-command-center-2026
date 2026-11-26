@@ -220,17 +220,22 @@ Rules:
 | Evidence (T18) | `refundBlocksProfit` now derives from every refund-classified countable payment (`settlement === 'refunded'`), including fee/tax and other roles—not only client/vendor. Conflict/missing-ID safeguards preserved. Regressions assert refunded fee and tax rows (otherwise complete ledger) leave margin/contribution null with explicit `refundTreatment` incomplete coverage. Prior T18 refund conservatism and hub exactly-once copy remain in place. Drawable cash stays unavailable; authoritative rows unchanged. |
 | Evidence (T19) | Event Finance hub renders distinct source-linked client/vendor tables with due dates, separate owner distributions, per-event/global reconciliation, and linked exceptions. Per-event `vendorCommittedCents` lives in `buildLedger` using countable vendor rows (identical `duplicate_copy` counted once; only conflict/missing IDs or amount gaps mark incomplete). `buildFinanceReconciliation` moved into `event-finance.js`; operating-picture consumes it and no longer hosts `vendorCommittedForEvent`. Acceptance/event-finance regressions exercise the reconciliation payload: identical vendor duplicate reconciles once; missing ID, conflicting ID, and unknown amount stay explicitly incomplete. Auth-before-read and GET-only `writesPerformed: false` preserved. |
 | Remaining blocker | Live payment/payout completeness and bank evidence remain owner-side (R23); not LIVE_VERIFIED |
-| Next task | Continue remaining-spec order (R11 / T20) |
+| Next task | R11 |
 
 ### R11 — Complete Gmail full-thread read readiness
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING / gap fill) |
+| Status | IMPLEMENTED_TESTED (T20 + supervisor revisions) |
+| Date/time | 2026-11-25 |
 | Dependencies | R05 |
-| Evidence | Gmail triage/intelligence + Apps Script evidence files + SMS-review tests |
-| Remaining blocker | Live full-thread confirmation later; no auto-send |
-| Next task | Readiness + labeling; no production mutation |
+| Files inspected (read-only) | `apps-script/GmailEvidence.gs`, `apps-script/GmailDraftContext.gs`, `apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs`, `app/api/sms/staging/draft-context/route.ts`, `app/api/sms/staging/gmail-evidence/route.ts` |
+| Files changed | `public/sms-review/gmail-thread-triage.js`, `public/sms-review/gmail-intelligence.js`, `public/sms-review/index.html`, `tests/gmail-thread-triage.test.cjs`, `tests/sms-gmail-intelligence.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `node .\tests\sms-gmail-intelligence.test.cjs`; `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/gmail-thread-triage.test.cjs,tests/sms-gas-long-thread-preview.test.cjs,tests/sms-gas-recipient-verification.test.cjs,tests/gmail-ingest.test.cjs`; also `node tests/gmail-thread-triage.test.cjs` |
+| Exit codes | sms-gmail-intelligence **0**; Targeted verify **0**; gmail-thread-triage **0** |
+| Evidence | Protected readers/routes unchanged. Readiness delegates to triage `assessThreadContext`. Latest revision: `evaluateClient` no longer falls back observed `mailbox` to `BUSINESS_MAILBOX`—only explicit thread/record mailbox evidence establishes observed identity; expected mailbox may still default to `BUSINESS_MAILBOX`. Regression asserts missing mailbox keeps `mailboxIdentityVerified` / `fullThreadReady` / `completeClientContext` false; explicit business mailbox still verifies positively. |
+| Remaining blocker | Live full-thread confirmation and owner-approved send remain later (R24); not LIVE_VERIFIED; no auto-send |
+| Next task | R12 — one-at-a-time approval state machine |
 
 ### R12 — Complete one-at-a-time approval state machine
 
@@ -438,7 +443,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED** (classification + source-linked financial drilldowns) |
-| Next authorized task | R11 — Gmail full-thread read readiness |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20 **IMPLEMENTED_TESTED** (Gmail thread-context contracts) |
+| Next authorized task | R12 — one-at-a-time approval state machine |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

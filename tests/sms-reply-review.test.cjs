@@ -11,7 +11,8 @@ const at=new Date(Date.now()-3600_000).toISOString();
 const thread={
   threadId:'aabbccddeeff0011',subject:'Re: Poker event availability',
   lastMessageAt:at,lastDirection:'inbound',needsHumanReview:true,
-  sourceType:'email_thread',relationshipHint:'unclassified'
+  sourceType:'email_thread',relationshipHint:'unclassified',
+  mailboxIdentityVerified:true,mailbox:'book@pokertraininglasvegas.com'
 };
 const reply={
   at,direction:'inbound',relationshipHint:'unclassified',
@@ -19,7 +20,9 @@ const reply={
   senderDomain:'example.com',truncated:false,hasAttachments:false
 };
 const context={threadId:thread.threadId,lastMessageAt:at,partial:false,
-  totalMessages:1,messages:[reply]};
+  totalMessages:1,messages:[reply],
+  source:'owner_selected_read_only_thread_review',
+  mailboxIdentityVerified:true,mailbox:'book@pokertraininglasvegas.com'};
 const q=qualifyThread(thread,context);
 assert.equal(q.outcome,'reply_candidate');
 assert.equal(workflow.canPrepare(thread,context,q),true);
@@ -33,6 +36,28 @@ assert.equal(workflow.canPrepare(thread,{...context,messages:[
 assert.equal(workflow.canPrepare(thread,{...context,messages:[
   {...reply,hasAttachments:true}]},q),false);
 assert.equal(workflow.canPrepare(thread,context,{...q,outcome:'monitor'}),false);
+
+// Earlier truncated message with a complete latest message: display truncated
+// and approval blocked, while manual draft preparation may still open.
+const earlierAt=new Date(Date.parse(at)-3600_000).toISOString();
+const earlierTruncatedContext={
+  ...context,partial:false,fullThreadEnumerated:true,totalMessages:2,
+  messages:[
+    {...reply,at:earlierAt,excerpt:'Older thread body was truncated…',truncated:true},
+    reply
+  ]
+};
+const earlierTruncatedQ=qualifyThread(thread,earlierTruncatedContext);
+assert.equal(earlierTruncatedQ.gmailContext?.evidenceKind,'truncated');
+assert.equal(earlierTruncatedQ.gmailContext?.incompleteContext,true);
+assert.match(earlierTruncatedQ.gmailContext.displayLines.join('\n'),/Approval-ready: no/);
+assert.equal(workflow.canPrepare(thread,earlierTruncatedContext,earlierTruncatedQ),true,
+  'Complete latest message may still enter manual draft preparation');
+assert.equal(workflow.approvalReady(thread,earlierTruncatedContext,earlierTruncatedQ,{
+  mailboxIdentityVerified:true,recipientVerified:true,
+  recipientEmail:'customer@example.com'
+}).ready,false,
+  'Live approvalReady must stay blocked when any earlier message is truncated');
 
 const starter=workflow.draftStarter(thread);
 assert(starter.subject.startsWith('Re: '));
@@ -107,7 +132,7 @@ const fetchMock=async (url,options={})=>{
     ok:true,source:'owner_selected_verified_recipient',
     threadId:thread.threadId,lastMessageAt:at,
     to:'customer@example.com',from:'book@pokertraininglasvegas.com',
-    sendEnabled:false
+    mailboxIdentityVerified:true,sendEnabled:false
   };
   if(url.includes('/reply-send?'))return {
     ok:true,source:'lvpt_deduplicated_send_status',
@@ -129,6 +154,35 @@ async function waitForCount(n) {
   assert(posted.length>=n,'Expected '+n+' audited decisions; got '+posted.length);
 }
 async function sequence() {
+  // Live controls: earlier truncated + complete latest stays not approval-ready.
+  const truncatedCtrl=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},workflow,onUpdate:()=>{}
+  });
+  await truncatedCtrl.loadAudit(thread);
+  let truncRoot=new Node('div');
+  truncatedCtrl.render(truncRoot,thread,earlierTruncatedContext,earlierTruncatedQ);
+  const truncCheck=read(truncRoot,x=>x.tag==='input'&&x.type==='checkbox');
+  assert(truncCheck,'Truncated-history thread may still open manual draft prep');
+  truncCheck.checked=true;truncCheck.trigger('change');
+  button(truncRoot,'Prepare editable reply').trigger('click');
+  await settle();
+  truncRoot=new Node('div');
+  truncatedCtrl.render(truncRoot,thread,earlierTruncatedContext,earlierTruncatedQ);
+  const truncBody=read(truncRoot,x=>x.tag==='textarea');
+  truncBody.value=written;truncBody.trigger('input');
+  button(truncRoot,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  truncRoot=new Node('div');
+  truncatedCtrl.render(truncRoot,thread,earlierTruncatedContext,earlierTruncatedQ);
+  const truncReadyBody=read(truncRoot,x=>x.tag==='textarea');
+  truncReadyBody.value=written;truncReadyBody.trigger('input');
+  assert(button(truncRoot,'Approve for manual copy').disabled,
+    'Live Approve control must stay disabled when an earlier message is truncated');
+  assert(read(truncRoot,x=>String(x.textContent||'').includes('Not approval-ready')),
+    'Live controls must visibly report non-ready truncated/incomplete context');
+  truncatedCtrl.reset();
+  posted.length=0; // Isolate subsequent happy-path audit count assertions.
+
   await c.loadAudit(thread);
   let root=new Node('div');
   c.render(root,thread,context,q);
@@ -158,13 +212,24 @@ async function sequence() {
   root=new Node('div');c.render(root,thread,context,q);
   const aiEditor=read(root,node=>node.tag==='textarea');
   assert.match(aiEditor.value,/preferred event date/);
-  assert(button(root,'Approve for manual copy').disabled===false,
-    'Human review is still mandatory; AI suggestion may be further edited');
+  assert(button(root,'Approve for manual copy').disabled===true,
+    'Unverified recipient cannot appear approval-ready after AI suggestion');
   const editor=read(root,x=>x.tag==='textarea');
   assert(editor);
   editor.value=written;
   editor.trigger('input');
-  assert(!button(root,'Approve for manual copy').disabled);
+  assert(button(root,'Approve for manual copy').disabled,
+    'Valid draft text alone is not approval-ready without recipient verification');
+  assert(button(root,'Verify recipient and send status (read-only)'),
+    'Prepared review must expose recipient verification before approval');
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');c.render(root,thread,context,q);
+  const verifiedEditor=read(root,x=>x.tag==='textarea');
+  assert(verifiedEditor);
+  verifiedEditor.value=written;verifiedEditor.trigger('input');
+  assert(!button(root,'Approve for manual copy').disabled,
+    'Verified recipient plus complete full-thread evidence may unlock approval');
   assert(button(root,'Send email — disabled in staging').disabled,
     'Sending must be impossible within the staging interface');
   button(root,'Approve for manual copy').trigger('click');
@@ -249,6 +314,11 @@ async function sequence() {
   root=new Node('div');copiedController.render(root,thread,context,q);
   const copiedBody=read(root,x=>x.tag==='textarea');
   copiedBody.value=written;copiedBody.trigger('input');
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');copiedController.render(root,thread,context,q);
+  const copiedBodyReady=read(root,x=>x.tag==='textarea');
+  copiedBodyReady.value=written;copiedBodyReady.trigger('input');
   button(root,'Approve for manual copy').trigger('click');
   await waitForCount(6);
   assert.deepEqual(copiedAdvance,[],
@@ -282,6 +352,11 @@ async function sequence() {
   root=new Node('div');failed.render(root,thread,context,q);
   const failedBody=read(root,x=>x.tag==='textarea');
   failedBody.value=written;failedBody.trigger('input');
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');failed.render(root,thread,context,q);
+  const failedBodyReady=read(root,x=>x.tag==='textarea');
+  failedBodyReady.value=written;failedBodyReady.trigger('input');
   button(root,'Approve for manual copy').trigger('click');await waitForCount(8);
   root=new Node('div');failed.render(root,thread,context,q);
   button(root,'Copy approved text and continue').trigger('click');
@@ -322,6 +397,10 @@ sequence().then(()=>{
   assert.match(ddl,/Stores no client email bodies/i);
   assert.match(app,/const replyController=window.LVPTReplyReviewControls.createController/);
   assert.match(app,/replyController.render\(detail,t,context,qualification\)/);
+  assert.match(app,/describeContext\(/);
+  assert.match(app,/gmail-context-limitations/);
+  assert.match(ui,/approvalReady/);
+  assert.match(ui,/Not approval-ready/);
   assert.match(app,/Latest email — current review focus/,
     'Latest message must be prominent as the only default email excerpt');
   assert.match(app,/const earlier=messages.slice\(0,-1\)/);

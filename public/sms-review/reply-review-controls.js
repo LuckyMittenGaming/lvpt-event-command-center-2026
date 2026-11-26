@@ -32,6 +32,31 @@
     function eligible(t,context,q) {
       return workflow.canPrepare(t,context,q);
     }
+    function verificationFor(t,context) {
+      const read=recipients.get(t?.threadId);
+      if(!read?.to) {
+        return {
+          mailboxIdentityVerified:context?.mailboxIdentityVerified===true||
+            t?.mailboxIdentityVerified===true,
+          mailbox:context?.mailbox||t?.mailbox||null,
+          expectedThreadId:context?.expectedThreadId||t?.expectedThreadId||null
+        };
+      }
+      return {
+        recipientVerified:true,
+        recipientEmail:read.to,
+        mailboxIdentityVerified:read.mailboxIdentityVerified===true||
+          context?.mailboxIdentityVerified===true||
+          t?.mailboxIdentityVerified===true,
+        mailbox:read.mailbox||context?.mailbox||t?.mailbox||null,
+        expectedThreadId:context?.expectedThreadId||t?.expectedThreadId||null
+      };
+    }
+    function readiness(t,context,q) {
+      if(typeof workflow.approvalReady!=='function')
+        return {ready:false,reason:'Approval readiness helper unavailable.'};
+      return workflow.approvalReady(t,context,q,verificationFor(t,context));
+    }
     async function loadAudit(t) {
       if(!t||!t.threadId)return;
       audits.set(t.threadId,{loading:true});
@@ -67,6 +92,15 @@
       if(decision==='draft_prepared'&&verified.get(t.threadId)!==t.lastMessageAt)return false;
       if(decision==='approved_for_manual_copy'&&
          (!active||active.phase!=='prepared'||active.threadId!==t.threadId))return false;
+      if(decision==='approved_for_manual_copy') {
+        const gate=readiness(t,context,q);
+        if(gate.ready!==true) {
+          status.set(t.threadId,'Not approval-ready: '+(gate.reason||
+            'Required Gmail context evidence is absent.'));
+          onUpdate();
+          return false;
+        }
+      }
       working=t.threadId;onUpdate();
       let moveNext=false;
       try {
@@ -151,8 +185,10 @@
     }
 
     async function verifySendReadiness(t) {
-      if(working||!active||active.phase!=='approved_for_manual_copy'||
-         active.threadId!==t.threadId)return;
+      // Recipient verification may run during prepared review so approvalReady
+      // can gate Approve; send remains blocked until approved_for_manual_copy.
+      if(working||!active||active.threadId!==t.threadId)return;
+      if(active.phase!=='approved_for_manual_copy'&&active.phase!=='prepared')return;
       working=t.threadId;onUpdate();
       try {
         const p=new URLSearchParams({
@@ -323,25 +359,41 @@
       body.disabled=active.phase!=='prepared';
       wrap.append(body);
       const validationNote=makeText('p','hint','');
+      const readinessNote=makeText('p','hint','');
       const controls=makeText('div','action-queue-controls','');
       const approve=button('Approve for manual copy',()=>void approveDraft(),true,'primary');
       const note=()=>{
         const v=workflow.validation(active.subject,active.body);
+        const gate=readiness(t,context,q);
         validationNote.textContent=active.phase==='prepared'?
           (v.ok?'Text complete. Confirm facts and recipient in Gmail before any manual send.':v.reason):
           'Approved copy is locked. Recipient verification and a second explicit send authorization are required.';
-        approve.disabled=!v.ok||active.phase!=='prepared';
+        readinessNote.textContent=gate.ready?
+          'Approval-ready: verified mailbox, thread, recipient, and full-thread evidence.':
+          'Not approval-ready: '+(gate.reason||'Required Gmail context evidence is absent.');
+        if(!gate.ready)readinessNote.className='case-alert';
+        else readinessNote.className='action-draft-status';
+        approve.disabled=!v.ok||active.phase!=='prepared'||gate.ready!==true;
       };
       subject.addEventListener('input',()=>{active.subject=subject.value;note();});
       body.addEventListener('input',()=>{active.body=body.value;note();});
       async function approveDraft() {
         const v=workflow.validation(active.subject,active.body);
         if(!v.ok){validationNote.textContent=v.reason;return;}
+        const gate=readiness(t,context,q);
+        if(gate.ready!==true) {
+          readinessNote.className='case-alert';
+          readinessNote.textContent='Not approval-ready: '+(gate.reason||
+            'Required Gmail context evidence is absent.');
+          approve.disabled=true;
+          return;
+        }
         const digest=await fingerprint(JSON.stringify([active.subject,active.body]));
         await save(t,context,q,'approved_for_manual_copy',digest);
       }
       note();
       wrap.append(validationNote);
+      wrap.append(readinessNote);
       if(active.phase==='prepared') {
         controls.append(button('Generate personalized AI reply',
           ()=>void generateAiReply(t),false,'primary'));
@@ -354,6 +406,8 @@
             wrap.append(makeText('p','case-alert',
               'Facts to verify: '+active.aiNeedsReview.join('; ')));
         }
+        controls.append(button('Verify recipient and send status (read-only)',
+          ()=>void verifySendReadiness(t)));
         controls.append(approve);
         controls.append(button('Edit text above',()=>body.focus()));
         controls.append(button('Deny — no reply needed',

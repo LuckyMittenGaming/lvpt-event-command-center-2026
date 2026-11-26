@@ -10,6 +10,17 @@
   const INCOMPLETE=/\[(?:please\s+)?(?:insert|write|answer|verify|add|confirm)[^\]]*\]|\[(?:client|recipient|name|price|event|date|time|venue)[^\]]*\]/i;
   const BLOCKED=['internal','vendor','talent','operational_notice','form_notification','form_lead','outbound'];
   const LVPT_SIGNATURE='Matt Carpenter\nEvent & Talent Manager\nLas Vegas Poker Training\n616-745-7148';
+  const EMAIL=/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
+
+  function previewApi() {
+    if(typeof window!=='undefined'&&window.LVPTMessagePreview)
+      return window.LVPTMessagePreview;
+    if(typeof require==='function') {
+      try {return require('./message-preview.js');}
+      catch {return null;}
+    }
+    return null;
+  }
 
   function canPrepare(meta,context,qualification) {
     if(!meta||!context||!qualification||
@@ -31,6 +42,107 @@
       latest.at===meta.lastMessageAt &&
       typeof latest.excerpt==='string' && Boolean(latest.excerpt.trim()) &&
       latest.truncated!==true && latest.hasAttachments!==true;
+  }
+
+  function verifiedRecipient(value) {
+    const address=String(value==null?'':value).toLowerCase().trim();
+    if(!address||address.length>180||!EMAIL.test(address))return null;
+    return address;
+  }
+
+  // Approval readiness is stricter than canPrepare. Stored, header-only,
+  // truncated, or unverified recipient/mailbox/thread evidence can never
+  // appear approval-ready. Uses the protected-reader contract fields only.
+  function approvalReady(meta,context,qualification,verification) {
+    const denied=(reason)=>({ready:false,reason,mutatesGmail:false});
+    if(!canPrepare(meta,context,qualification))
+      return denied('Thread is not eligible for reply preparation.');
+
+    const recipient=verifiedRecipient(
+      verification?.recipientEmail||verification?.recipient||
+      context?.recipientEmail||meta?.recipientEmail);
+    const recipientFlag=verification?.recipientVerified===true||
+      meta?.recipientVerified===true||context?.recipientVerified===true||
+      meta?.isRealClientRecipientVerified===true||
+      context?.isRealClientRecipientVerified===true||
+      verification?.isRealClientRecipientVerified===true;
+    const expectedThread=String(
+      meta?.expectedThreadId||context?.expectedThreadId||
+      verification?.expectedThreadId||'');
+    const threadId=String(meta?.threadId||context?.threadId||'');
+    const preview=previewApi();
+    const verificationForDescribe={
+      ...(verification||{}),
+      recipientEmail:recipient||verification?.recipientEmail||null,
+      recipientVerified:Boolean(recipient&&recipientFlag),
+      expectedThreadId:expectedThread||verification?.expectedThreadId||null
+    };
+    // Pass original mailbox flags through describeContext so conflict-aware
+    // checks can reject an explicit true when observed mailboxes disagree.
+    const described=preview&&typeof preview.describeContext==='function'?
+      preview.describeContext(meta,{
+        ...context,
+        evidenceKind:context?.evidenceKind||meta?.evidenceKind||
+          verification?.evidenceKind||context?.source||meta?.source,
+        expectedThreadId:expectedThread||context?.expectedThreadId||null,
+        recipientEmail:recipient||context?.recipientEmail||null,
+        recipientVerified:Boolean(recipient&&recipientFlag)
+      },verificationForDescribe):null;
+    const conflictAwareMailbox=described?.mailboxIdentityVerified===true||
+      (preview&&typeof preview.resolveMailboxIdentityVerified==='function'&&
+        preview.resolveMailboxIdentityVerified(meta,context,verificationForDescribe)===true);
+    const explicitMailboxFlag=meta?.mailboxIdentityVerified===true||
+      context?.mailboxIdentityVerified===true||
+      verification?.mailboxIdentityVerified===true;
+    // Explicit true never overrides a mailbox conflict; approval also requires
+    // an explicit protected-reader flag so missing evidence stays fail-closed.
+    const mailboxVerified=conflictAwareMailbox&&explicitMailboxFlag;
+    const evidenceKind=described?.evidenceKind||
+      (preview&&typeof preview.resolveEvidenceKind==='function'?
+        preview.resolveEvidenceKind(meta,context):'unverified')||
+      'unverified';
+    if(evidenceKind==='stored')
+      return denied('Stored Gmail activity is not approval-ready full-thread evidence.');
+    if(evidenceKind==='header')
+      return denied('Header-only scans are not approval-ready full-thread evidence.');
+    if(evidenceKind==='truncated')
+      return denied('Truncated or partial thread context is not approval-ready.');
+    if(evidenceKind!=='full_thread')
+      return denied('Evidence kind is unverified; approval readiness is blocked.');
+    if(!mailboxVerified)
+      return denied('Exact business mailbox identity is not verified.');
+    if(expectedThread&&expectedThread!==threadId)
+      return denied('Exact provider thread identity does not match the expected thread.');
+    if(meta.threadId!==context.threadId)
+      return denied('Metadata and context thread identities disagree.');
+    if(!recipient||!recipientFlag)
+      return denied('Recipient is unverified; approval readiness is blocked.');
+
+    const inbound=described?.latestInbound||
+      (preview&&typeof preview.retainLatestInbound==='function'?
+        preview.retainLatestInbound(context):null);
+    if(!inbound?.present||!inbound.matchesContextRevision)
+      return denied('Latest relevant inbound evidence is missing or mismatched.');
+    if(inbound.truncated===true||inbound.hasAttachments===true)
+      return denied('Latest inbound is truncated or has unread attachments.');
+    if(context.partial===true)
+      return denied('Incomplete context cannot appear approval-ready.');
+    // Defense in depth: any truncated message in the returned thread blocks
+    // approval even when the latest inbound itself is complete.
+    const messages=Array.isArray(context.messages)?context.messages:[];
+    if(messages.some(m=>m?.truncated===true))
+      return denied('Earlier truncated message keeps thread context incomplete.');
+    if(described?.incompleteContext===true)
+      return denied('Thread, mailbox, or recipient verification is incomplete.');
+
+    return {
+      ready:true,
+      reason:'Full-thread evidence with verified mailbox, thread, recipient, and latest inbound.',
+      mutatesGmail:false,
+      evidenceKind:'full_thread',
+      recipientEmail:recipient,
+      latestRelevantInboundAt:inbound.at
+    };
   }
 
   function draftStarter(meta) {
@@ -76,5 +188,5 @@
     return {ok:true,reason:''};
   }
 
-  return {canPrepare,draftStarter,validation};
+  return {canPrepare,approvalReady,draftStarter,validation};
 });

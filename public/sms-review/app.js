@@ -740,14 +740,21 @@
         // correspondence remains available on demand for context and to
         // avoid duplicate outreach; it is never a separate approval.
         const messages=Array.isArray(context.messages)?context.messages:[];
+        const messagePreview=window.LVPTMessagePreview;
+        const describedContext=qualification.gmailContext||
+          (messagePreview&&typeof messagePreview.describeContext==='function'?
+            messagePreview.describeContext(t,context):null);
+        const retainedInbound=qualification.latestInboundRetained||
+          (messagePreview&&typeof messagePreview.retainLatestInbound==='function'?
+            messagePreview.retainLatestInbound(context):null);
         const latest=messages[messages.length-1];
         const earlier=messages.slice(0,-1);
-        const showMessage=(m,title)=>{
+        const showMessage=(m,title,focusedPreview)=>{
           const item=makeText('div','gmail-evidence-card','');
           item.append(makeText('p','gmail-evidence-label',
             title+' · '+m.direction+' · '+dateFmt(m.at)));
           if(m.excerpt) {
-            const preview=window.LVPTMessagePreview.focus(m.excerpt);
+            const preview=focusedPreview||messagePreview.focus(m.excerpt);
             item.append(makeText('p','gmail-message-excerpt',preview.body));
             if(preview.shortened) {
               const hidden=document.createElement('details');
@@ -765,9 +772,28 @@
               'Attachment detected — inspect it directly in Gmail.'));
           return item;
         };
+        if(describedContext?.displayLines?.length) {
+          const limits=makeText('div','gmail-context-limitations','');
+          limits.append(makeText('p','reply-qualification-title',
+            'Gmail context verification'));
+          describedContext.displayLines.forEach(line=>
+            limits.append(makeText('p','gmail-evidence-meta',line)));
+          if(describedContext.incompleteContext)
+            limits.append(makeText('p','case-alert',
+              'Incomplete or unverified context — not approval-ready.'));
+          detail.append(limits);
+        }
         if(latest) {
           detail.append(makeText('strong','','Latest email — current review focus'));
-          detail.append(showMessage(latest,'Latest message'));
+          const latestFocus=retainedInbound?.present&&retainedInbound.at===latest.at?
+            (retainedInbound.preview||
+              messagePreview.focus(retainedInbound.original||latest.excerpt)):
+            null;
+          detail.append(showMessage(latest,'Latest message',latestFocus));
+          if(retainedInbound?.present&&retainedInbound.original&&
+             retainedInbound.original!==String(latest.excerpt||''))
+            detail.append(makeText('p','case-alert',
+              'Latest inbound original diverged from the displayed excerpt. Refresh from Gmail.'));
         }
         detail.append(qualificationCard);
         if(['operational_notice','form_notification','talent_operations',

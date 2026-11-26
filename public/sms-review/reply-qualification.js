@@ -22,12 +22,13 @@
     internal:'Internal correspondence — no sales outreach'
   });
 
-  function result(outcome,reason,signals=[],nextStep='Review the complete original Gmail thread and CRM before taking action.') {
+  function result(outcome,reason,signals=[],nextStep='Review the complete original Gmail thread and CRM before taking action.',extras={}) {
     return {
       outcome,label:OUTCOMES[outcome]||OUTCOMES.manual_review,
       reason,signals,confidence:'rule-based',
       safeToAutoSend:false,authorizesDraft:false,
-      requiresHumanDecision:true,nextStep
+      requiresHumanDecision:true,nextStep,
+      ...extras
     };
   }
   function norm(v) {
@@ -96,8 +97,30 @@
     const preview=typeof window!=='undefined'&&window.LVPTMessagePreview?
       window.LVPTMessagePreview:typeof require==='function'?
       require('./message-preview.js'):null;
-    const focusedPreview=preview?preview.focus(latest?.excerpt):null;
+    const inbound=preview&&typeof preview.retainLatestInbound==='function'?
+      preview.retainLatestInbound(context):null;
+    const gmailContext=preview&&typeof preview.describeContext==='function'?
+      preview.describeContext(metadata,context):null;
+    const contextExtras={
+      gmailContext:gmailContext||null,
+      latestInboundRetained:inbound?{
+        present:inbound.present===true,
+        at:inbound.at||null,
+        original:inbound.original||'',
+        matchesContextRevision:inbound.matchesContextRevision===true
+      }:null
+    };
+    const focusedPreview=inbound?.present&&inbound.index===messages.length-1?
+      inbound.preview:(preview?preview.focus(latest?.excerpt):null);
     const focused=String(focusedPreview?.body||latest?.excerpt||'');
+    // Preserve original inbound text through focus; never drop identity.
+    if(inbound?.present&&inbound.original&&focusedPreview&&
+       focusedPreview.original!==inbound.original)
+      return result('manual_review',
+        'Latest inbound evidence was altered during preview and cannot be trusted.',
+        ['Inbound preview integrity failure'],
+        'Refresh the thread from Gmail and review again.',contextExtras);
+    const decorate=r=>Object.assign(r,contextExtras);
     // Clients often begin with a standalone "Matt" before a short closing.
     // Ignore only a narrow, recognized greeting for classification.
     const withoutGreeting=focused.replace(
@@ -116,21 +139,21 @@
       messages.length<Number(context.totalMessages||0);
 
     if(vendor) {
-      return result('vendor_operations',
+      return decorate(result('vendor_operations',
         hasQuestion?'The vendor may be requesting an operational response.':
           'This is vendor or venue correspondence, not a client prospect.',
         [hasQuestion?'Vendor request detected':'Vendor relationship verified'],
-        'Review venue/vendor obligations and supporting documents; do not classify as sales outreach.');
+        'Review venue/vendor obligations and supporting documents; do not classify as sales outreach.'));
     }
     if(formLead) {
-      return result('manual_review',
+      return decorate(result('manual_review',
         'This is a website form notification, not an email directly from the prospective client.',
         ['Form lead: recipient not verified'],
-        'Identify the real requester, check CRM and all prior replies, then explicitly approve any client draft.');
+        'Identify the real requester, check CRM and all prior replies, then explicitly approve any client draft.'));
     }
     if(!body)
-      return result('manual_review','The last message has no readable excerpt.',
-        ['Missing message text']);
+      return decorate(result('manual_review','The last message has no readable excerpt.',
+        ['Missing message text']));
     // Short, COMPLETE acknowledgements can close a long conversation even
     // when earlier history was intentionally omitted. Truncation/attachments
     // still demand full human review, and an actual request always wins.
@@ -139,45 +162,45 @@
     if((isCourtesy||completedAcknowledgement.test(body))&&!hasQuestion&&
        (latest.truncated!==true||quoteOnlyTruncation)&&
        latest.hasAttachments!==true)
-      return result('monitor',
+      return decorate(result('monitor',
         'The latest complete message appears to acknowledge prior correspondence, without requesting a new response.',
         ['Client acknowledgement or submission confirmation'],
-        'Monitor the associated event or payment separately. Do not send a duplicate email.');
+        'Monitor the associated event or payment separately. Do not send a duplicate email.'));
     if(latest?.truncated===true||latest?.hasAttachments===true)
-      return result('manual_review',
+      return decorate(result('manual_review',
         'The newest message itself is truncated or contains an unread attachment.',
         ['Latest message incomplete'],
-        'Inspect the entire email and any attachments. Automatic drafting and sending are blocked.');
+        'Inspect the entire email and any attachments. Automatic drafting and sending are blocked.'));
     if(isDecline && !directAsk)
-      return result('client_declined','The client appears to have declined or stopped the opportunity.',
+      return decorate(result('client_declined','The client appears to have declined or stopped the opportunity.',
         ['Decline language found'],
-        'Record or verify the decline in the CRM. Do not create a sales follow-up.');
+        'Record or verify the decline in the CRM. Do not create a sales follow-up.'));
     if(isHolding && !directAsk)
-      return result('hold','The client indicates a review, absence, or intention to respond later.',
+      return decorate(result('hold','The client indicates a review, absence, or intention to respond later.',
         ['Client-controlled timing'],
-        'Respect their timing; consult the full thread before considering a later follow-up.');
+        'Respect their timing; consult the full thread before considering a later follow-up.'));
     // Older omitted messages are NOT proof a client doesn't need a reply.
     // For a clear NEW request, allow human review only after the owner checks
     // the complete original Gmail conversation and CRM status.
     if(incomplete&&hasQuestion&&directAsk&&Number(context.totalMessages||0)<=150)
-      return result('reply_candidate',
+      return decorate(result('reply_candidate',
         'The newest message contains an explicit request, but older email history is omitted.',
         ['Full original thread review required','Possible new request'],
-        'Read the COMPLETE original Gmail conversation, other replies and event notes before preparing a response. No automatic sending.');
+        'Read the COMPLETE original Gmail conversation, other replies and event notes before preparing a response. No automatic sending.'));
     if(incomplete)
-      return result('manual_review',
+      return decorate(result('manual_review',
         'Conversation history is omitted, truncated, or contains an unread attachment.',
         [hasQuestion?'Possible request with limited history':'Limited context'],
-        'Read the full original Gmail thread. An ambiguous message cannot authorize drafting.');
+        'Read the full original Gmail thread. An ambiguous message cannot authorize drafting.'));
     if(hasQuestion)
-      return result('reply_candidate',
+      return decorate(result('reply_candidate',
         'The most recent incoming message contains a possible question or action request.',
         ['Possible explicit request in latest inbound message'],
-        'Verify that the request remains unanswered in Gmail, CRM, SMS and event notes before approving a draft.');
-    return result('manual_review',
+        'Verify that the request remains unanswered in Gmail, CRM, SMS and event notes before approving a draft.'));
+    return decorate(result('manual_review',
       'The message is not clearly a request, courtesy closing, or decline.',
       ['Insufficient evidence for reply decision'],
-      'Read the original thread and check the CRM. Decide manually whether a response is necessary.');
+      'Read the original thread and check the CRM. Decide manually whether a response is necessary.'));
   }
   return {qualifyThread,OUTCOMES};
 });

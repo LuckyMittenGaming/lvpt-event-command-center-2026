@@ -60,7 +60,9 @@ assert.equal(q2.outcome,'reply_candidate','Real client request remains actionabl
 
 const app=fs.readFileSync(path.join(__dirname,'../public/sms-review/app.js'),'utf8');
 const html=fs.readFileSync(path.join(__dirname,'../public/sms-review/index.html'),'utf8');
-assert.match(app,/window\.LVPTMessagePreview\.focus\(m\.excerpt\)/);
+assert.match(app,/messagePreview\.focus\(|LVPTMessagePreview\.focus\(/);
+assert.match(app,/describeContext\(/);
+assert.match(app,/retainLatestInbound|latestInboundRetained/);
 assert.match(app,/Show signature and additional text/);
 assert.match(app,/Show quoted email history/);
 assert.match(app,/preview\.hidden/);

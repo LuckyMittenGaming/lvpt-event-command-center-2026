@@ -226,14 +226,18 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | IMPLEMENTED_TESTED (T20 + supervisor revisions) |
+| Status | IMPLEMENTED_TESTED (T20 + T21 + supervisor revisions) |
 | Date/time | 2026-11-25 |
 | Dependencies | R05 |
-| Files inspected (read-only) | `apps-script/GmailEvidence.gs`, `apps-script/GmailDraftContext.gs`, `apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs`, `app/api/sms/staging/draft-context/route.ts`, `app/api/sms/staging/gmail-evidence/route.ts` |
-| Files changed | `public/sms-review/gmail-thread-triage.js`, `public/sms-review/gmail-intelligence.js`, `public/sms-review/index.html`, `tests/gmail-thread-triage.test.cjs`, `tests/sms-gmail-intelligence.test.cjs`, `docs/baselines/local-completion-progress.md` |
-| Exact test commands | `node .\tests\sms-gmail-intelligence.test.cjs`; `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/gmail-thread-triage.test.cjs,tests/sms-gas-long-thread-preview.test.cjs,tests/sms-gas-recipient-verification.test.cjs,tests/gmail-ingest.test.cjs`; also `node tests/gmail-thread-triage.test.cjs` |
-| Exit codes | sms-gmail-intelligence **0**; Targeted verify **0**; gmail-thread-triage **0** |
-| Evidence | Protected readers/routes unchanged. Readiness delegates to triage `assessThreadContext`. Latest revision: `evaluateClient` no longer falls back observed `mailbox` to `BUSINESS_MAILBOX`—only explicit thread/record mailbox evidence establishes observed identity; expected mailbox may still default to `BUSINESS_MAILBOX`. Regression asserts missing mailbox keeps `mailboxIdentityVerified` / `fullThreadReady` / `completeClientContext` false; explicit business mailbox still verifies positively. |
+| Files inspected (read-only) | `apps-script/GmailEvidence.gs`, `apps-script/GmailDraftContext.gs`, `apps-script/release/LVPT_Event_Command_Center_v1_2_COMPLETE_Code.gs`, `app/api/sms/staging/draft-context/route.ts`, `app/api/sms/staging/gmail-evidence/route.ts`, `app/api/sms/staging/inbox-thread/route.ts` |
+| Files changed (T20) | `public/sms-review/gmail-thread-triage.js`, `public/sms-review/gmail-intelligence.js`, `public/sms-review/index.html`, `tests/gmail-thread-triage.test.cjs`, `tests/sms-gmail-intelligence.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Files changed (T21 + revisions) | `public/sms-review/message-preview.js`, `public/sms-review/reply-workflow.js`, `public/sms-review/reply-qualification.js`, `public/sms-review/app.js`, `public/sms-review/reply-review-controls.js`, `tests/sms-reply-qualification.test.cjs`, `tests/sms-reply-review.test.cjs`, `tests/sms-message-preview.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands (T20) | `node .\tests\sms-gmail-intelligence.test.cjs`; `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/gmail-thread-triage.test.cjs,tests/sms-gas-long-thread-preview.test.cjs,tests/sms-gas-recipient-verification.test.cjs,tests/gmail-ingest.test.cjs`; also `node tests/gmail-thread-triage.test.cjs` |
+| Exact test commands (T21 revision) | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/sms-message-preview.test.cjs,tests/sms-reply-qualification.test.cjs,tests/sms-gas-recipient-verification.test.cjs`; also `node .\tests\sms-reply-review.test.cjs` |
+| Exit codes (T20) | sms-gmail-intelligence **0**; Targeted verify **0**; gmail-thread-triage **0** |
+| Exit codes (T21 revision) | Targeted verify **0** (message-preview 0; reply-qualification 0; gas-recipient-verification 0); sms-reply-review **0** |
+| Evidence (T20) | Protected readers/routes unchanged. Readiness delegates to triage `assessThreadContext`. Latest revision: `evaluateClient` no longer falls back observed `mailbox` to `BUSINESS_MAILBOX`—only explicit thread/record mailbox evidence establishes observed identity; expected mailbox may still default to `BUSINESS_MAILBOX`. Regression asserts missing mailbox keeps `mailboxIdentityVerified` / `fullThreadReady` / `completeClientContext` false; explicit business mailbox still verifies positively. |
+| Evidence (T21 revision) | Wired `describeContext`/`displayLines` + `retainLatestInbound` into review UI and qualification. `approvalReady` gates live Approve controls. Conflict-aware mailbox verification. **Latest fix:** `resolveEvidenceKind` / `incompleteContext` treat any `context.messages[].truncated===true` as truncated (not only latest); `approvalReady` also fails closed on any earlier truncated message. Regressions cover earlier truncated + complete latest: display truncated/incomplete, `canPrepare` allowed, Approve disabled with “Not approval-ready”. Provider readers/send untouched. Not LIVE_VERIFIED; no auto-send. |
 | Remaining blocker | Live full-thread confirmation and owner-approved send remain later (R24); not LIVE_VERIFIED; no auto-send |
 | Next task | R12 — one-at-a-time approval state machine |
 
@@ -443,7 +447,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20 **IMPLEMENTED_TESTED** (Gmail thread-context contracts) |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED** (Gmail thread-context + review context limitations) |
 | Next authorized task | R12 — one-at-a-time approval state machine |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

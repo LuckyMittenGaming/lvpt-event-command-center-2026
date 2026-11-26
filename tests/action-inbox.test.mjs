@@ -332,6 +332,44 @@ assert.equal(splitTask.rows.find((row) => row.id === 'task-owned').owner, 'Synth
 assert.equal(dueSplit.pipeline.dueFollowUps, 1);
 assert.equal(dueSplit.pipeline.overdueFollowUps, 1);
 assert.deepEqual(dueSplit.pipeline.taskConflicts, ['task-clash']);
+assert.equal(dueSplit.records.find((row) => row.id === 'event:evt-due').bucket, 'follow_up_due');
+
+// Existing timing only: due today is not overdue; future is not overdue.
+// Undated→REVIEW for Calendar reminders is covered in tests/calendar-task-reconcile.test.cjs.
+// Finding (not fixed in this read-only R16 task): an undated open task on an open-stage
+// event does not set record.review in action-inbox; only unknown/outcome stages and
+// orphan tasks without eventId do.
+const dateBuckets = buildActionInbox({
+  today: '2026-11-22',
+  events: [
+    { id: 'evt-today-only', status: 'New Lead' },
+    { id: 'evt-future', status: 'New Lead' },
+    { id: 'evt-undated-open', status: 'New Lead' }
+  ],
+  tasks: [
+    { id: 'task-due-today', eventId: 'evt-today-only', title: 'Call today', dueDate: '2026-11-22', status: 'Open' },
+    { id: 'task-future', eventId: 'evt-future', title: 'Call later', dueDate: '2026-12-01', status: 'Open' },
+    { id: 'task-undated-open', eventId: 'evt-undated-open', title: 'Needs a due date', dueDate: '', status: 'Open' },
+    { id: 'task-orphan-undated', eventId: '', title: 'Orphan undated', dueDate: '', status: 'Open' },
+    { id: 'task-done-old', eventId: 'evt-today-only', title: 'Closed', dueDate: '2026-11-01', status: 'Completed' }
+  ]
+});
+const todayOnly = dateBuckets.records.find((row) => row.id === 'event:evt-today-only');
+const futureOnly = dateBuckets.records.find((row) => row.id === 'event:evt-future');
+const undatedOnOpen = dateBuckets.records.find((row) => row.id === 'event:evt-undated-open');
+const orphanUndated = dateBuckets.records.find((row) => row.id === 'task:task-orphan-undated');
+assert.equal(todayOnly.bucket, 'new_inquiry');
+assert.notEqual(todayOnly.bucket, 'follow_up_due');
+assert.equal(dateBuckets.pipeline.dueFollowUps, 1);
+assert.equal(dateBuckets.pipeline.overdueFollowUps, 0);
+assert.equal(futureOnly.bucket, 'new_inquiry');
+assert.notEqual(futureOnly.bucket, 'follow_up_due');
+assert.equal(undatedOnOpen.bucket, 'new_inquiry');
+assert.notEqual(undatedOnOpen.bucket, 'follow_up_due');
+assert.equal(undatedOnOpen.review, false);
+assert.equal(orphanUndated.review, true);
+assert.notEqual(orphanUndated.bucket, 'follow_up_due');
+assert.equal(dateBuckets.counts.byClassification.follow_up_due, 0);
 
 const hub = readFileSync(new URL('../public/v2/js/unified-hub.js', import.meta.url), 'utf8');
 assert.equal(hub.includes('data-decision="approve"'), false);

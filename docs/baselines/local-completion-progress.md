@@ -320,11 +320,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | VERIFIED_EXISTING (TaskSync fixture/VM); live Calendar writer not executed |
+| Date/time | 2026-11-26 |
 | Dependencies | R00 |
-| Evidence | `TaskSync.safe-sync.js`, calendar test suite, phase-07m production sync baseline |
-| Remaining blocker | No Cursor Calendar writes; fresh ops proof is R27 |
-| Next task | Run fixture suite; confirm sole writer remains `runLVPTSafeTaskSync` |
+| Files inspected | `apps-script/calendar-command-center/TaskSync.safe-sync.js`, `TaskSync.safe-review.js`, `TaskSync.safe-integrate.js`, `TaskSync.js` (retired local planner), `apps-script/live/calendar-command-center/TaskSync.js` (read-only historical), `docs/baselines/phase-07m-production-sync.md`, `lib/action-inbox.mjs` (read-only; no behavior change retained), existing `tests/calendar-safe-sync.test.cjs`, `tests/calendar-safe-review.test.cjs` |
+| Files changed | `tests/calendar-task-reconcile.test.cjs`, `tests/action-inbox.test.mjs` (regression/observation only), `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/action-inbox.test.mjs,tests/command-center-acceptance.test.mjs,tests/calendar-task-reconcile.test.cjs` |
+| Exit codes | Targeted verify **0** (after revision) |
+| Evidence | Safe TaskSync stubs: sole writer `runLVPTSafeTaskSync`; retired writer unused in safe sources; stable-ID uniqueness; duplicate/conflict → REVIEW; undated/impossible due → REVIEW (no create); due-today and future dated approved creates allowed; completed/cancelled suppression; real meetings untouched; Free/15-min/no guests/conference/recurrence; repeat-run idempotency; Calendar/Sheets stubs never contacted. Action-inbox existing timing: due today is not overdue. Phase-07m documents production hourly trigger on `runLVPTSafeTaskSync`. |
+| Finding (not fixed; R16 is read-only) | `lib/action-inbox.mjs` does not set `review=true` for an undated open task on an open-stage event. Undated→REVIEW is enforced by TaskSync safe-review for Calendar creates. Unauthorized action-inbox behavior edits from the prior pass were reverted. |
+| Remaining blocker | Fresh operational proof of current scheduled cycles is R27; optional later owner-scoped action-inbox undated-review backlog change |
+| Next task | R17 — observable system health |
 
 ### R17 — Complete observable system health
 
@@ -482,7 +488,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED) |
-| Next authorized task | R16 — task normalization / safe Calendar reconciliation |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed) |
+| Next authorized task | R17 — Complete observable system health |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

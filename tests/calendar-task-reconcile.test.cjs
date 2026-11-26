@@ -1,447 +1,451 @@
 /**
- * Synthetic calendar reconciliation. No Google API calls.
- *
- * Payment reconciliation stays in public/sms-review/reconciliation.js
- * (checkCase) and public/sms-review/action-queue.js (buildQueue).
- * Email approval stays in app/api/sms/staging/reply-send/route.ts and
- * Apps Script lvptStep48SendApprovedReply_. TaskSync does not decide
- * Paid In Full and does not send mail.
+ * R16 / T27 — safe Calendar task reconciliation (VM + provider stubs only).
+ * Loads TaskSync.safe-review + TaskSync.safe-integrate + TaskSync.safe-sync.
+ * Never calls live Calendar, Sheets, clasp, or runLVPTSafeTaskSync entry I/O.
  */
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync('apps-script/calendar-command-center/TaskSync.js', 'utf8');
+const ROOT = path.resolve(__dirname, '..');
+const safeSyncPath = path.join(ROOT, 'apps-script/calendar-command-center/TaskSync.safe-sync.js');
+const safeReviewPath = path.join(ROOT, 'apps-script/calendar-command-center/TaskSync.safe-review.js');
+const safeIntegratePath = path.join(ROOT, 'apps-script/calendar-command-center/TaskSync.safe-integrate.js');
+const retiredLocalPath = path.join(ROOT, 'apps-script/calendar-command-center/TaskSync.js');
+
+const safeSync = fs.readFileSync(safeSyncPath, 'utf8');
+const safeReview = fs.readFileSync(safeReviewPath, 'utf8');
+const safeIntegrate = fs.readFileSync(safeIntegratePath, 'utf8');
+const retiredLocal = fs.readFileSync(retiredLocalPath, 'utf8');
+
+assert.match(safeSync, /function runLVPTSafeTaskSync\(/);
+assert.equal(/function runLVPTTaskSync\s*\(/.test(safeSync), false);
+assert.equal(/function runLVPTTaskSync\s*\(/.test(safeReview), false);
+assert.equal(/function runLVPTTaskSync\s*\(/.test(safeIntegrate), false);
+assert.match(safeSync, /The old runLVPTTaskSync stays retired/);
+assert.match(retiredLocal, /function runLVPTTaskSync\(/);
+assert.equal(retiredLocal.includes('function runLVPTSafeTaskSync'), false);
+
+[
+  'UrlFetchApp',
+  'GmailApp',
+  'MailApp',
+  'ScriptApp',
+  'newTrigger',
+  'Calendar.Events.remove',
+  'Calendar.Events.delete',
+  'Calendar.Events.update'
+].forEach(function (token) {
+  assert.equal(safeSync.includes(token), false, 'safe-sync must not include ' + token);
+  assert.equal(safeReview.includes(token), false, 'safe-review must not include ' + token);
+});
+
+let calendarTouched = 0;
+let sheetsTouched = 0;
 const sandbox = {
   console: { log() {}, error() {} },
-  Intl, Date, Map, Set, Object, String, Array, Error, RegExp, Math, JSON, Number
+  Intl,
+  Date,
+  Map,
+  Set,
+  Object,
+  String,
+  Array,
+  Error,
+  RegExp,
+  Math,
+  JSON,
+  Number,
+  isFinite,
+  isNaN,
+  Utilities: {
+    DigestAlgorithm: { SHA_256: 'SHA_256' },
+    Charset: { UTF_8: 'UTF_8' },
+    computeDigest: function (_algorithm, value) {
+      return Array.from(crypto.createHash('sha256').update(String(value)).digest()).map(function (byte) {
+        return byte > 127 ? byte - 256 : byte;
+      });
+    }
+  },
+  SpreadsheetApp: {
+    openById: function () {
+      sheetsTouched += 1;
+      throw new Error('tests must not open spreadsheets');
+    }
+  },
+  CalendarApp: {
+    getCalendarsByName: function () {
+      calendarTouched += 1;
+      throw new Error('tests must not read live calendars');
+    },
+    getDefaultCalendar: function () {
+      calendarTouched += 1;
+      throw new Error('tests must not read the default calendar');
+    }
+  },
+  Calendar: {
+    Events: {
+      list: function () {
+        calendarTouched += 1;
+        throw new Error('tests must not list live Calendar events');
+      },
+      get: function () {
+        calendarTouched += 1;
+        throw new Error('tests must not get live Calendar events');
+      },
+      insert: function () {
+        calendarTouched += 1;
+        throw new Error('tests must not insert live Calendar events');
+      },
+      patch: function () {
+        calendarTouched += 1;
+        throw new Error('tests must not patch live Calendar events');
+      }
+    }
+  },
+  LockService: {
+    getScriptLock: function () {
+      throw new Error('tests must not take the live script lock');
+    }
+  }
 };
 vm.createContext(sandbox);
-vm.runInContext(source, sandbox, { filename: 'TaskSync.js' });
-function unwrap(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-const plan = sandbox.lvptPlanTaskCalendarSync_;
-const apply = sandbox.lvptApplyTaskCalendarChanges_;
-assert.equal(typeof plan, 'function', 'lvptPlanTaskCalendarSync_ is missing');
-assert.equal(typeof apply, 'function', 'lvptApplyTaskCalendarChanges_ is missing');
-assert.equal(source.includes('UrlFetchApp'), false);
-assert.equal(source.includes('getOAuthToken'), false);
-assert.equal(source.includes('newTrigger'), false);
-assert.equal(sandbox.LVPT_SYNC_CONFIG.conferenceRestClear, false);
-assert.match(source, /function runLVPTTaskSync\(/);
+vm.runInContext(safeReview, sandbox, { filename: 'TaskSync.safe-review.js' });
+vm.runInContext(safeIntegrate, sandbox, { filename: 'TaskSync.safe-integrate.js' });
+vm.runInContext(safeSync, sandbox, { filename: 'TaskSync.safe-sync.js' });
+
+assert.equal(typeof sandbox.runLVPTSafeTaskSync, 'function');
+assert.equal(typeof sandbox.runLVPTTaskSync, 'undefined');
+assert.equal(typeof sandbox.lvptDecideSafeSync_, 'function');
+assert.equal(typeof sandbox.lvptPlanSafeReminderActions_, 'function');
+assert.equal(typeof sandbox.lvptGateSafeWrites_, 'function');
+assert.equal(typeof sandbox.lvptApplyCreates_, 'function');
+assert.equal(typeof sandbox.lvptStableEventId_, 'function');
 
 const CAL = {
-  sales: 'cal-sales',
-  proposals: 'cal-proposals',
-  operations: 'cal-operations',
-  confirmed: 'cal-confirmed'
+  sales: 'c_451b7f3ca8c727da168891a0d1d53475beb13c0c649c6157acdd98959b5cc334@group.calendar.google.com',
+  proposals: 'c_e68f6233ff8a0e2fb22168ee24da99dc06e0416d652a0e1b964d3a88f5c0935b@group.calendar.google.com',
+  operations: 'c_a9756e49c39a571a2c21d99524f4c226e1772fca9f0c4156e245d5fd7d941a2a@group.calendar.google.com',
+  confirmed: 'c_972d7e50b66cba545967cf0f8de32d22990e6e8aa98051bdfa34b9122ed7962c@group.calendar.google.com'
 };
-const NOW = new Date('2026-11-12T16:00:00.000Z');
+const SCAN_IDS = [CAL.sales, CAL.proposals, CAL.operations, CAL.confirmed];
 
 function task(overrides) {
   return Object.assign({
-    task_id: 'task-ops-0001',
-    event_id: 'evt-sample',
-    task: 'Collect venue invoice from vendor',
-    due_date: '2026-12-01',
-    priority: 'High',
+    taskId: 'task-recon-0001',
     status: 'open',
-    notes: ''
-  }, overrides);
+    due: '2026-12-15',
+    start: '2026-12-15T14:00:00.000Z',
+    timeZone: 'America/New_York',
+    calendarId: CAL.operations,
+    summary: 'ACTION — Northwind — Collect venue invoice',
+    description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: task-recon-0001'
+  }, overrides || {});
 }
 
-function input(events, rows) {
+function managed(id, taskId, status) {
   return {
-    now: NOW,
-    calendarIds: Object.assign({}, CAL),
-    companies: { 'evt-sample': 'Northwind Studio' },
-    taskRows: rows || [task()],
-    events: events || []
+    calendarId: CAL.operations,
+    event: {
+      id: id,
+      status: status || 'confirmed',
+      transparency: 'transparent',
+      summary: 'ACTION — Northwind — Collect venue invoice',
+      description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: ' + taskId,
+      start: { dateTime: '2026-12-15T14:00:00.000Z', timeZone: 'America/New_York' },
+      end: { dateTime: '2026-12-15T14:15:00.000Z', timeZone: 'America/New_York' },
+      extendedProperties: {
+        private: {
+          lvptManaged: 'taskSyncV1',
+          lvptTaskId: taskId,
+          lvptDueDate: '2026-12-15'
+        }
+      }
+    }
   };
 }
 
-function eventFrom(body, overrides) {
-  return Object.assign({
-    id: 'rem-keep',
-    status: 'confirmed',
-    summary: body.summary,
-    description: body.description,
-    start: body.start,
-    end: body.end,
-    transparency: body.transparency,
-    reminders: body.reminders,
-    extendedProperties: body.extendedProperties
-  }, overrides);
+function clientMeeting() {
+  return {
+    calendarId: CAL.confirmed,
+    event: {
+      id: 'client-booking-real',
+      status: 'confirmed',
+      summary: 'CONFIRMED — Northwind private session',
+      description: 'Actual customer booking. Not an internal reminder.',
+      attendees: [{ email: 'guest@client.example' }],
+      hangoutLink: 'https://meet.google.com/real-client-meet',
+      conferenceData: { conferenceId: 'real-meet' },
+      start: { dateTime: '2026-12-01T18:00:00.000Z' },
+      end: { dateTime: '2026-12-01T20:00:00.000Z' },
+      transparency: 'opaque'
+    }
+  };
 }
 
-const created = plan(input());
-assert.equal(created.ok, true, created.error);
-assert.equal(created.changes.length, 1);
-assert.equal(created.changes[0].kind, 'create');
-assert.equal(created.scannedCalendarIds.length, 4);
-assert.deepEqual(unwrap(created.scannedCalendarIds).sort(), Object.values(CAL).slice().sort());
-const body = created.changes[0].target.body;
-assert.equal(created.changes[0].target.calendarId, CAL.operations);
-assert.notEqual(created.changes[0].target.calendarId, CAL.confirmed);
-assert.equal(new Date(body.end.dateTime) - new Date(body.start.dateTime), 15 * 60000);
+function ledgerReady() {
+  return [
+    { history_key: 'ledger_ready', observation: 'ledger_ready', outcome: 'complete', task_id: '' },
+    { history_key: 'writer_enabled', observation: 'writer_enabled', outcome: 'new_tasks_only', task_id: '' }
+  ];
+}
+
+function decide(overrides) {
+  return sandbox.lvptDecideSafeSync_(Object.assign({
+    scanComplete: true,
+    cancellationComplete: true,
+    lockHeld: true,
+    writerEnabled: true,
+    ledger: ledgerReady(),
+    calendarIds: Object.assign({}, CAL),
+    cancellationScan: { complete: true, calendarIds: SCAN_IDS.slice(), events: [] },
+    events: [],
+    tasks: [],
+    ownerEmail: 'book@pokertraininglasvegas.com',
+    nowIso: '2026-11-22T04:00:00.000Z',
+    runId: 'reconcile-test'
+  }, overrides || {}));
+}
+
+function plan(events, tasks, extra) {
+  return sandbox.lvptPlanSafeReminderActions_(Object.assign({
+    scanComplete: true,
+    lockHeld: true,
+    calendarIds: Object.assign({}, CAL),
+    cancellationScan: { complete: true, calendarIds: SCAN_IDS.slice(), events: [] },
+    events: events || [],
+    tasks: tasks || []
+  }, extra || {}));
+}
+
+function creates(result) {
+  return sandbox.lvptGateSafeWrites_(result).allowed.filter(function (change) {
+    return change.action === 'CREATE';
+  });
+}
+
+const stableA = sandbox.lvptStableEventId_('task-stable-alpha');
+const stableB = sandbox.lvptStableEventId_('task-stable-beta');
+const stableAgain = sandbox.lvptStableEventId_('task-stable-alpha');
+assert.equal(stableA, stableAgain);
+assert.notEqual(stableA, stableB);
+assert.match(stableA, /^lvpt[0-9a-v]+$/);
+
+const duplicateIds = plan([], [task(), task({ summary: 'Second row same id' })]);
+assert.equal(creates(duplicateIds).length, 0);
+assert.ok(duplicateIds.reviews.some(function (row) {
+  return row.action === 'REVIEW' && /duplicate task id/i.test(row.reason);
+}));
+
+const openCompletedConflict = plan(
+  [managed('rem-conflict', 'task-conflict')],
+  [
+    task({ taskId: 'task-conflict', status: 'open' }),
+    task({ taskId: 'task-conflict', status: 'completed', summary: 'Completed copy' })
+  ]
+);
+assert.equal(creates(openCompletedConflict).length, 0);
+assert.ok(openCompletedConflict.reviews.some(function (row) {
+  return row.action === 'REVIEW' && /duplicate task id/i.test(row.reason);
+}));
+
+const undated = plan([], [task({ due: '', ownerApprovedCreate: true, creationApprovalId: 'create-undated' })]);
+assert.equal(creates(undated).length, 0);
+assert.ok(undated.reviews.some(function (row) {
+  return row.action === 'REVIEW' && /due date/i.test(row.reason);
+}));
+
+const impossibleDue = plan([], [task({ due: '2026-02-31', ownerApprovedCreate: true, creationApprovalId: 'create-bad-due' })]);
+assert.equal(creates(impossibleDue).length, 0);
+assert.ok(impossibleDue.reviews.some(function (row) {
+  return row.action === 'REVIEW' && /due date/i.test(row.reason);
+}));
+
+const dueToday = plan([], [task({
+  taskId: 'task-due-today-cal',
+  due: '2026-11-22',
+  start: '2026-11-22T15:00:00.000Z',
+  description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: task-due-today-cal',
+  ownerApprovedCreate: true,
+  creationApprovalId: 'create-due-today'
+})]);
+assert.equal(creates(dueToday).length, 1);
+assert.equal(creates(dueToday)[0].due, '2026-11-22');
+assert.equal(creates(dueToday)[0].body.transparency, 'transparent');
+
+const futureDue = plan([], [task({
+  taskId: 'task-due-future-cal',
+  due: '2026-12-15',
+  start: '2026-12-15T14:00:00.000Z',
+  description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: task-due-future-cal',
+  ownerApprovedCreate: true,
+  creationApprovalId: 'create-due-future'
+})]);
+assert.equal(creates(futureDue).length, 1);
+assert.equal(creates(futureDue)[0].due, '2026-12-15');
+
+const completed = plan(
+  [managed('rem-done', 'task-done')],
+  [task({ taskId: 'task-done', status: 'completed' })]
+);
+assert.equal(creates(completed).length, 0);
+assert.equal(completed.reviews[0].action, 'NO CHANGE');
+assert.equal(JSON.stringify(completed.writes).includes('remove'), false);
+
+const cancelled = plan(
+  [{ calendarId: CAL.operations, event: Object.assign({}, managed('rem-old', 'task-cancel').event, { status: 'cancelled' }) }],
+  [task({ taskId: 'task-cancel' })]
+);
+assert.equal(creates(cancelled).length, 0);
+assert.ok(cancelled.reviews.some(function (row) {
+  return /cancelled managed reminder/i.test(row.reason);
+}));
+
+const withMeeting = plan([clientMeeting()], [task({ taskId: 'task-guest' })]);
+assert.equal(creates(withMeeting).length, 0);
+assert.equal(JSON.stringify(withMeeting.writes).includes('client-booking-real'), false);
+assert.equal(JSON.stringify(withMeeting.reviews).includes('client-booking-real'), false);
+
+const approved = plan([], [task({
+  taskId: 'task-new-free',
+  ownerApprovedCreate: true,
+  creationApprovalId: 'create-2026-11-26',
+  description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: task-new-free'
+})]);
+assert.equal(creates(approved).length, 1);
+const body = creates(approved)[0].body;
 assert.equal(body.transparency, 'transparent');
+assert.equal(body.attendees, undefined);
 assert.equal(body.conferenceData, undefined);
 assert.equal(body.hangoutLink, undefined);
-assert.equal(body.recurrence, undefined);
-assert.equal(body.attendees, undefined);
-assert.match(body.description, /^LVPT INTERNAL ACTION REMINDER/);
+assert.equal(Array.isArray(body.recurrence) && body.recurrence.length, 0);
+assert.equal(Date.parse(body.end.dateTime) - Date.parse(body.start.dateTime), 15 * 60000);
 
-const stored = eventFrom(body);
-const again = plan(input([{ calendarId: CAL.operations, event: stored, fromManagedQuery: true }]));
-assert.equal(again.ok, true);
-assert.deepEqual(unwrap(again.changes), []);
-assert.equal(again.unchanged, 1);
-
-const duplicates = ['cal-sales', 'cal-proposals', 'cal-operations', 'cal-confirmed'].map((calendarId, index) => ({
-  calendarId,
-  fromManagedQuery: true,
-  event: eventFrom(body, { id: index === 2 ? 'rem-keep' : 'rem-dup-' + calendarId })
-}));
-const deduped = plan(input(duplicates));
-assert.equal(deduped.ok, true);
-assert.equal(deduped.changes.filter(change => change.kind === 'create').length, 0);
-assert.equal(deduped.changes.filter(change => change.kind === 'remove_duplicate').length, 3);
-assert.ok(deduped.changes.every(change => change.classification === 'managed_internal_reminder'));
-const removedCalendars = deduped.changes.map(change => change.reminder.calendarId).sort();
-assert.deepEqual(unwrap(removedCalendars), [CAL.sales, CAL.proposals, CAL.confirmed].sort());
-
-const clientBooking = {
-  calendarId: CAL.confirmed,
-  fromManagedQuery: false,
-  event: {
-    id: 'client-booking',
-    status: 'confirmed',
-    summary: 'Northwind Studio private session',
-    description: 'Actual customer booking',
-    attendees: [{ email: 'guest@example.com' }],
-    start: { dateTime: '2026-12-01T18:00:00.000Z' },
-    end: { dateTime: '2026-12-01T20:00:00.000Z' },
-    hangoutLink: 'https://meet.google.com/real-client-meet',
-    conferenceData: { conferenceId: 'real-meet', conferenceDataVersion: 2, entryPoints: [{ uri: 'https://meet.google.com/real-client-meet' }] }
-  }
-};
-const unrelated = {
-  calendarId: CAL.sales,
-  fromManagedQuery: false,
-  event: {
-    id: 'unrelated-block',
-    status: 'confirmed',
-    summary: 'Internal lunch',
-    description: 'Not a task reminder',
-    start: { dateTime: '2026-12-01T17:00:00.000Z' },
-    end: { dateTime: '2026-12-01T18:00:00.000Z' }
-  }
-};
-const withBystanders = plan(input([
-  { calendarId: CAL.operations, event: stored, fromManagedQuery: true },
-  clientBooking,
-  unrelated
-]));
-assert.equal(withBystanders.changes.length, 0);
-assert.equal(JSON.stringify(withBystanders.changes).includes('client-booking'), false);
-assert.equal(JSON.stringify(withBystanders.changes).includes('unrelated-block'), false);
-assert.ok(withBystanders.protected.some(item => item.eventId === 'client-booking' && item.classification === 'customer_or_attended_event'));
-
-const meetEvent = eventFrom(body, {
-  id: 'rem-meet',
-  hangoutLink: 'https://meet.google.com/aaa-bbbb-ccc',
-  conferenceData: {
-    conferenceId: 'fake-meet',
-    conferenceDataVersion: 4,
-    entryPoints: [{ entryPointType: 'video', uri: 'https://meet.google.com/aaa-bbbb-ccc' }]
-  }
-});
-const meetPlan = plan(input([
-  { calendarId: CAL.operations, event: meetEvent, fromManagedQuery: true },
-  clientBooking
-]));
-assert.equal(meetPlan.changes.length, 1);
-assert.equal(meetPlan.changes[0].kind, 'clear_conference');
-assert.equal(meetPlan.changes[0].classification, 'managed_internal_reminder');
-assert.equal(meetPlan.changes[0].reminder.event.id, 'rem-meet');
-assert.equal(JSON.stringify(meetPlan.changes).includes('client-booking'), false);
-
-const longEvent = eventFrom(body, {
-  id: 'rem-long',
-  transparency: 'opaque',
-  end: { dateTime: new Date(new Date(body.start.dateTime).getTime() + 120 * 60000).toISOString() }
-});
-const longPlan = plan(input([{ calendarId: CAL.operations, event: longEvent, fromManagedQuery: true }]));
-const durationPatch = longPlan.changes.find(change => change.kind === 'patch_managed');
-assert.ok(durationPatch);
-assert.equal(durationPatch.classification, 'managed_internal_reminder');
-assert.equal(durationPatch.fields.transparency, 'transparent');
-assert.equal(new Date(durationPatch.fields.end.dateTime) - new Date(durationPatch.fields.start.dateTime), 15 * 60000);
-assert.equal(durationPatch.fields.recurrence.length, 0);
-assert.equal(longPlan.changes.some(change => change.kind === 'create'), false);
-
-const recurring = eventFrom(body, {
-  id: 'rem-weekly',
-  recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR']
-});
-const recurringPlan = plan(input([{ calendarId: CAL.operations, event: recurring, fromManagedQuery: true }]));
-assert.equal(recurringPlan.changes.some(change => change.kind === 'replace_recurring'), true);
-assert.equal(recurringPlan.changes.some(change => change.kind === 'create'), false);
-assert.equal(recurringPlan.changes.find(change => change.kind === 'replace_recurring').target.body.recurrence, undefined);
-
-const attended = eventFrom(body, {
-  id: 'attended-task-lookalike',
-  attendees: [{ email: 'guest@example.com' }]
-});
-const attendedPlan = plan(input([
-  { calendarId: CAL.confirmed, event: attended, fromManagedQuery: true },
-  clientBooking
-]));
-assert.equal(JSON.stringify(attendedPlan.changes).includes('attended-task-lookalike'), false);
-assert.equal(JSON.stringify(attendedPlan.changes).includes('client-booking'), false);
-assert.equal(attendedPlan.changes.filter(change => change.kind === 'create').length, 1);
-assert.equal(attendedPlan.protected.filter(item => item.eventId === 'attended-task-lookalike').length, 1);
-
-const manualMeet = eventFrom(body, {
-  id: 'manual-meet',
-  hangoutLink: 'https://meet.google.com/manual-link',
-  conferenceData: { conferenceId: 'manual', conferenceDataVersion: 1, entryPoints: [{ uri: 'https://meet.google.com/manual-link' }] },
-  extendedProperties: { private: {} }
-});
-const manualPlan = plan(input([{ calendarId: CAL.operations, event: manualMeet, fromManagedQuery: false }]));
-assert.equal(manualPlan.changes.length, 0);
-assert.match(manualPlan.issues.join('\n'), /preserved/i);
-
-const unknown = plan(input(
-  [{ calendarId: CAL.operations, event: stored, fromManagedQuery: true }],
-  [task({ status: 'needs-review' })]
-));
-assert.equal(unknown.ok, true);
-assert.deepEqual(unwrap(unknown.changes), []);
-assert.equal(unknown.unchanged, 1);
-
-const unknownWithoutReminder = plan(input([], [task({ status: 'mystery-state' })]));
-assert.equal(unknownWithoutReminder.ok, true);
-assert.deepEqual(unwrap(unknownWithoutReminder.changes), []);
-
-const blankId = plan(input([], [task({ task_id: '' }), task()]));
-assert.equal(blankId.ok, true);
-assert.equal(blankId.changes.filter(change => change.kind === 'create').length, 1);
-
-const duplicateIds = plan(input([], [task(), task({ task: 'Second row same id' })]));
-assert.equal(duplicateIds.ok, false);
-assert.deepEqual(unwrap(duplicateIds.changes), []);
-
-const missingTitle = plan(input([], [task({ task: '   ' })]));
-assert.equal(missingTitle.ok, false);
-assert.deepEqual(unwrap(missingTitle.changes), []);
-
-const undated = plan(input(
-  [{ calendarId: CAL.operations, event: stored, fromManagedQuery: true }],
-  [task({ due_date: '' })]
-));
-assert.equal(undated.ok, true);
-assert.deepEqual(unwrap(undated.changes), []);
-assert.equal(undated.unchanged, 1);
-
-const missingCalendar = plan(Object.assign(input(), {
-  calendarIds: { sales: CAL.sales, proposals: CAL.proposals, operations: CAL.operations }
-}));
-assert.equal(missingCalendar.ok, false);
-assert.deepEqual(unwrap(missingCalendar.changes), []);
-
-const calls = [];
-const api = {
-  conferenceRestClear: false,
-  insert(resource, calendarId, options) {
-    calls.push({ op: 'insert', resource, calendarId, options });
-    return { id: 'created-1' };
+const existing = decide({
+  events: [managed('rem-keep', 'task-recon-0001'), clientMeeting()],
+  cancellationScan: {
+    complete: true,
+    calendarIds: SCAN_IDS.slice(),
+    events: [managed('rem-keep', 'task-recon-0001')]
   },
-  patch() { throw new Error('Advanced Service patch must not clear Meet'); },
-  remove() { throw new Error('unexpected remove'); },
-  restPatch() { throw new Error('REST clear is disabled'); }
-};
-apply(meetPlan.changes, api);
-assert.equal(calls.length, 0);
-const restCalls = [];
-apply(meetPlan.changes, {
-  conferenceRestClear: true,
-  restPatch(request) {
-    restCalls.push(request);
-    return { status: 200 };
-  },
-  insert() { throw new Error('unexpected insert'); },
-  patch() { throw new Error('Advanced Service patch must not clear Meet'); },
-  remove() { throw new Error('unexpected remove'); }
+  tasks: [task()]
 });
-assert.equal(restCalls.length, 1);
-assert.equal(restCalls[0].payload, '{"conferenceData":null}');
-assert.equal(restCalls[0].conferenceDataVersion, 1);
-assert.equal(restCalls[0].sendUpdates, 'none');
-assert.match(restCalls[0].url, /[?&]conferenceDataVersion=1(?:&|$)/);
-assert.match(restCalls[0].url, /[?&]sendUpdates=none(?:&|$)/);
-assert.equal(restCalls[0].url.includes('conferenceDataVersion=4'), false);
-assert.match(restCalls[0].url, /\/events\/rem-meet\?/);
-const cleared = eventFrom(body, { id: 'rem-meet' });
-const afterClear = plan(input([{ calendarId: CAL.operations, event: cleared, fromManagedQuery: true }]));
-assert.deepEqual(unwrap(afterClear.changes), []);
+assert.equal(existing.ok, true);
+assert.equal(existing.creates.length, 0);
 
-assert.throws(() => apply([{
-  kind: 'clear_conference',
-  classification: 'managed_internal_reminder',
-  confirmedCalendarId: CAL.confirmed,
-  reminder: {
-    managed: true,
-    calendarId: CAL.confirmed,
-    event: clientBooking.event
-  }
-}], api));
-assert.equal(calls.length, 0);
-assert.equal(restCalls.length, 1);
+const newTask = task({
+  taskId: 'task-post-baseline-0007',
+  description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: task-post-baseline-0007',
+  ownerApprovedCreate: true,
+  creationApprovalId: 'create-post-baseline'
+});
+const firstDecision = decide({
+  events: [clientMeeting()],
+  cancellationScan: { complete: true, calendarIds: SCAN_IDS.slice(), events: [] },
+  tasks: [newTask]
+});
+assert.equal(firstDecision.ok, true);
+assert.equal(firstDecision.creates.length, 1);
+assert.equal(firstDecision.creates[0].body.transparency, 'transparent');
+assert.equal(firstDecision.creates[0].body.attendees, undefined);
+assert.equal(firstDecision.creates[0].body.conferenceData, undefined);
+assert.equal(Array.isArray(firstDecision.creates[0].body.recurrence) && firstDecision.creates[0].body.recurrence.length, 0);
+assert.equal(
+  Date.parse(firstDecision.creates[0].body.end.dateTime) - Date.parse(firstDecision.creates[0].body.start.dateTime),
+  15 * 60000
+);
 
-const partial = [];
-assert.throws(() => apply([
-  created.changes[0],
-  {
-    kind: 'remove',
-    classification: 'managed_internal_reminder',
-    confirmedCalendarId: CAL.confirmed,
-    reminder: { managed: true, calendarId: CAL.confirmed, event: clientBooking.event }
-  }
-], {
-  insert() { partial.push('insert'); },
-  patch() { partial.push('patch'); },
-  remove() { partial.push('remove'); }
-}));
-assert.deepEqual(partial, []);
-
-const repeatStore = [];
-apply(created.changes, {
-  insert(resource, calendarId, options) {
+const store = {};
+let inserts = 0;
+const io = {
+  getEvent: function (_calendarId, eventId) {
+    return store[eventId] || null;
+  },
+  insertEvent: function (calendarId, resource) {
+    inserts += 1;
+    assert.equal(calendarId, CAL.operations);
     assert.equal(resource.transparency, 'transparent');
+    assert.equal(resource.attendees, undefined);
     assert.equal(resource.conferenceData, undefined);
-    assert.equal(resource.recurrence, undefined);
-    assert.equal(options.sendUpdates, 'none');
-    repeatStore.push({
-      calendarId,
-      fromManagedQuery: true,
-      event: eventFrom(resource, { id: 'created-once' })
-    });
-    return { id: 'created-once' };
+    assert.equal(resource.hangoutLink, undefined);
+    assert.ok(!resource.recurrence || resource.recurrence.length === 0);
+    assert.equal(Date.parse(resource.end.dateTime) - Date.parse(resource.start.dateTime), 15 * 60000);
+    const event = Object.assign({}, resource, { status: 'confirmed' });
+    store[resource.id] = event;
+    return event;
+  }
+};
+const applied = sandbox.lvptApplyCreates_(
+  firstDecision.creates,
+  io,
+  ledgerReady(),
+  'run-1',
+  '2026-11-22T04:10:00.000Z'
+);
+assert.equal(inserts, 1);
+assert.equal(applied.inserted.length, 1);
+const createdId = applied.inserted[0].eventId;
+assert.equal(createdId, sandbox.lvptStableEventId_(newTask.taskId));
+
+const secondDecision = decide({
+  ledger: ledgerReady().concat(applied.ledgerRows),
+  events: [{ calendarId: CAL.operations, event: store[createdId] }, clientMeeting()],
+  cancellationScan: {
+    complete: true,
+    calendarIds: SCAN_IDS.slice(),
+    events: [{ calendarId: CAL.operations, event: store[createdId] }]
   },
-  patch() { throw new Error('unexpected patch'); },
-  remove() { throw new Error('unexpected remove'); }
+  tasks: [newTask]
 });
-const third = plan(input(repeatStore));
-assert.deepEqual(unwrap(third.changes), []);
-assert.equal(third.unchanged, 1);
-const fourth = plan(input(repeatStore));
-assert.deepEqual(unwrap(fourth.changes), []);
+const appliedAgain = sandbox.lvptApplyCreates_(
+  secondDecision.creates,
+  io,
+  ledgerReady().concat(applied.ledgerRows),
+  'run-2',
+  '2026-11-22T05:00:00.000Z'
+);
+assert.equal(secondDecision.creates.length, 0);
+assert.equal(appliedAgain.inserted.length, 0);
+assert.equal(inserts, 1);
 
-const selfHeld = eventFrom(body, {
-  id: 'rem-self',
-  attendees: [{ email: 'book@pokertraininglasvegas.com', self: true, organizer: true }]
+store[createdId].status = 'cancelled';
+const afterCancel = decide({
+  ledger: ledgerReady().concat(applied.ledgerRows).concat([{
+    history_key: 'cancelled:' + CAL.operations + ':' + createdId,
+    observation: 'cancelled_managed',
+    outcome: 'retained',
+    task_id: newTask.taskId,
+    calendar_id: CAL.operations,
+    event_id: createdId
+  }]),
+  events: [],
+  cancellationScan: { complete: true, calendarIds: SCAN_IDS.slice(), events: [] },
+  tasks: [newTask]
 });
-const selfPlan = plan(input([{ calendarId: CAL.operations, event: selfHeld, fromManagedQuery: true }]));
-const selfAgain = plan(input([{ calendarId: CAL.operations, event: selfHeld, fromManagedQuery: true }]));
-assert.deepEqual(unwrap(selfPlan.changes), []);
-assert.deepEqual(unwrap(selfAgain.changes), []);
+const cancelledApply = sandbox.lvptApplyCreates_(
+  afterCancel.creates,
+  io,
+  ledgerReady().concat(applied.ledgerRows),
+  'run-3',
+  '2026-11-22T06:00:00.000Z'
+);
+assert.equal(afterCancel.creates.length, 0);
+assert.equal(cancelledApply.inserted.length, 0);
+assert.equal(inserts, 1);
+assert.equal(JSON.stringify(afterCancel).includes('client-booking-real'), false);
 
-const confirmedLookalike = {
-  calendarId: CAL.confirmed,
-  fromManagedQuery: false,
-  event: eventFrom(body, { id: 'confirmed-lookalike', extendedProperties: { private: {} } })
-};
-const keptConfirmed = plan(input([confirmedLookalike, clientBooking]));
-const keptConfirmedAgain = plan(input([confirmedLookalike, clientBooking]));
-assert.equal(keptConfirmed.changes.length, 0);
-assert.equal(keptConfirmedAgain.changes.length, 0);
-assert.ok(keptConfirmed.protected.some(item => item.eventId === 'confirmed-lookalike' && item.reason === 'confirmed_calendar_unmanaged'));
-assert.equal(JSON.stringify(keptConfirmed.changes).includes('client-booking'), false);
+const duplicateManaged = plan(
+  [managed('rem-a', 'task-dupe', 'confirmed'), managed('rem-b', 'task-dupe', 'confirmed')],
+  [task({ taskId: 'task-dupe' })]
+);
+assert.equal(creates(duplicateManaged).length, 0);
+assert.ok(duplicateManaged.reviews.some(function (row) {
+  return row.action === 'REVIEW' && /duplicate managed reminders/i.test(row.reason);
+}));
 
-const moved = plan(input([
-  { calendarId: CAL.confirmed, fromManagedQuery: true, event: eventFrom(body, { id: 'managed-on-confirmed' }) },
-  clientBooking
-]));
-assert.equal(moved.changes.some(change => change.kind === 'replace_managed' && change.prior.event.id === 'managed-on-confirmed'), true);
-assert.equal(moved.changes.some(change => change.target && change.target.calendarId === CAL.operations), true);
-assert.equal(JSON.stringify(moved.changes).includes('client-booking'), false);
+assert.equal(calendarTouched, 0);
+assert.equal(sheetsTouched, 0);
 
-const weeklyClient = {
-  calendarId: CAL.confirmed,
-  fromManagedQuery: false,
-  event: {
-    id: 'weekly-client',
-    status: 'confirmed',
-    summary: 'Northwind weekly game',
-    description: 'Standing client session',
-    recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
-    start: { dateTime: '2026-12-01T18:00:00.000Z' },
-    end: { dateTime: '2026-12-01T20:00:00.000Z' }
-  }
-};
-const weeklyPlan = plan(input([weeklyClient]));
-assert.equal(weeklyPlan.changes.length, 1);
-assert.equal(weeklyPlan.changes[0].kind, 'create');
-assert.equal(weeklyPlan.changes[0].target.calendarId, CAL.operations);
-assert.equal(JSON.stringify(weeklyPlan.changes).includes('weekly-client'), false);
-
-const busyReminder = eventFrom(body, {
-  id: 'busy-internal',
-  transparency: 'opaque'
-});
-const paidClient = {
-  calendarId: CAL.confirmed,
-  fromManagedQuery: false,
-  event: {
-    id: 'kristin-booking',
-    status: 'confirmed',
-    summary: 'CONFIRMED — Kristin / Ethan — 6-person private poker training',
-    description: 'LVPT CONFIRMED CLIENT BOOKING. Paid in full. Not an internal task reminder.',
-    start: { dateTime: '2026-11-14T04:30:00.000Z' },
-    end: { dateTime: '2026-11-14T06:30:00.000Z' },
-    transparency: 'opaque',
-    location: 'The Venetian Poker Room, Las Vegas, NV'
-  }
-};
-const legacyOwnerReminder = {
-  calendarId: CAL.operations,
-  fromManagedQuery: false,
-  event: {
-    id: 'legacy-nium-meet',
-    status: 'confirmed',
-    summary: 'ACTION — NIUM — Verify remaining deliveries and archive photos',
-    description: '<p>LVPT INTERNAL OWNER REMINDER — not a client appointment.\nTask ID: task-ops-0001\nAlready confirmed: client invoices PAID IN FULL. Do not request final-invoice payment again.</p>\nJoin with Google Meet: https://meet.google.com/nqe-mxhb-zda',
-    start: { dateTime: '2026-11-09T14:30:00.000Z' },
-    end: { dateTime: '2026-11-09T14:45:00.000Z' },
-    transparency: 'transparent',
-    hangoutLink: 'https://meet.google.com/nqe-mxhb-zda',
-    conferenceData: { conferenceId: 'nqe-mxhb-zda', entryPoints: [{ uri: 'https://meet.google.com/nqe-mxhb-zda' }] }
-  }
-};
-const safePatch = plan(input([
-  { calendarId: CAL.operations, fromManagedQuery: true, event: busyReminder },
-  paidClient,
-  legacyOwnerReminder
-]));
-assert.equal(safePatch.ok, true, safePatch.error);
-assert.equal(safePatch.counts.patchManaged, 1);
-assert.equal(safePatch.counts.clearConference, 0);
-assert.equal(safePatch.counts.remove, 0);
-assert.equal(safePatch.changes.length, 1);
-const onlyChange = safePatch.changes[0];
-assert.equal(onlyChange.kind, 'patch_managed');
-assert.equal(onlyChange.prior.event.id, 'busy-internal');
-assert.deepEqual(unwrap(onlyChange.reasons), ['transparency']);
-assert.equal(onlyChange.fields.transparency, 'transparent');
-assert.equal(onlyChange.fields.start, undefined);
-assert.equal(onlyChange.fields.end, undefined);
-assert.equal(onlyChange.fields.conferenceData, undefined);
-assert.equal(onlyChange.fields.attendees, undefined);
-assert.equal(JSON.stringify(safePatch.changes).includes('kristin-booking'), false);
-assert.equal(JSON.stringify(safePatch.changes).includes('legacy-nium-meet'), false);
-assert.equal(onlyChange.fields.summary, busyReminder.summary);
-assert.equal(onlyChange.fields.description, busyReminder.description);
-
-console.log('calendar-task-reconcile: ok');
+console.log('calendar-task-reconcile: safe TaskSync R16 checks passed');

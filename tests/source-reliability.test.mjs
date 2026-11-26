@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { classifyGmailHeaderRead, classifyStoredCollection } from '../lib/source-reliability.mjs';
+import {
+  classifyFailureReason,
+  classifyGmailHeaderRead,
+  classifyStoredCollection,
+  evidenceFromBridgeHeartbeat,
+  evidenceFromGmailHeader,
+  evidenceFromSmsScan,
+  evidenceFromStoredCollection,
+  normalizeLocalReadiness,
+  normalizeSourceHealth,
+  SOURCE_EXPLICIT_STATES,
+  SOURCE_FAILURE_KINDS
+} from '../lib/source-reliability.mjs';
+import {
+  classifyBridgeHeartbeat,
+  classifySmsScan,
+  SMS_SCAN_FAILURE_KINDS
+} from '../lib/sms-scan-health.mjs';
 
 const require = createRequire(import.meta.url);
 const { sourceStatus } = require('../public/v2/js/event-finance.js');
@@ -209,5 +226,198 @@ assert.match(rcs, /heartbeat: 'unverified'/);
 assert.match(rcs, /verificationPrerequisite/);
 assert.equal(rcs.includes('lvpt_sms_staging'), false);
 assert.match(rcs, /lastSuccess: ''/);
+
+// --- R17 / T28: normalized honest source-health evidence ---
+assert.equal(classifyFailureReason('401 unauthorized'), SOURCE_FAILURE_KINDS.AUTHORIZATION);
+assert.equal(classifyFailureReason('ETIMEDOUT'), SOURCE_FAILURE_KINDS.TIMEOUT);
+assert.equal(classifyFailureReason('http_502'), SOURCE_FAILURE_KINDS.PROVIDER);
+assert.equal(classifyFailureReason('page_cap'), SOURCE_FAILURE_KINDS.PARTIAL);
+assert.notEqual(classifyFailureReason('401 unauthorized'), classifyFailureReason('ETIMEDOUT'));
+assert.notEqual(classifyFailureReason('ETIMEDOUT'), classifyFailureReason('http_502'));
+
+const authGmail = classifyGmailHeaderRead({
+  requested: 1,
+  reads: [{ domain: 'alpha', ok: false, reason: '401 unauthorized' }],
+  now
+});
+assert.equal(authGmail.failureKind, SOURCE_FAILURE_KINDS.AUTHORIZATION);
+assert.equal(authGmail.authorized, false);
+assert.equal(authGmail.headerThreads, null);
+assert.equal(authGmail.evidence.recordsExamined, null);
+assert.equal(authGmail.evidence.explicitState, SOURCE_EXPLICIT_STATES.AUTHORIZATION_REQUIRED);
+assert.equal(authGmail.evidence.retry.supported, false);
+assert.equal(authGmail.evidence.retry.automatic, false);
+assert.match(authGmail.evidence.ownerAction, /owner review session/i);
+assert.match(authGmail.detail, /not a provider outage/);
+assert.notEqual(authGmail.evidence.failureKind, SOURCE_FAILURE_KINDS.PROVIDER);
+assert.notEqual(authGmail.evidence.failureKind, SOURCE_FAILURE_KINDS.TIMEOUT);
+
+const timeoutGmail = classifyGmailHeaderRead({
+  requested: 1,
+  reads: [{ domain: 'alpha', ok: false, reason: 'ETIMEDOUT', timedOut: true }],
+  now
+});
+assert.equal(timeoutGmail.failureKind, SOURCE_FAILURE_KINDS.TIMEOUT);
+assert.equal(timeoutGmail.timedOut, true);
+assert.equal(timeoutGmail.headerThreads, null);
+assert.equal(timeoutGmail.evidence.recordsExamined, null);
+assert.equal(timeoutGmail.evidence.explicitState, SOURCE_EXPLICIT_STATES.TIMED_OUT);
+assert.equal(timeoutGmail.evidence.retry.supported, true);
+assert.equal(timeoutGmail.evidence.retry.automatic, false);
+assert.match(timeoutGmail.evidence.retry.guidance, /timeout/i);
+assert.notEqual(timeoutGmail.evidence.failureKind, SOURCE_FAILURE_KINDS.AUTHORIZATION);
+assert.notEqual(timeoutGmail.evidence.failureKind, SOURCE_FAILURE_KINDS.UNAVAILABLE);
+
+assert.equal(failedGmail.failureKind, SOURCE_FAILURE_KINDS.PROVIDER);
+assert.equal(failedGmail.headerThreads, null);
+assert.equal(failedGmail.evidence.recordsExamined, null);
+assert.equal(failedGmail.evidence.error.providerFailed, true);
+assert.match(failedGmail.evidence.retry.guidance, /zero totals/i);
+
+assert.equal(cappedGmail.failureKind, SOURCE_FAILURE_KINDS.PARTIAL);
+assert.equal(cappedGmail.evidence.failureKind, SOURCE_FAILURE_KINDS.PARTIAL);
+assert.equal(cappedGmail.evidence.recordsExamined, 1);
+assert.equal(cappedGmail.evidence.retry.supported, true);
+assert.match(cappedGmail.evidence.ownerAction, /partial/i);
+
+const authSms = classifySmsScan({
+  configured: true,
+  now,
+  pages: [{ ok: false, reason: '403 forbidden', authorization: true }]
+});
+assert.equal(authSms.failureKind, SMS_SCAN_FAILURE_KINDS.AUTHORIZATION);
+assert.equal(authSms.authorized, false);
+assert.equal(authSms.storedMessages, null);
+assert.equal(authSms.retry.supported, false);
+assert.match(authSms.ownerAction, /owner review session/i);
+assert.equal(authSms.scheduleVersusExecution.storedRowSubstitutesForHeartbeat, false);
+const authSmsEvidence = evidenceFromSmsScan(authSms, { now });
+assert.equal(authSmsEvidence.explicitState, SOURCE_EXPLICIT_STATES.AUTHORIZATION_REQUIRED);
+assert.equal(authSmsEvidence.recordsExamined, null);
+assert.notEqual(authSmsEvidence.failureKind, SOURCE_FAILURE_KINDS.TIMEOUT);
+
+const timeoutSms = classifySmsScan({
+  configured: true,
+  now,
+  pages: [{ ok: false, reason: 'timeout', timedOut: true }]
+});
+assert.equal(timeoutSms.failureKind, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.equal(timeoutSms.timedOut, true);
+assert.equal(timeoutSms.storedMessages, null);
+assert.equal(timeoutSms.retry.supported, true);
+assert.equal(timeoutSms.retry.automatic, false);
+const timeoutSmsEvidence = evidenceFromSmsScan(timeoutSms, { now });
+assert.equal(timeoutSmsEvidence.explicitState, SOURCE_EXPLICIT_STATES.TIMED_OUT);
+assert.equal(timeoutSmsEvidence.recordsExamined, null);
+assert.notEqual(timeoutSmsEvidence.failureKind, SOURCE_FAILURE_KINDS.AUTHORIZATION);
+assert.notEqual(timeoutSmsEvidence.failureKind, SOURCE_FAILURE_KINDS.PARTIAL);
+
+const providerSms = classifySmsScan({
+  configured: true,
+  now,
+  pages: [{ ok: false, reason: 'http_502' }]
+});
+assert.equal(providerSms.failureKind, SMS_SCAN_FAILURE_KINDS.PROVIDER);
+assert.equal(providerSms.storedMessages, null);
+assert.equal(evidenceFromSmsScan(providerSms, { now }).recordsExamined, null);
+
+const staleSms = classifySmsScan({
+  configured: true,
+  now,
+  pages: [{ ok: true, rows: [{ timestamp_ms: olderMessage, received_at: oldImport }] }]
+});
+assert.equal(staleSms.failureKind, SMS_SCAN_FAILURE_KINDS.STALE);
+assert.equal(staleSms.status, 'STALE');
+assert.equal(evidenceFromSmsScan(staleSms, { now }).failureKind, SOURCE_FAILURE_KINDS.STALE);
+assert.equal(evidenceFromSmsScan(staleSms, { now }).explicitState, SOURCE_EXPLICIT_STATES.STALE);
+
+const partialSms = classifySmsScan({
+  configured: true,
+  now,
+  pages: [
+    { ok: true, full: true, rows: [{ timestamp_ms: olderMessage, received_at: recentImport }] },
+    { ok: false, reason: 'http' }
+  ]
+});
+assert.equal(partialSms.coverage, 'partial');
+assert.equal(partialSms.failureKind, SMS_SCAN_FAILURE_KINDS.PROVIDER);
+assert.notEqual(partialSms.failureKind, SMS_SCAN_FAILURE_KINDS.PARTIAL);
+assert.equal(partialSms.storedMessages, 1);
+assert.equal(partialSms.countComplete, false);
+assert.equal(evidenceFromSmsScan(partialSms, { now }).recordsExamined, 1);
+assert.equal(evidenceFromSmsScan(partialSms, { now }).failureKind, SOURCE_FAILURE_KINDS.PROVIDER);
+assert.match(evidenceFromSmsScan(partialSms, { now }).retry.guidance, /provider/i);
+
+assert.ok(stored.evidence);
+assert.equal(stored.evidence.heartbeatVerified, false);
+assert.equal(stored.evidence.scheduleVersusExecution.storedRowSubstitutesForHeartbeat, false);
+assert.equal(stored.evidence.failureKind, SOURCE_FAILURE_KINDS.NOT_VERIFIED);
+assert.match(stored.evidence.retry.guidance, /heartbeat|execution evidence/i);
+assert.equal(evidenceFromStoredCollection(stored).executedAt, '');
+
+assert.equal(healthyCollection.evidence.heartbeatVerified, true);
+assert.equal(healthyCollection.evidence.executedAt, recentHeartbeat);
+assert.notEqual(healthyCollection.evidence.executedAt, healthyCollection.newestMessageAt);
+assert.notEqual(healthyCollection.evidence.executedAt, healthyCollection.newestIngestAt);
+
+const scheduleOnly = normalizeSourceHealth({
+  source: 'calendar',
+  name: 'Safe TaskSync',
+  schedule: 'Hourly',
+  auditSucceeded: true,
+  connected: true,
+  lastSuccess: recentImport,
+  acceptLastSuccess: false,
+  executionEvidence: false,
+  now
+});
+assert.equal(scheduleOnly.executedAt, '');
+assert.equal(scheduleOnly.scheduleVersusExecution.scheduleIsNotExecution, true);
+assert.equal(scheduleOnly.scheduleVersusExecution.successfulAuditSubstitutesForExecution, false);
+assert.equal(scheduleOnly.scheduleVersusExecution.auditIsNotExecution, true);
+assert.equal(scheduleOnly.failureKind, SOURCE_FAILURE_KINDS.NOT_VERIFIED);
+assert.match(scheduleOnly.ownerAction, /Safe TaskSync|execution/i);
+
+const missingHb = classifyBridgeHeartbeat({ status: null, historicalRowCount: 12, now });
+const hbEvidence = evidenceFromBridgeHeartbeat(missingHb, { now });
+assert.equal(hbEvidence.heartbeatVerified, false);
+assert.equal(hbEvidence.executedAt, '');
+assert.equal(missingHb.scheduleVersusExecution.historicalImpliesSync, false);
+assert.equal(missingHb.scheduleVersusExecution.storedRowSubstitutesForHeartbeat, false);
+assert.match(hbEvidence.retry.guidance, /heartbeat|execution evidence/i);
+
+const readiness = normalizeLocalReadiness({
+  now,
+  gmail: authGmail,
+  sms: authSms,
+  smsHeartbeat: missingHb,
+  rcs: {
+    connected: false,
+    heartbeatVerified: false,
+    lastIngestionAt: recentImport,
+    newestMessageAt: olderMessage,
+    reason: 'Collector unpaired. Stored RCS rows are not a live heartbeat.'
+  },
+  calendar: {
+    schedule: 'Hourly',
+    auditSucceeded: true,
+    executionEvidence: false,
+    lastSuccess: recentImport
+  }
+});
+assert.equal(readiness.liveVerified, false);
+assert.equal(readiness.gmail.failureKind, SOURCE_FAILURE_KINDS.AUTHORIZATION);
+assert.equal(readiness.sms.failureKind, SOURCE_FAILURE_KINDS.AUTHORIZATION);
+assert.equal(readiness.smsHeartbeat.heartbeatVerified, false);
+assert.equal(readiness.rcs.scheduleVersusExecution.storedRowSubstitutesForHeartbeat, false);
+assert.equal(readiness.rcs.executedAt, '');
+assert.equal(readiness.calendar.executedAt, '');
+assert.equal(readiness.calendar.scheduleVersusExecution.auditIsNotExecution, true);
+assert.equal(readiness.calendar.scheduleVersusExecution.successfulAuditSubstitutesForExecution, false);
+assert.match(readiness.calendar.detail, /schedule|audit/i);
+
+const gmailEvidenceMirror = evidenceFromGmailHeader(timeoutGmail);
+assert.equal(gmailEvidenceMirror.failureKind, SOURCE_FAILURE_KINDS.TIMEOUT);
+assert.equal(gmailEvidenceMirror.recordsExamined, null);
 
 console.log('source reliability tests passed');

@@ -7,10 +7,11 @@ import {
   classifySmsScan,
   observedTime,
   SMS_BRIDGE_HEARTBEAT_UNVERIFIED,
-  SMS_PAGE_CAP
+  SMS_PAGE_CAP,
+  SMS_SCAN_FAILURE_KINDS
 } from '../lib/sms-scan-health.mjs';
 import { validateBridgeStatus } from '../lib/sms-bridge.mjs';
-import { classifyStoredCollection } from '../lib/source-reliability.mjs';
+import { classifyStoredCollection, evidenceFromSmsScan } from '../lib/source-reliability.mjs';
 
 const require = createRequire(import.meta.url);
 const { sourceStatus } = require('../public/v2/js/event-finance.js');
@@ -165,6 +166,10 @@ assert.equal(offline.storedMessages, null);
 assert.equal(offline.fresh, false);
 assert.equal(offline.providerError, true);
 assert.match(offline.detail, /not an empty inbox/);
+assert.ok(offline.failureKind);
+assert.equal(offline.retry.automatic, false);
+assert.match(offline.ownerAction, /./);
+assert.equal(offline.scheduleVersusExecution.storedRowSubstitutesForHeartbeat, false);
 
 const fresh = classifySmsScan({
   configured: true,
@@ -214,6 +219,105 @@ assert.equal(empty.connected, true);
 assert.equal(empty.storedMessages, 0);
 assert.equal(empty.status, 'NOT VERIFIED');
 assert.match(empty.detail, /not a successful import/);
+
+// --- R17 / T28 revision: cause stays distinct from coverage=partial ---
+const pageThenTimeout = classifySmsScan({
+  configured: true,
+  now,
+  pages: [
+    { ok: true, full: true, rows: [row(recentMessage, recentIngest)] },
+    { ok: false, reason: 'ETIMEDOUT', timedOut: true }
+  ]
+});
+assertPrivate(pageThenTimeout);
+assert.equal(pageThenTimeout.coverage, 'partial');
+assert.equal(pageThenTimeout.partial, true);
+assert.equal(pageThenTimeout.readComplete, false);
+assert.equal(pageThenTimeout.countComplete, false);
+assert.equal(pageThenTimeout.failureKind, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.equal(pageThenTimeout.cause, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.notEqual(pageThenTimeout.failureKind, SMS_SCAN_FAILURE_KINDS.PARTIAL);
+assert.equal(pageThenTimeout.timedOut, true);
+assert.equal(pageThenTimeout.storedMessages, 1);
+assert.notEqual(pageThenTimeout.storedMessages, null);
+assert.equal(pageThenTimeout.newestIngestAt, '');
+assert.equal(pageThenTimeout.retry.supported, true);
+assert.equal(pageThenTimeout.retry.automatic, false);
+assert.match(pageThenTimeout.retry.guidance, /timeout/i);
+assert.doesNotMatch(pageThenTimeout.retry.guidance, /Partial coverage is not a complete/);
+assert.match(pageThenTimeout.detail, /timed out|timeout/i);
+assert.match(pageThenTimeout.detail, /not a complete total|not the full store|Coverage is partial/);
+const pageThenTimeoutEvidence = evidenceFromSmsScan(pageThenTimeout, { now });
+assert.equal(pageThenTimeoutEvidence.failureKind, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.equal(pageThenTimeoutEvidence.recordsExamined, 1);
+assert.equal(pageThenTimeoutEvidence.retry.supported, true);
+assert.match(pageThenTimeoutEvidence.retry.guidance, /timeout/i);
+
+const pageThenProvider = classifySmsScan({
+  configured: true,
+  now,
+  pages: [
+    { ok: true, full: true, rows: [row(recentMessage, recentIngest)] },
+    { ok: false, reason: 'http_502' }
+  ]
+});
+assertPrivate(pageThenProvider);
+assert.equal(pageThenProvider.coverage, 'partial');
+assert.equal(pageThenProvider.partial, true);
+assert.equal(pageThenProvider.countComplete, false);
+assert.equal(pageThenProvider.failureKind, SMS_SCAN_FAILURE_KINDS.PROVIDER);
+assert.equal(pageThenProvider.cause, SMS_SCAN_FAILURE_KINDS.PROVIDER);
+assert.notEqual(pageThenProvider.failureKind, SMS_SCAN_FAILURE_KINDS.PARTIAL);
+assert.notEqual(pageThenProvider.failureKind, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.equal(pageThenProvider.timedOut, false);
+assert.equal(pageThenProvider.storedMessages, 1);
+assert.equal(pageThenProvider.newestIngestAt, '');
+assert.equal(pageThenProvider.retry.supported, true);
+assert.equal(pageThenProvider.retry.automatic, false);
+assert.match(pageThenProvider.retry.guidance, /provider|zero totals/i);
+assert.notEqual(pageThenProvider.retry.guidance, pageThenTimeout.retry.guidance);
+assert.match(pageThenProvider.detail, /provider/i);
+const pageThenProviderEvidence = evidenceFromSmsScan(pageThenProvider, { now });
+assert.equal(pageThenProviderEvidence.failureKind, SMS_SCAN_FAILURE_KINDS.PROVIDER);
+assert.equal(pageThenProviderEvidence.recordsExamined, 1);
+
+const topLevelTimeout = classifySmsScan({
+  configured: true,
+  timedOut: true,
+  now,
+  pages: []
+});
+assert.equal(topLevelTimeout.coverage, 'unavailable');
+assert.equal(topLevelTimeout.unavailable, true);
+assert.equal(topLevelTimeout.pagesRead, 0);
+assert.equal(topLevelTimeout.failureKind, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.equal(topLevelTimeout.cause, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.equal(topLevelTimeout.timedOut, true);
+assert.equal(topLevelTimeout.storedMessages, null);
+assert.equal(topLevelTimeout.countComplete, false);
+assert.equal(topLevelTimeout.fresh, false);
+assert.notEqual(topLevelTimeout.status, 'LIVE');
+assert.match(topLevelTimeout.detail, /timed out/i);
+assert.match(topLevelTimeout.detail, /not an empty inbox|No message count/);
+assert.equal(topLevelTimeout.retry.supported, true);
+assert.match(topLevelTimeout.retry.guidance, /timeout/i);
+const topLevelTimeoutEvidence = evidenceFromSmsScan(topLevelTimeout, { now });
+assert.equal(topLevelTimeoutEvidence.recordsExamined, null);
+assert.equal(topLevelTimeoutEvidence.failureKind, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+
+const topLevelTimeoutWithFailedPage = classifySmsScan({
+  configured: true,
+  timedOut: true,
+  now,
+  pages: [{ ok: false, reason: 'deadline exceeded' }]
+});
+assert.equal(topLevelTimeoutWithFailedPage.timedOut, true);
+assert.equal(topLevelTimeoutWithFailedPage.failureKind, SMS_SCAN_FAILURE_KINDS.TIMEOUT);
+assert.equal(topLevelTimeoutWithFailedPage.storedMessages, null);
+
+assert.notEqual(pageThenTimeout.failureKind, pageThenProvider.failureKind);
+assert.notEqual(pageThenTimeout.failureKind, topLevelTimeout.coverage);
+assert.equal(pageThenTimeout.coverage, pageThenProvider.coverage);
 
 const uploadProbe = {
   connected: true,

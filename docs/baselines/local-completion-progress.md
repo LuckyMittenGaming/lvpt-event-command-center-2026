@@ -336,11 +336,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING / gap fill) |
+| Status | IN_PROGRESS (T28 **IMPLEMENTED_TESTED**; T29 hub presentation pending) |
+| Date/time | 2026-11-26 |
 | Dependencies | R11, R14, R15, R16 |
-| Evidence | source-reliability / scan-health / hub health surfaces |
-| Remaining blocker | Must distinguish heartbeat vs stored rows vs scheduled vs executed |
-| Next task | Explicit freshness states; no false zeros |
+| Files inspected | `lib/source-reliability.mjs`, `lib/sms-scan-health.mjs`, `tests/source-reliability.test.mjs`, `tests/sms-scan-health.test.mjs`, operating-picture/action-inbox/rcs routes (read-only), R11–R16 readiness evidence |
+| Files changed (T28) | `lib/source-reliability.mjs`, `lib/sms-scan-health.mjs`, `tests/source-reliability.test.mjs`, `tests/sms-scan-health.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/source-reliability.test.mjs,tests/sms-scan-health.test.mjs` |
+| Exit codes | Targeted verify **0** (source-reliability 0; sms-scan-health 0) |
+| Evidence (T28) | Reused source-reliability (no second model). `normalizeSourceHealth` / `normalizeLocalReadiness` separate last attempt/success, coverage, latest record/ingest, heartbeat, schedule vs execution, error, retry, and owner action. Auth, timeout, provider, stale, partial, and unavailable remain distinct. Failed auth/timeout/unavailable reads keep `recordsExamined: null` (never empty successful totals). Schedules, audits, and stored rows cannot substitute for execution/heartbeat. SMS scan attaches failureKind + retry/ownerAction; classifiers attach `.evidence`. Not LIVE_VERIFIED; no provider endpoints or migrations added. |
+| Evidence (T28 revision) | `classifySmsScan` keeps timeout/provider/authorization **cause** independent of `coverage='partial'` via `stopCause`/`cause`/`failureKind`. `timedOut` stays true after a successful page then timeout, and `input.timedOut` sets `timeoutBlocked` so top-level timeout evidence is consistent. Retry/owner-action guidance derives from that cause. Added deterministic tests for page-then-timeout, page-then-provider, and top-level timeout with no pages. Targeted verify **0**. |
+| Remaining blocker | T29 must pass normalized evidence through protected operating-picture and render actionable hub health |
+| Next task | T29 — Present observable system health |
 
 ### R18 — Complete private-data and authorization audit
 
@@ -488,7 +494,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed) |
-| Next authorized task | R17 — Complete observable system health |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28 **IMPLEMENTED_TESTED** (normalized source-health evidence; hub presentation is T29) |
+| Next authorized task | R17/T29 — Present observable system health |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

@@ -305,11 +305,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING code; ops UNVERIFIED) |
+| Status | IMPLEMENTED_TESTED (code/contracts); ops UNVERIFIED |
+| Date/time | 2026-11-26 |
 | Dependencies | R00 |
-| Evidence | `tests/rcs-*.mjs`; send/mark-read off |
-| Remaining blocker | Pairing not verified; checklist doc absent; R26 for live |
-| Next task | Keep RCS distinct from SMS; readiness only |
+| Files inspected | `services/google-messages-collector/**` (main CLI, PREFLIGHT.txt, preflight, live staging/gateway_off/live_off, collect health), `lib/rcs-staging.mjs`, `lib/rcs-dedup.mjs`, `lib/source-reliability.mjs`, `app/api/sms/staging/rcs-collector/route.ts`, `public/v2/js/unified-hub.js`, `tests/rcs-*.mjs` |
+| Files changed | `tests/rcs-collector.test.mjs`, `tests/rcs-staging.test.mjs`, `docs/rcs-operational-checklist.md` (NEW), `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/rcs-collector.test.mjs,tests/rcs-dedup.test.mjs,tests/rcs-staging.test.mjs`; `Test-Path "$env:LOCALAPPDATA\LVPT\rcs\allowlist.txt"` |
+| Exit codes | Targeted verify **0**; allowlist `Test-Path` **True** (existence only; contents not read) |
+| Evidence | Windows collector at `services/google-messages-collector`; launcher = `lvpt-rcs-collector.exe` flags in `main.go`/`PREFLIGHT.txt` (no repo .ps1 launcher). Allowlist path matches `%LOCALAPPDATA%\LVPT\rcs\allowlist.txt`. Staging path `/api/sms/staging/rcs-ingest` refuses production host. Preview route hard-codes unpaired + unverified heartbeat; stored success cannot set live. Dedup keeps SMS/RCS IDs independent (`possible_duplicate` only). Send/mark-read absent in Go + contracts false. Collector not launched or paired. |
+| Remaining blocker | Live pairing + current collector success on approved PC (R26) |
+| Next task | R16 — task normalization / safe Calendar reconciliation |
 
 ### R16 — Verify task normalization and safe Calendar reconciliation
 
@@ -477,7 +482,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED) |
-| Next authorized task | R15 — RCS collector readiness |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED) |
+| Next authorized task | R16 — task normalization / safe Calendar reconciliation |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

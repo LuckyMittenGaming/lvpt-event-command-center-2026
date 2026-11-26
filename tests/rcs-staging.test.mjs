@@ -111,7 +111,9 @@ assert.equal(empty.status, 200);
 assert.equal(stored.length, 1);
 assert.equal(failed, true);
 const check = await ingestRcs(request({ contactCheck: hash }), { env, fetch: fakeFetch });
-assert.deepEqual(await check.json(), { ok: true, allowed: true, sendEnabled: false });
+const allowlistMatchIsNotPairing = await check.json();
+assert.deepEqual(allowlistMatchIsNotPairing, { ok: true, allowed: true, sendEnabled: false });
+assert.equal('pairing' in allowlistMatchIsNotPairing, false);
 const mismatch = await ingestRcs(request({ contactCheck: contactHash(key, '5550100100') }), { env, fetch: fakeFetch });
 assert.equal((await mismatch.json()).allowed, false);
 assert.equal(stored.length, 1);
@@ -119,11 +121,17 @@ assert.equal(stored.length, 1);
 const now = Date.parse('2026-11-23T16:00:00Z');
 assert.equal(collectorHealth({ pairing: 'unpaired', now }).state, 'not_paired');
 assert.equal(collectorHealth({ pairing: 'unpaired', lastSuccess: '2026-11-23T15:59:00Z', now }).live, false);
+assert.equal(collectorHealth({ pairing: 'unpaired', lastSuccess: '2026-11-23T15:59:00Z', now }).state, 'not_paired');
 assert.equal(collectorHealth({ pairing: 'paired', connected: false, now }).state, 'paired_disconnected');
 assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastSuccess: '2026-11-23T15:50:00Z', now }).state, 'collecting');
 assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastSuccess: '2026-11-23T12:00:00Z', now }).state, 'synchronization_delayed');
 assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastFailure: 'credentials_expired', now }).state, 'authentication_expired');
 assert.equal(collectorHealth({ lastFailure: 'ingest_failed', now }).state, 'ingestion_failed');
+assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastFailure: 'ingest_failed', lastSuccess: '2026-11-23T15:50:00Z', now }).live, false);
+assert.equal(collectorHealth({ pairing: 'unpaired', now }).sendEnabled, false);
+assert.equal(collectorHealth({ pairing: 'unpaired', now }).markReadEnabled, false);
+assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastSuccess: '2026-11-23T15:50:00Z', now }).sendEnabled, false);
+assert.equal(collectorHealth({ pairing: 'paired', connected: true, lastSuccess: '2026-11-23T15:50:00Z', now }).markReadEnabled, false);
 
 const inbox = buildActionInbox({
   today: '2026-11-23',

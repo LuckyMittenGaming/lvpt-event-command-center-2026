@@ -14,16 +14,26 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-function ledgerApi(): { buildLedger: (input: Record<string, unknown>) => Record<string, unknown>; documentedExceptions: () => Array<Record<string, unknown>> } {
+type LedgerApi = {
+  buildLedger: (input: Record<string, unknown>) => Record<string, unknown>;
+  documentedExceptions: () => Array<Record<string, unknown>>;
+  buildFinanceReconciliation: (report: Record<string, unknown>, exceptions: Array<Record<string, unknown>>) => Record<string, unknown>;
+};
+
+function ledgerApi(): LedgerApi {
   const filename = path.join(process.cwd(), 'public/v2/js/event-finance.js');
   const sandbox = { module: { exports: {} as Record<string, unknown> }, exports: {} as Record<string, unknown> };
   sandbox.exports = sandbox.module.exports;
   runInNewContext(readFileSync(filename, 'utf8'), sandbox, { filename });
   const loaded = sandbox.module.exports;
-  if (typeof loaded.buildLedger !== 'function' || typeof loaded.documentedExceptions !== 'function') {
+  if (
+    typeof loaded.buildLedger !== 'function' ||
+    typeof loaded.documentedExceptions !== 'function' ||
+    typeof loaded.buildFinanceReconciliation !== 'function'
+  ) {
     throw new Error('Ledger builder did not load.');
   }
-  return loaded as { buildLedger: (input: Record<string, unknown>) => Record<string, unknown>; documentedExceptions: () => Array<Record<string, unknown>> };
+  return loaded as LedgerApi;
 }
 
 type Raw = Record<string, unknown>;
@@ -267,6 +277,7 @@ export async function GET(request: Request) {
     const finance = ledgerApi();
     const report = finance.buildLedger({ payments, payouts });
     const exceptions = finance.documentedExceptions();
+    const reconciliation = finance.buildFinanceReconciliation(report, exceptions);
     const events = eventRows.map((event) => {
       const mail = Array.isArray(event.emailActivity) ? event.emailActivity as Raw[] : [];
       const staff = Array.isArray(event.staff) ? event.staff as Raw[] : [];
@@ -347,6 +358,7 @@ export async function GET(request: Request) {
       newestSheetGmailAt: newestGmail,
       report,
       exceptions,
+      reconciliation,
       events,
       tasks,
       taskConflicts,

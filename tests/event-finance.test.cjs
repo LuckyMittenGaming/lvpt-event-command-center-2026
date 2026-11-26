@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { buildLedger, sourceStatus, documentedExceptions } = require('../public/v2/js/event-finance.js');
+const { buildLedger, sourceStatus, documentedExceptions, buildFinanceReconciliation } = require('../public/v2/js/event-finance.js');
 
 const niumOws = buildLedger({
   payments: [
@@ -634,5 +634,25 @@ const decksUnadjusted = buildLedger({
 });
 assert.equal(decksUnadjusted.money.verifiedClientReceiptsCents, 5057838 + 135339);
 assert.notEqual(decksUnadjusted.money.verifiedClientReceiptsCents, 5057838 + 135339 - 41851);
+
+// R10 / T19 — identical vendor duplicate counts once in per-event + reconciliation payload
+const vendorDuplicateOnce = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client-dup', eventId: 'evt-dup', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-dup', eventId: 'evt-dup', lineLabel: 'Elevated vendor', invoiceTotal: 250, amountPaid: 0, balanceDue: 250, paymentStatus: 'Invoice Sent' },
+    { paymentId: 'vendor-dup', eventId: 'evt-dup', lineLabel: 'Elevated vendor', invoiceTotal: 250, amountPaid: 0, balanceDue: 250, paymentStatus: 'Invoice Sent' }
+  ],
+  payouts: []
+});
+assert.equal(vendorDuplicateOnce.duplicatePaymentIds.includes('vendor-dup'), true);
+assert.equal(vendorDuplicateOnce.money.vendorCommittedCents, 25000);
+assert.equal(vendorDuplicateOnce.byEvent.find((row) => row.eventId === 'evt-dup').vendorCommittedCents, 25000);
+assert.equal(vendorDuplicateOnce.byEvent.find((row) => row.eventId === 'evt-dup').totalsIncomplete, false);
+const vendorDuplicateRecon = buildFinanceReconciliation(vendorDuplicateOnce, []);
+assert.equal(vendorDuplicateRecon.comparisons.find((row) => row.field === 'vendorCommitted').matches, true);
+assert.equal(vendorDuplicateRecon.qualifiedEventSums.vendorCommittedCents, 25000);
+assert.equal(vendorDuplicateRecon.global.vendorCommittedCents, 25000);
 
 console.log('Event finance and source-status tests passed.');

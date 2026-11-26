@@ -133,6 +133,30 @@
     return result || { ok: false, status: 0, data: { reason: 'timeout' } };
   }
 
+  function paymentMeaning(row) {
+    if (row.duplicateTreatment === 'duplicate_copy') return 'Identical copy, counted once';
+    if (row.duplicateTreatment === 'conflict_excluded') return 'Conflicting id, excluded from totals';
+    if (row.duplicateTreatment === 'missing_id_excluded') return 'No stable id, excluded from totals';
+    return String(row.settlement || 'unknown').replaceAll('_', ' ');
+  }
+
+  function payoutMeaning(row) {
+    if (row.duplicateTreatment === 'conflict_excluded') return 'Conflicting payout id, excluded';
+    if (row.duplicateTreatment === 'missing_id_excluded') return 'No stable id, excluded from totals';
+    if (row.duplicateTreatment === 'duplicate_copy') return 'Identical copy, counted once';
+    if (row.duplicatesPayment) return 'Excluded — same-event included vendor bill';
+    if (row.linkUnresolved) return 'Link does not match an included vendor bill, so the cost stays';
+    if (row.amountOverlap) return 'Same amount, kept as its own record';
+    if (row.role === 'owner_distribution') return /^paid\b/i.test(String(row.status || '')) ? 'Paid distribution' : 'Planned, not paid';
+    return 'Separate obligation';
+  }
+
+  function recordOpen(eventId) {
+    return eventId
+      ? `<button type="button" class="btn small" data-view-record="${esc(eventId)}">View event</button>`
+      : 'No event id';
+  }
+
   function financeBody(result) {
     if (result.status === 401) {
       return `<div class="hub-callout"><strong>Owner sign-in required.</strong><p>The ledger was not read. This is not an empty sheet.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p></div>`;
@@ -145,6 +169,8 @@
       return `<div class="hub-callout"><strong>Every-invoice source is not deployed.</strong><p>The live Apps Script response did not include one row per Payments entry. This screen will not invent totals from the first invoice on an event.</p>${badge('NOT CONNECTED')}</div>`;
     }
     const report = data.report;
+    const reconciliation = data.reconciliation && typeof data.reconciliation === 'object' ? data.reconciliation : null;
+    const exceptions = Array.isArray(data.exceptions) ? data.exceptions : (reconciliation && Array.isArray(reconciliation.linkedExceptions) ? reconciliation.linkedExceptions : []);
     const incomplete = new Set(report.money.incompleteFields || []);
     const shown = (field, cents) => incomplete.has(field) ? 'Incomplete' : dollars(cents);
     const cards = [
@@ -163,19 +189,85 @@
       ['Forecast margin', report.money.forecastMarginCents == null ? 'Unavailable' : dollars(report.money.forecastMarginCents)],
       ['Drawable cash', 'Unavailable']
     ].map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
-    const rows = report.payments.map((row) => {
-      const meaning = row.duplicateTreatment === 'duplicate_copy' ? 'Identical copy, counted once' : row.duplicateTreatment === 'conflict_excluded' ? 'Conflicting id, excluded from totals' : row.duplicateTreatment === 'missing_id_excluded' ? 'No stable id, excluded from totals' : String(row.settlement || 'unknown').replaceAll('_', ' ');
-      const open = row.eventId ? `<button type="button" class="btn small" data-view-record="${esc(row.eventId)}">View event</button>` : 'No event id';
-      return `<tr><td>${esc(eventName(row.eventId))}</td><td>${esc(row.invoiceNumber || row.paymentId)}</td><td>${esc(row.role.replaceAll('_', ' '))}</td><td>${esc(row.paymentStatus)}</td><td>${esc(meaning)}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${esc(dollars(row.amountPaidCents))}</td><td>${esc(dollars(row.balanceDueCents))}</td><td>${open}</td></tr>`;
+
+    const payments = Array.isArray(report.payments) ? report.payments : [];
+    const payouts = Array.isArray(report.payouts) ? report.payouts : [];
+    const clientRows = payments.filter((row) => row.role === 'client_receivable');
+    const vendorRows = payments.filter((row) => row.role === 'vendor_expense');
+    const ownerPaymentRows = payments.filter((row) => row.role === 'owner_distribution');
+    const otherPaymentRows = payments.filter((row) => !['client_receivable', 'vendor_expense', 'owner_distribution'].includes(row.role));
+    const ownerPayoutRows = payouts.filter((row) => row.role === 'owner_distribution');
+    const vendorPayoutRows = payouts.filter((row) => row.role !== 'owner_distribution');
+
+    const clientTable = clientRows.map((row) => {
+      const sourceId = row.paymentId || 'missing payment id';
+      return `<tr data-payment-id="${esc(row.paymentId || '')}" data-event-id="${esc(row.eventId || '')}" data-finance-role="client_receivable"><td>${esc(eventName(row.eventId))}</td><td>${esc(sourceId)}</td><td>${esc(row.invoiceNumber || '—')}</td><td>${esc(row.paymentStatus)}</td><td>${esc(paymentMeaning(row))}</td><td>${esc(row.dueDate || 'No due date')}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${esc(dollars(row.amountPaidCents))}</td><td>${esc(dollars(row.balanceDueCents))}</td><td>${recordOpen(row.eventId)}</td></tr>`;
     }).join('');
-    const payoutRows = report.payouts.map((row) => {
-      const treatment = row.duplicateTreatment === 'conflict_excluded' ? 'Conflicting payout id, excluded' : row.duplicateTreatment === 'missing_id_excluded' ? 'No stable id, excluded from totals' : row.duplicateTreatment === 'duplicate_copy' ? 'Identical copy, counted once' : row.duplicatesPayment ? 'Excluded — same-event included vendor bill' : row.linkUnresolved ? 'Link does not match an included vendor bill, so the cost stays' : row.amountOverlap ? 'Same amount, kept as its own record' : row.role === 'owner_distribution' ? (/^paid\b/i.test(row.status) ? 'Paid distribution' : 'Planned, not paid') : 'Separate obligation';
-      return `<tr><td>${esc(eventName(row.eventId))}</td><td>${esc(row.payee)}</td><td>${esc(row.payoutType)}</td><td>${esc(row.status)}</td><td>${esc(dollars(row.amountCents))}</td><td>${esc(treatment)}</td></tr>`;
+
+    const vendorTable = vendorRows.map((row) => {
+      const sourceId = row.paymentId || 'missing payment id';
+      const label = row.lineLabel || row.counterparty || row.invoiceNumber || sourceId;
+      return `<tr data-payment-id="${esc(row.paymentId || '')}" data-event-id="${esc(row.eventId || '')}" data-finance-role="vendor_expense"><td>${esc(eventName(row.eventId))}</td><td>${esc(sourceId)}</td><td>${esc(label)}</td><td>${esc(row.paymentStatus)}</td><td>${esc(paymentMeaning(row))}</td><td>${esc(row.dueDate || 'No due date')}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${esc(dollars(row.amountPaidCents))}</td><td>${esc(dollars(row.balanceDueCents))}</td><td>${recordOpen(row.eventId)}</td></tr>`;
     }).join('');
+
+    const ownerPaymentTable = ownerPaymentRows.map((row) => {
+      const sourceId = row.paymentId || 'missing payment id';
+      return `<tr data-payment-id="${esc(row.paymentId || '')}" data-event-id="${esc(row.eventId || '')}" data-finance-role="owner_distribution"><td>${esc(eventName(row.eventId))}</td><td>${esc(sourceId)}</td><td>${esc(row.lineLabel || 'Owner distribution')}</td><td>${esc(row.paymentStatus)}</td><td>${esc(paymentMeaning(row))}</td><td>${esc(row.dueDate || 'No due date')}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${esc(dollars(row.amountPaidCents))}</td><td>${recordOpen(row.eventId)}</td></tr>`;
+    }).join('');
+
+    const ownerPayoutTable = ownerPayoutRows.map((row) => {
+      const sourceId = row.payoutId || 'missing payout id';
+      return `<tr data-payout-id="${esc(row.payoutId || '')}" data-event-id="${esc(row.eventId || '')}" data-finance-role="owner_distribution"><td>${esc(eventName(row.eventId))}</td><td>${esc(sourceId)}</td><td>${esc(row.payee || 'Owner')}</td><td>${esc(`${row.payoutType || 'Owner distribution'} · ${row.status || 'Unknown'}`)}</td><td>${esc(payoutMeaning(row))}</td><td>${esc(row.dueDate || 'No due date')}</td><td>${esc(dollars(row.amountCents))}</td><td>${esc(/^paid\b/i.test(String(row.status || '')) ? dollars(row.amountCents) : 'Not paid')}</td><td>${recordOpen(row.eventId)}</td></tr>`;
+    }).join('');
+
+    const vendorPayoutTable = vendorPayoutRows.map((row) => {
+      const sourceId = row.payoutId || 'missing payout id';
+      const link = row.linkedPaymentId ? `Linked payment ${row.linkedPaymentId}` : 'No payment link';
+      return `<tr data-payout-id="${esc(row.payoutId || '')}" data-event-id="${esc(row.eventId || '')}" data-linked-payment-id="${esc(row.linkedPaymentId || '')}" data-finance-role="payout_obligation"><td>${esc(eventName(row.eventId))}</td><td>${esc(sourceId)}</td><td>${esc(row.payee)}</td><td>${esc(row.payoutType)}</td><td>${esc(row.status)}</td><td>${esc(payoutMeaning(row))}</td><td>${esc(link)}</td><td>${esc(row.dueDate || 'No due date')}</td><td>${esc(dollars(row.amountCents))}</td><td>${recordOpen(row.eventId)}</td></tr>`;
+    }).join('');
+
+    const otherTable = otherPaymentRows.map((row) => {
+      const sourceId = row.paymentId || 'missing payment id';
+      return `<tr data-payment-id="${esc(row.paymentId || '')}" data-event-id="${esc(row.eventId || '')}" data-finance-role="${esc(row.role || 'unclassified')}"><td>${esc(eventName(row.eventId))}</td><td>${esc(sourceId)}</td><td>${esc(String(row.role || 'unclassified').replaceAll('_', ' '))}</td><td>${esc(row.paymentStatus)}</td><td>${esc(paymentMeaning(row))}</td><td>${esc(row.dueDate || 'No due date')}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${recordOpen(row.eventId)}</td></tr>`;
+    }).join('');
+
+    const eventRows = reconciliation && Array.isArray(reconciliation.byEvent)
+      ? reconciliation.byEvent
+      : (Array.isArray(report.byEvent) ? report.byEvent : []);
+    const eventReconcileTable = eventRows.map((row) => {
+      const incompleteEvent = row.totalsIncomplete === true ? 'Incomplete' : 'Qualified';
+      return `<tr data-event-id="${esc(row.eventId || '')}" data-finance-reconcile="event"><td>${esc(eventName(row.eventId))}</td><td>${esc(incompleteEvent)}</td><td>${esc(dollars(row.invoiceTotalCents))}</td><td>${esc(dollars(row.collectedCents))}</td><td>${esc(dollars(row.outstandingCents))}</td><td>${esc(dollars(row.vendorCommittedCents))}</td><td>${esc(dollars(row.ownerPaidCents))}</td><td>${esc(dollars(row.ownerPlannedCents))}</td><td>${recordOpen(row.eventId)}</td></tr>`;
+    }).join('');
+
+    const comparisons = reconciliation && Array.isArray(reconciliation.comparisons) ? reconciliation.comparisons : [];
+    const globalTable = comparisons.length
+      ? comparisons.map((row) => {
+        const status = row.matches === true ? 'Reconciled' : row.status === 'incomplete' ? 'Incomplete' : 'Mismatch';
+        const label = String(row.field || '').replace(/([A-Z])/g, ' $1').replace(/^./, (ch) => ch.toUpperCase()).trim();
+        return `<tr data-finance-reconcile="global" data-reconcile-field="${esc(row.field || '')}"><td>${esc(label)}</td><td>${esc(status)}</td><td>${esc(dollars(row.globalCents))}</td><td>${esc(dollars(row.qualifiedEventCents))}</td><td>${esc(row.reason || '')}</td></tr>`;
+      }).join('')
+      : `<tr><td colspan="5">${reconciliation ? 'No global comparisons were returned.' : 'Global reconciliation was not returned on this operating-picture read. Per-event rows above still use the shared ledger model.'}</td></tr>`;
+
+    const exceptionTable = exceptions.map((row) => {
+      const source = row.paymentId
+        ? `payment ${row.paymentId}`
+        : row.payoutId
+          ? `payout ${row.payoutId}`
+          : 'No payment or payout id';
+      const included = row.includedInTotals === true ? 'Included' : 'Excluded from totals';
+      return `<tr data-exception-id="${esc(row.id || '')}" data-payment-id="${esc(row.paymentId || '')}" data-event-id="${esc(row.eventId || '')}" data-finance-exception="1"><td>${esc(row.id || 'exception')}</td><td>${esc(eventName(row.eventId))}</td><td>${esc(source)}</td><td>${esc(dollars(row.amountCents))}</td><td>${esc(included)}</td><td>${esc(row.detail || '')}</td><td>${recordOpen(row.eventId)}</td></tr>`;
+    }).join('');
+
     const duplicateNote = ` Identical payment ids counted once: ${(report.duplicatePaymentIds || []).length}. Conflicting payment ids excluded: ${(report.conflictPaymentIds || []).length}. Identical payout ids counted once: ${(report.duplicatePayoutIds || []).length}. Conflicting payout ids excluded: ${(report.conflictPayoutIds || []).length}. A missing amount stays unavailable.`;
     const incompleteNote = report.money.coverage === 'incomplete' ? ` ${report.money.incompleteReason}` : '';
     const marginNote = report.money.profitReason ? ` ${report.money.profitReason}` : '';
-    return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. A refund stays out of settled receipts. Unclassified rows stay out of both revenue and expenses. Client receipts, vendor bills, and owner draws stay in separate totals. Forecast margin does not subtract owner draws. Ledger contribution is not bank-verified and is not drawable cash. ${esc(report.money.drawableCashReason || 'Drawable cash is unavailable.')}${esc(incompleteNote)}${esc(marginNote)}</div><div class="lifecycle-summary hub-metrics">${cards}</div><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Invoice</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th><th>Record</th></tr></thead><tbody>${rows || '<tr><td colspan="9">No payment rows returned.</td></tr>'}</tbody></table></div><h3>Event payouts, kept separate</h3><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Event</th><th>Payee</th><th>Type</th><th>Status</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${payoutRows || '<tr><td colspan="6">No payout rows returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) share a payment id and were not counted twice. ${report.counts.amountOverlapsNotMerged} same-amount row(s) stayed separate.${duplicateNote} Server time ${esc(data.serverTime || 'not provided')}.</p>`;
+    const reconcileNote = reconciliation
+      ? (reconciliation.allReconciled === true
+        ? ' Global totals reconcile with the sum of qualified per-event totals.'
+        : ` Global reconciliation is incomplete or mismatched for ${(reconciliation.incompleteEventIds || []).length} event id(s). Linked exceptions stay visible.`)
+      : '';
+
+    return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. A refund stays out of settled receipts. Unclassified rows stay out of both revenue and expenses. Client receipts, vendor bills, and owner draws stay in separate totals. Forecast margin does not subtract owner draws. Ledger contribution is not bank-verified and is not drawable cash. ${esc(report.money.drawableCashReason || 'Drawable cash is unavailable.')}${esc(incompleteNote)}${esc(marginNote)}${esc(reconcileNote)}</div><div class="lifecycle-summary hub-metrics">${cards}</div><h3>Client invoices</h3><p class="muted">Invoice-by-invoice client ledger. Same-amount invoices stay independent. Source id is the Payments payment_id.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="client-invoices"><thead><tr><th>Event</th><th>Source id</th><th>Invoice</th><th>Ledger status</th><th>Meaning</th><th>Due date</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th><th>Record</th></tr></thead><tbody>${clientTable || '<tr><td colspan="10">No client invoice rows returned.</td></tr>'}</tbody></table></div><h3>Vendor obligations</h3><p class="muted">Vendor-by-vendor obligations. Vendor bills are not client revenue. Due dates stay on the source row.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="vendor-obligations"><thead><tr><th>Event</th><th>Source id</th><th>Vendor</th><th>Ledger status</th><th>Meaning</th><th>Due date</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th><th>Record</th></tr></thead><tbody>${vendorTable || '<tr><td colspan="10">No vendor obligation rows returned.</td></tr>'}</tbody></table></div><h3>Owner distributions</h3><p class="muted">Owner draws stay separate from operating expenses. Planned is not paid.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="owner-distributions"><thead><tr><th>Event</th><th>Source id</th><th>Label / payee</th><th>Type / status</th><th>Meaning</th><th>Due date</th><th>Amount</th><th>Ledger paid</th><th>Record</th></tr></thead><tbody>${(ownerPaymentTable + ownerPayoutTable) || '<tr><td colspan="9">No owner distribution rows returned.</td></tr>'}</tbody></table></div><h3>Vendor payouts, kept separate</h3><p class="muted">Payout overlaps stay reviewable. A matching amount does not merge a payout into a vendor bill.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="vendor-payouts"><thead><tr><th>Event</th><th>Source id</th><th>Payee</th><th>Type</th><th>Status</th><th>Treatment</th><th>Payment link</th><th>Due date</th><th>Amount</th><th>Record</th></tr></thead><tbody>${vendorPayoutTable || '<tr><td colspan="10">No vendor payout rows returned.</td></tr>'}</tbody></table></div>${otherPaymentRows.length ? `<h3>Fee, tax, and unclassified rows</h3><div class="hub-table-wrap"><table class="hub-table" data-finance-table="other-payments"><thead><tr><th>Event</th><th>Source id</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Due date</th><th>Invoice</th><th>Record</th></tr></thead><tbody>${otherTable}</tbody></table></div>` : ''}<h3>Per-event reconciliation</h3><p class="muted">Qualified event totals come from the shared ledger model. Incomplete event rows stay incomplete.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="event-reconciliation"><thead><tr><th>Event</th><th>State</th><th>Client invoices</th><th>Collected</th><th>Outstanding</th><th>Vendor committed</th><th>Owner paid</th><th>Owner planned</th><th>Record</th></tr></thead><tbody>${eventReconcileTable || '<tr><td colspan="9">No per-event reconciliation rows returned.</td></tr>'}</tbody></table></div><h3>Global reconciliation</h3><p class="muted">Global totals must equal the sum of qualified per-event totals. Exceptions are never hidden to force a match.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="global-reconciliation"><thead><tr><th>Field</th><th>Status</th><th>Global</th><th>Qualified event sum</th><th>Note</th></tr></thead><tbody>${globalTable}</tbody></table></div><h3>Linked exceptions</h3><p class="muted">Documented exceptions stay source-linked and out of fabricated totals.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="linked-exceptions"><thead><tr><th>Exception</th><th>Event</th><th>Source</th><th>Amount</th><th>Totals</th><th>Detail</th><th>Record</th></tr></thead><tbody>${exceptionTable || '<tr><td colspan="7">No linked exceptions were returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) share a payment id and were not counted twice. ${report.counts.amountOverlapsNotMerged} same-amount row(s) stayed separate.${duplicateNote} Server time ${esc(data.serverTime || 'not provided')}. writesPerformed ${esc(String(data.writesPerformed === true))}.</p>`;
   }
 
   function communicationsBody(session, audit) {

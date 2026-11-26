@@ -335,6 +335,17 @@
       const eventClients = clients.filter((row) => row.eventId === eventId);
       const eventUncertain = payments.some((row) => uncertain(row) && row.eventId === eventId && row.role === 'client_receivable');
       const ownerUncertain = payouts.some((row) => uncertain(row) && row.eventId === eventId && row.role === 'owner_distribution');
+      // Countable vendor rows already exclude identical duplicate_copy copies (counted once).
+      // Only conflict_excluded / missing_id_excluded make vendor commitment incomplete.
+      const vendorUncertain = payments.some((row) => (
+        uncertain(row) &&
+        row.eventId === eventId &&
+        row.role === 'vendor_expense' &&
+        row.settlement !== 'not_invoiced' &&
+        row.settlement !== 'refunded'
+      ));
+      const eventVendors = vendors.filter((row) => row.eventId === eventId && row.settlement !== 'not_invoiced' && row.settlement !== 'refunded');
+      const vendorCommittedTotal = sum(eventVendors, (row) => row.invoiceTotalCents);
       const invoiced = sum(eventClients.filter((row) => issuedSettlement(row)), (row) => row.invoiceTotalCents);
       const collected = sum(eventClients.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
       const outstanding = sum(eventClients.filter((row) => openSettlement(row)), (row) => row.balanceDueCents);
@@ -346,9 +357,10 @@
         invoiceTotalCents: eventUncertain || invoiced.gaps ? null : invoiced.cents,
         collectedCents: eventUncertain || collected.gaps ? null : collected.cents,
         outstandingCents: eventUncertain || outstanding.gaps ? null : outstanding.cents,
+        vendorCommittedCents: vendorUncertain || vendorCommittedTotal.gaps ? null : vendorCommittedTotal.cents,
         ownerPaidCents: ownerUncertain || ownerPaidTotal.gaps ? null : ownerPaidTotal.cents,
         ownerPlannedCents: ownerUncertain || ownerPlannedTotal.gaps ? null : ownerPlannedTotal.cents,
-        totalsIncomplete: eventUncertain || ownerUncertain,
+        totalsIncomplete: eventUncertain || ownerUncertain || vendorUncertain || Boolean(vendorCommittedTotal.gaps),
         bankVerified: false
       };
     });
@@ -433,5 +445,132 @@
     ];
   }
 
-  return { buildLedger, sourceStatus, settlementKind, inferRole, cents, documentedExceptions };
+  function moneyField(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  function sumQualifiedEventField(rows, key) {
+    let total = 0;
+    let gaps = 0;
+    const eventIds = [];
+    rows.forEach((row) => {
+      const cents = moneyField(row[key]);
+      if (cents === null || row.totalsIncomplete === true) {
+        gaps += 1;
+        if (row.eventId) eventIds.push(String(row.eventId));
+        return;
+      }
+      total += cents;
+    });
+    return { cents: gaps ? null : total, gaps, eventIds };
+  }
+
+  function buildFinanceReconciliation(report, exceptions) {
+    const ledger = report && typeof report === 'object' ? report : {};
+    const money = ledger.money && typeof ledger.money === 'object' ? ledger.money : {};
+    const byEvent = Array.isArray(ledger.byEvent) ? ledger.byEvent.map((row) => ({
+      eventId: String(row.eventId || ''),
+      invoiceTotalCents: moneyField(row.invoiceTotalCents),
+      collectedCents: moneyField(row.collectedCents),
+      outstandingCents: moneyField(row.outstandingCents),
+      vendorCommittedCents: moneyField(row.vendorCommittedCents),
+      ownerPaidCents: moneyField(row.ownerPaidCents),
+      ownerPlannedCents: moneyField(row.ownerPlannedCents),
+      totalsIncomplete: row.totalsIncomplete === true,
+      bankVerified: false
+    })) : [];
+
+    const qualified = {
+      invoiceTotalCents: sumQualifiedEventField(byEvent, 'invoiceTotalCents'),
+      collectedCents: sumQualifiedEventField(byEvent, 'collectedCents'),
+      outstandingCents: sumQualifiedEventField(byEvent, 'outstandingCents'),
+      vendorCommittedCents: sumQualifiedEventField(byEvent, 'vendorCommittedCents'),
+      ownerPaidCents: sumQualifiedEventField(byEvent, 'ownerPaidCents'),
+      ownerPlannedCents: sumQualifiedEventField(byEvent, 'ownerPlannedCents')
+    };
+
+    function match(field, globalCents, eventSum) {
+      const global = moneyField(globalCents);
+      if (global === null || eventSum.cents === null) {
+        return {
+          field,
+          status: 'incomplete',
+          globalCents: global,
+          qualifiedEventCents: eventSum.cents,
+          matches: false,
+          reason: 'A conflicting, unidentified, or incomplete event total keeps this comparison incomplete. Exceptions stay listed.'
+        };
+      }
+      const matches = global === eventSum.cents;
+      return {
+        field,
+        status: matches ? 'reconciled' : 'mismatch',
+        globalCents: global,
+        qualifiedEventCents: eventSum.cents,
+        matches,
+        reason: matches
+          ? 'Global total equals the sum of qualified per-event totals.'
+          : 'Global total differs from the sum of qualified per-event totals. Review linked exceptions and source rows.'
+      };
+    }
+
+    const comparisons = [
+      match('clientInvoiceTotal', money.clientInvoiceTotalCents, qualified.invoiceTotalCents),
+      match('verifiedClientReceipts', money.verifiedClientReceiptsCents, qualified.collectedCents),
+      match('openClientExposure', money.openClientExposureCents, qualified.outstandingCents),
+      match('vendorCommitted', money.vendorCommittedCents, qualified.vendorCommittedCents),
+      match('ownerPaid', money.ownerPaidCents, qualified.ownerPaidCents),
+      match('ownerPlanned', money.ownerPlannedCents, qualified.ownerPlannedCents)
+    ];
+
+    const linkedExceptions = (Array.isArray(exceptions) ? exceptions : []).map((row) => ({
+      id: String(row.id || ''),
+      eventId: String(row.eventId || ''),
+      paymentId: String(row.paymentId || ''),
+      payoutId: String(row.payoutId || ''),
+      amountCents: moneyField(row.amountCents),
+      includedInTotals: row.includedInTotals === true,
+      detail: String(row.detail || '')
+    }));
+
+    return {
+      byEvent,
+      qualifiedEventSums: {
+        invoiceTotalCents: qualified.invoiceTotalCents.cents,
+        collectedCents: qualified.collectedCents.cents,
+        outstandingCents: qualified.outstandingCents.cents,
+        vendorCommittedCents: qualified.vendorCommittedCents.cents,
+        ownerPaidCents: qualified.ownerPaidCents.cents,
+        ownerPlannedCents: qualified.ownerPlannedCents.cents
+      },
+      global: {
+        clientInvoiceTotalCents: moneyField(money.clientInvoiceTotalCents),
+        verifiedClientReceiptsCents: moneyField(money.verifiedClientReceiptsCents),
+        openClientExposureCents: moneyField(money.openClientExposureCents),
+        vendorCommittedCents: moneyField(money.vendorCommittedCents),
+        ownerPaidCents: moneyField(money.ownerPaidCents),
+        ownerPlannedCents: moneyField(money.ownerPlannedCents),
+        coverage: String(money.coverage || ''),
+        incompleteFields: Array.isArray(money.incompleteFields) ? money.incompleteFields.slice() : []
+      },
+      comparisons,
+      allReconciled: comparisons.every((row) => row.matches === true),
+      incompleteEventIds: [...new Set(
+        qualified.invoiceTotalCents.eventIds
+          .concat(qualified.collectedCents.eventIds)
+          .concat(qualified.outstandingCents.eventIds)
+          .concat(qualified.vendorCommittedCents.eventIds)
+          .concat(qualified.ownerPaidCents.eventIds)
+          .concat(qualified.ownerPlannedCents.eventIds)
+      )],
+      conflictPaymentIds: Array.isArray(ledger.conflictPaymentIds) ? ledger.conflictPaymentIds.slice() : [],
+      conflictPayoutIds: Array.isArray(ledger.conflictPayoutIds) ? ledger.conflictPayoutIds.slice() : [],
+      duplicatePaymentIds: Array.isArray(ledger.duplicatePaymentIds) ? ledger.duplicatePaymentIds.slice() : [],
+      duplicatePayoutIds: Array.isArray(ledger.duplicatePayoutIds) ? ledger.duplicatePayoutIds.slice() : [],
+      linkedExceptions,
+      writesPerformed: false
+    };
+  }
+
+  return { buildLedger, sourceStatus, settlementKind, inferRole, cents, documentedExceptions, buildFinanceReconciliation };
 });

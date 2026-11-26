@@ -49,6 +49,7 @@
   function normalizePayment(row) {
     const identity = inferRole(row);
     const settlement = settlementKind(row.paymentStatus);
+    const refundDirection = String(row.refundDirection || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
     return {
       paymentId: String(row.paymentId || ''),
       eventId: String(row.eventId || ''),
@@ -63,8 +64,36 @@
       amountPaidCents: cents(row.amountPaid),
       balanceDueCents: cents(row.balanceDue),
       dueDate: String(row.dueDate || '').slice(0, 20),
+      refundOfPaymentId: String(row.refundOfPaymentId || '').trim(),
+      refundDirection,
       bankVerified: false
     };
+  }
+
+  function refundEvidenceEstablished(row, catalog) {
+    const amountKnown = row.amountPaidCents !== null || row.invoiceTotalCents !== null;
+    if (!amountKnown || !row.refundOfPaymentId) return false;
+    const original = catalog.find((payment) => (
+      payment.paymentId === row.refundOfPaymentId &&
+      payment.includedInTotals === true &&
+      payment.eventId === row.eventId &&
+      payment.settlement !== 'refunded'
+    ));
+    if (!original) return false;
+    const direction = row.refundDirection || (
+      row.role === 'client_receivable' && original.role === 'client_receivable'
+        ? 'client_outflow'
+        : row.role === 'vendor_expense' && original.role === 'vendor_expense'
+          ? 'vendor_inflow'
+          : ''
+    );
+    if (direction === 'client_outflow') {
+      return row.role === 'client_receivable' && original.role === 'client_receivable';
+    }
+    if (direction === 'vendor_inflow') {
+      return row.role === 'vendor_expense' && original.role === 'vendor_expense';
+    }
+    return false;
   }
 
   function reported(total) {
@@ -168,16 +197,36 @@
     const clients = countablePayments.filter((row) => row.role === 'client_receivable');
     const vendors = countablePayments.filter((row) => row.role === 'vendor_expense');
     const owners = countablePayments.filter((row) => row.role === 'owner_distribution');
+    const feeTaxRows = countablePayments.filter((row) => row.role === 'fee' || row.role === 'tax');
     const unclassified = countablePayments.filter((row) => row.role === 'unclassified');
     const settledClients = clients.filter((row) => row.settlement === 'ledger_settled');
+    const refundedClients = clients.filter((row) => row.settlement === 'refunded');
+    const refundedVendors = vendors.filter((row) => row.settlement === 'refunded');
     const openClients = clients.filter((row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown');
     const countedPayouts = payouts.filter((row) => !row.duplicatesPayment && row.includedInTotals !== false);
+    // Include every refund settlement (client, vendor, fee, tax, owner, unclassified, etc.).
+    const refundCandidates = countablePayments.filter((row) => row.settlement === 'refunded');
+    refundCandidates.forEach((row) => {
+      row.refundUnresolved = !refundEvidenceEstablished(row, countablePayments);
+    });
+    const unresolvedRefundRows = refundCandidates.filter((row) => row.refundUnresolved);
+    const unresolvedRefundIds = unresolvedRefundRows.map((row) => row.paymentId).filter(Boolean);
+    const hasUnresolvedRefund = unresolvedRefundRows.length > 0;
+    // Any refund-classified payment keeps profit/contribution unavailable until supported refund accounting exists.
+    // Evidence links are recorded, but excluding a refund amount is not treated as settled profitability.
+    const hasRefund = refundCandidates.length > 0;
+    const refundBlocksProfit = hasRefund;
 
     const verified = sum(settledClients, (row) => row.amountPaidCents);
-    const issuedClients = clients.filter((row) => row.settlement !== 'not_invoiced' && row.settlement !== 'unknown');
+    // Refunded client rows stay out of issued invoice and settled-receipt totals. No netting is inferred.
+    const issuedClients = clients.filter((row) => row.settlement !== 'not_invoiced' && row.settlement !== 'unknown' && row.settlement !== 'refunded');
     const clientInvoiced = sum(issuedClients, (row) => row.invoiceTotalCents);
-    const vendorCommitted = sum(vendors.filter((row) => row.settlement !== 'not_invoiced'), (row) => row.invoiceTotalCents);
+    const refundedClient = sum(refundedClients, (row) => (row.amountPaidCents !== null ? row.amountPaidCents : row.invoiceTotalCents));
+    const refundedVendor = sum(refundedVendors, (row) => (row.amountPaidCents !== null ? row.amountPaidCents : row.invoiceTotalCents));
+    const vendorCommitted = sum(vendors.filter((row) => row.settlement !== 'not_invoiced' && row.settlement !== 'refunded'), (row) => row.invoiceTotalCents);
     const vendorLedgerPaid = sum(vendors.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
+    const feeTaxCommitted = sum(feeTaxRows.filter((row) => row.settlement !== 'not_invoiced' && row.settlement !== 'refunded'), (row) => row.invoiceTotalCents);
+    const feeTaxPaid = sum(feeTaxRows.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
     const ownerCommitted = sum(owners, (row) => row.invoiceTotalCents);
     function payoutPaid(row) { return /^paid\b/i.test(String(row.status || '').trim()); }
     const ownerPayouts = countedPayouts.filter((row) => row.role === 'owner_distribution');
@@ -198,43 +247,65 @@
     const payoutUncertain = (predicate) => payouts.some((row) => uncertain(row) && predicate(row));
     const overlapUnresolved = payouts.some((row) => row.amountOverlap || row.linkUnresolved) || conflictPaymentIds.length > 0 || payoutReport.conflicts.length > 0;
     const missingIds = payments.some((row) => row.duplicateTreatment === 'missing_id_excluded') || payouts.some((row) => row.duplicateTreatment === 'missing_id_excluded');
-    const marginGaps = clientInvoiced.gaps + vendorCommitted.gaps + unlinkedVendorCommitted.gaps;
+    const feeTaxGaps = feeTaxRows.length ? feeTaxCommitted.gaps : 0;
+    const marginGaps = clientInvoiced.gaps + vendorCommitted.gaps + unlinkedVendorCommitted.gaps + (taxEstablished ? feeTaxGaps : 0);
     let profitReason = '';
     if (!expensesComplete) profitReason = 'Expense completeness is not established.';
     else if (!taxEstablished) profitReason = 'Tax treatment is not established. No tax rate was applied.';
+    else if (refundBlocksProfit) {
+      profitReason = hasUnresolvedRefund
+        ? 'Unresolved refund: direction, amount, or original-transaction link is not established. No netting was inferred.'
+        : 'Refund accounting is not established. Profit and contribution stay unavailable while a refund row is present; excluding the refund is not supported profitability.';
+    }
     else if (overlapUnresolved || missingIds) profitReason = 'Overlap, a conflicting id, or a missing stable id is not resolved.';
     else if (marginGaps) profitReason = 'An expense amount is missing.';
     const marginAvailable = !profitReason;
+    // Owner distributions are never subtracted from forecast margin. Negative margin is preserved.
+    // Refund amounts are never netted into margin or contribution.
     const forecastMarginCents = marginAvailable
-      ? clientInvoiced.cents - vendorCommitted.cents - unlinkedVendorCommitted.cents
+      ? clientInvoiced.cents - vendorCommitted.cents - unlinkedVendorCommitted.cents - feeTaxCommitted.cents
       : null;
+    const unpaidFeeTax = feeTaxRows.some((row) => !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement));
     const unpaidObligations = vendors.some((row) => !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement))
       || unlinkedVendorPayouts.some((row) => !payoutPaid(row))
-      || ownerPayouts.some((row) => !payoutPaid(row));
-    const contributionGaps = verified.gaps + vendorLedgerPaid.gaps + unlinkedVendorPaid.gaps + ownerPaid.gaps;
-    const verifiedContributionCents = !unpaidObligations && !contributionGaps && marginAvailable
-      ? verified.cents - vendorLedgerPaid.cents - unlinkedVendorPaid.cents - ownerPaid.cents
+      || ownerPayouts.some((row) => !payoutPaid(row))
+      || unpaidFeeTax;
+    const contributionGaps = verified.gaps + vendorLedgerPaid.gaps + unlinkedVendorPaid.gaps + ownerPaid.gaps + feeTaxPaid.gaps;
+    const verifiedContributionCents = !refundBlocksProfit && !unpaidObligations && !contributionGaps && marginAvailable
+      ? verified.cents - vendorLedgerPaid.cents - unlinkedVendorPaid.cents - ownerPaid.cents - feeTaxPaid.cents
       : null;
     const drawableCashCents = null;
     const drawableCashReason = 'Drawable cash is unavailable. The ledger does not verify the cash balance, bank settlement, remaining obligations, tax reserve, prior distributions, or overlap.';
 
     const incompleteFields = [];
     function qualify(field, total, affected) {
-      if (affected) incompleteFields.push(field);
-      if (affected || total.gaps) return null;
+      if (affected || total.gaps) {
+        if (!incompleteFields.includes(field)) incompleteFields.push(field);
+        return null;
+      }
       return total.cents;
+    }
+    if (refundBlocksProfit) {
+      incompleteFields.push('refundTreatment');
+      incompleteFields.push('forecastMargin');
+      incompleteFields.push('verifiedContribution');
     }
     const clientUncertain = (row) => row.role === 'client_receivable';
     const openSettlement = (row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown';
+    const issuedSettlement = (row) => row.settlement !== 'not_invoiced' && row.settlement !== 'unknown' && row.settlement !== 'refunded';
     const money = {
       verifiedClientReceiptsCents: qualify('verifiedClientReceipts', verified, paymentUncertain((row) => clientUncertain(row) && row.settlement === 'ledger_settled')),
       verifiedClientReceiptGaps: verified.gaps,
-      clientInvoiceTotalCents: qualify('clientInvoiceTotal', clientInvoiced, paymentUncertain((row) => clientUncertain(row) && row.settlement !== 'not_invoiced')),
+      clientInvoiceTotalCents: qualify('clientInvoiceTotal', clientInvoiced, paymentUncertain((row) => clientUncertain(row) && issuedSettlement(row))),
       openClientExposureCents: qualify('openClientExposure', openExposure, paymentUncertain((row) => clientUncertain(row) && openSettlement(row))),
       openClientExposureGaps: openExposure.gaps,
       initiatedNotSettledCents: qualify('initiatedNotSettled', sum(clients.filter((row) => row.settlement === 'initiated_not_settled'), (row) => row.invoiceTotalCents), paymentUncertain((row) => clientUncertain(row) && row.settlement === 'initiated_not_settled')),
-      vendorCommittedCents: qualify('vendorCommitted', vendorCommitted, paymentUncertain((row) => row.role === 'vendor_expense' && row.settlement !== 'not_invoiced')),
+      refundedClientCents: qualify('refundedClient', refundedClient, refundBlocksProfit || paymentUncertain((row) => clientUncertain(row) && row.settlement === 'refunded')),
+      refundedVendorCents: qualify('refundedVendor', refundedVendor, refundBlocksProfit || paymentUncertain((row) => row.role === 'vendor_expense' && row.settlement === 'refunded')),
+      vendorCommittedCents: qualify('vendorCommitted', vendorCommitted, paymentUncertain((row) => row.role === 'vendor_expense' && row.settlement !== 'not_invoiced' && row.settlement !== 'refunded')),
       vendorLedgerPaidCents: qualify('vendorLedgerPaid', vendorLedgerPaid, paymentUncertain((row) => row.role === 'vendor_expense' && row.settlement === 'ledger_settled')),
+      feeTaxCommittedCents: qualify('feeTaxCommitted', feeTaxCommitted, paymentUncertain((row) => (row.role === 'fee' || row.role === 'tax') && row.settlement !== 'not_invoiced' && row.settlement !== 'refunded')),
+      feeTaxPaidCents: qualify('feeTaxPaid', feeTaxPaid, paymentUncertain((row) => (row.role === 'fee' || row.role === 'tax') && row.settlement === 'ledger_settled')),
       ownerDistributionCents: qualify('ownerDistribution', ownerCommitted, paymentUncertain((row) => row.role === 'owner_distribution')),
       ownerPaidCents: qualify('ownerPaid', ownerPaid, payoutUncertain((row) => row.role === 'owner_distribution' && payoutPaid(row))),
       ownerPlannedCents: qualify('ownerPlanned', ownerPlanned, payoutUncertain((row) => row.role === 'owner_distribution' && !payoutPaid(row))),
@@ -245,9 +316,17 @@
       drawableCashCents,
       drawableCashReason,
       verifiedContributionCents,
+      bankSettlementVerified: false,
+      unresolvedRefundIds,
       coverage: incompleteFields.length ? 'incomplete' : 'complete',
       incompleteFields,
-      incompleteReason: incompleteFields.length ? 'Conflicting or unidentified rows were excluded, so the marked totals are incomplete.' : '',
+      incompleteReason: incompleteFields.length
+        ? (refundBlocksProfit
+          ? (hasUnresolvedRefund
+            ? 'Unresolved refund rows lack established direction, amount, or original-transaction evidence, so affected profit and contribution totals stay unavailable.'
+            : 'A refund row is present and supported refund accounting is not established, so profit and contribution stay unavailable.')
+          : 'Conflicting or unidentified rows were excluded, so the marked totals are incomplete.')
+        : '',
       profitReason
     };
 
@@ -256,7 +335,7 @@
       const eventClients = clients.filter((row) => row.eventId === eventId);
       const eventUncertain = payments.some((row) => uncertain(row) && row.eventId === eventId && row.role === 'client_receivable');
       const ownerUncertain = payouts.some((row) => uncertain(row) && row.eventId === eventId && row.role === 'owner_distribution');
-      const invoiced = sum(eventClients.filter((row) => row.settlement !== 'not_invoiced'), (row) => row.invoiceTotalCents);
+      const invoiced = sum(eventClients.filter((row) => issuedSettlement(row)), (row) => row.invoiceTotalCents);
       const collected = sum(eventClients.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
       const outstanding = sum(eventClients.filter((row) => openSettlement(row)), (row) => row.balanceDueCents);
       const eventOwner = ownerPayouts.filter((row) => row.eventId === eventId);
@@ -288,7 +367,12 @@
         issuedInvoices: issuedClients.length,
         notInvoicedRows: clients.filter((row) => row.settlement === 'not_invoiced').length,
         unknownInvoiceRows: clients.filter((row) => row.settlement === 'unknown').length,
+        refundedClientRows: refundedClients.length,
+        refundedVendorRows: refundedVendors.length,
+        refundRows: refundCandidates.length,
+        unresolvedRefundRows: unresolvedRefundRows.length,
         vendorBills: vendors.length,
+        feeTaxRows: feeTaxRows.length,
         unclassified: unclassified.length,
         payouts: payouts.length,
         payoutsExcludedAsDuplicateExpense: payouts.filter((row) => row.duplicatesPayment).length,
@@ -301,15 +385,17 @@
       warnings: [
         'Ledger statuses are not bank settlement.',
         'Payment Initiated is excluded from verified receipts.',
+        'Refunded rows stay out of settled receipts and issued invoice totals. Any refund keeps forecast margin and contribution unavailable until supported refund accounting exists. No refund netting is inferred, and a ledger refund is not a verified bank reversal.',
+        'Fee and tax ledger rows enter forecast costs only when tax treatment is explicitly established. No automatic 3.5% rate is applied.',
         'Rows explicitly marked unclassified stay out of revenue and expenses.',
         'A matching amount does not merge a payout into a vendor bill.',
         'A payout is left out of costs only when its linked payment is an included vendor bill on the same event.',
         'Planned owner distributions are not money already paid and are not operating expenses.',
-        'Forecast margin is a ledger estimate. Drawable cash stays unavailable until cash, settlement, obligations, tax reserve, prior distributions, and overlap are independently verified.',
-        'A 3.5% tax rate is not applied unless tax treatment is explicitly established.',
+        'Forecast margin is a ledger estimate and may be negative. Drawable cash stays unavailable until cash, settlement, obligations, tax reserve, prior distributions, and overlap are independently verified.',
         'A missing amount is unknown, not zero.',
         'A row without a stable id is excluded, and the affected total is incomplete.',
-        'Duplicate payment or payout ids that disagree are excluded from totals. Identical copies are counted once.'
+        'Duplicate payment or payout ids that disagree are excluded from totals. Identical copies are counted once.',
+        'Documented exceptions are reported without correcting authoritative sheet rows.'
       ]
     };
   }

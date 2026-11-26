@@ -209,11 +209,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | IMPLEMENTED_TESTED (T18) |
+| Date/time | 2026-11-25 |
 | Dependencies | R03 |
-| Evidence | `event-finance.js`, acceptance fixtures, financial safeguard Part A |
-| Remaining blocker | Live payment/payout completeness is owner-side |
-| Next task | Verify classifications; keep drawable cash unavailable |
+| Files inspected | `public/v2/js/event-finance.js`, `public/v2/js/authoritative-finance.js`, `public/v2/js/unified-hub.js`, `tests/event-finance.test.cjs`, `tests/owner-read-guard.test.mjs`, `remaining-spec.md` R10 |
+| Files changed | `public/v2/js/event-finance.js`, `tests/event-finance.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `node .\tests\event-finance.test.cjs`; `node .\tests\command-center-acceptance.test.mjs`; `npm.cmd run test:staging-safety` |
+| Exit codes | event-finance **0**; acceptance **0**; staging-safety **0** |
+| Evidence | `refundBlocksProfit` now derives from every refund-classified countable payment (`settlement === 'refunded'`), including fee/tax and other roles—not only client/vendor. Conflict/missing-ID safeguards preserved. Regressions assert refunded fee and tax rows (otherwise complete ledger) leave margin/contribution null with explicit `refundTreatment` incomplete coverage. Prior T18 refund conservatism and hub exactly-once copy remain in place. Drawable cash stays unavailable; authoritative rows unchanged. |
+| Remaining blocker | Live payment/payout completeness and bank evidence remain owner-side (R23); not LIVE_VERIFIED |
+| Next task | Continue remaining-spec order (R11) or owner-gated live finance confirmation |
 
 ### R11 — Complete Gmail full-thread read readiness
 
@@ -431,7 +436,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED** (isolated event mutation contract) |
-| Next authorized task | R10 — financial drilldown and reconciliation |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18 **IMPLEMENTED_TESTED** (financial classification safeguards) |
+| Next authorized task | R11 — Gmail full-thread read readiness |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

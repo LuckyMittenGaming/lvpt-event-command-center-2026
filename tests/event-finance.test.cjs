@@ -320,4 +320,319 @@ assert.equal(overlapped.counts.amountOverlapsNotMerged, 1);
 assert.equal(overlapped.money.forecastMarginCents, null);
 assert.equal(overlapped.money.drawableCashCents, null);
 
+// R10 / T18 — financial classification and reconciliation safeguards
+const sameAmountDistinct = buildLedger({
+  payments: [
+    { paymentId: 'inv-a', eventId: 'evt-same', ledgerRole: 'client_receivable', invoiceTotal: 5000, amountPaid: 0, balanceDue: 5000, paymentStatus: 'Invoice Sent' },
+    { paymentId: 'inv-b', eventId: 'evt-same', ledgerRole: 'client_receivable', invoiceTotal: 5000, amountPaid: 0, balanceDue: 5000, paymentStatus: 'Invoice Sent' }
+  ],
+  payouts: []
+});
+assert.equal(sameAmountDistinct.counts.clientInvoices, 2);
+assert.equal(sameAmountDistinct.counts.issuedInvoices, 2);
+assert.equal(sameAmountDistinct.money.clientInvoiceTotalCents, 1000000);
+assert.notEqual(sameAmountDistinct.payments[0].paymentId, sameAmountDistinct.payments[1].paymentId);
+
+const initiatedVsReceived = buildLedger({
+  payments: [
+    { paymentId: 'paid-row', eventId: 'evt-flow', ledgerRole: 'client_receivable', invoiceTotal: 100, amountPaid: 100, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'initiated-row', eventId: 'evt-flow', ledgerRole: 'client_receivable', invoiceTotal: 40, amountPaid: 40, balanceDue: 40, paymentStatus: 'Payment Initiated' }
+  ],
+  payouts: []
+});
+assert.equal(initiatedVsReceived.money.verifiedClientReceiptsCents, 10000);
+assert.equal(initiatedVsReceived.money.initiatedNotSettledCents, 4000);
+assert.equal(initiatedVsReceived.money.bankSettlementVerified, false);
+assert.equal(initiatedVsReceived.money.drawableCashCents, null);
+
+const refundLedger = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'kept', eventId: 'evt-refund', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'refunded', eventId: 'evt-refund', ledgerRole: 'client_receivable', invoiceTotal: 200, amountPaid: 200, balanceDue: 0, paymentStatus: 'Refunded' }
+  ],
+  payouts: []
+});
+assert.equal(refundLedger.counts.refundedClientRows, 1);
+assert.equal(refundLedger.counts.unresolvedRefundRows, 1);
+assert.equal(refundLedger.counts.issuedInvoices, 1);
+assert.equal(refundLedger.money.verifiedClientReceiptsCents, 100000);
+assert.equal(refundLedger.money.refundedClientCents, null);
+assert.equal(refundLedger.money.clientInvoiceTotalCents, 100000);
+assert.equal(refundLedger.money.forecastMarginCents, null);
+assert.equal(refundLedger.money.verifiedContributionCents, null);
+assert.equal(refundLedger.money.coverage, 'incomplete');
+assert.equal(refundLedger.money.incompleteFields.includes('refundTreatment'), true);
+assert.match(refundLedger.money.profitReason, /Unresolved refund/);
+assert.deepEqual(refundLedger.money.unresolvedRefundIds, ['refunded']);
+assert.equal(refundLedger.money.drawableCashCents, null);
+assert.equal(refundLedger.money.bankSettlementVerified, false);
+
+const separateClientRefund = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'receipt-full', eventId: 'evt-client-refund', ledgerRole: 'client_receivable', invoiceTotal: 800, amountPaid: 800, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'refund-separate', eventId: 'evt-client-refund', ledgerRole: 'client_receivable', invoiceTotal: 150, amountPaid: 150, balanceDue: 0, paymentStatus: 'Refunded' }
+  ],
+  payouts: []
+});
+assert.equal(separateClientRefund.money.verifiedClientReceiptsCents, 80000);
+assert.equal(separateClientRefund.money.forecastMarginCents, null);
+assert.equal(separateClientRefund.money.verifiedContributionCents, null);
+assert.equal(separateClientRefund.money.incompleteFields.includes('refundTreatment'), true);
+assert.equal(separateClientRefund.money.drawableCashCents, null);
+assert.notEqual(separateClientRefund.money.verifiedClientReceiptsCents - 15000, separateClientRefund.money.verifiedContributionCents);
+
+const ambiguousPartialRefund = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'receipt-partial-base', eventId: 'evt-partial-refund', ledgerRole: 'client_receivable', invoiceTotal: 500, amountPaid: 500, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'refund-partial', eventId: 'evt-partial-refund', ledgerRole: 'client_receivable', paymentStatus: 'Partial Refund', refundOfPaymentId: 'receipt-partial-base', refundDirection: 'client_outflow' }
+  ],
+  payouts: []
+});
+assert.equal(ambiguousPartialRefund.counts.unresolvedRefundRows, 1);
+assert.equal(ambiguousPartialRefund.money.forecastMarginCents, null);
+assert.equal(ambiguousPartialRefund.money.verifiedContributionCents, null);
+assert.equal(ambiguousPartialRefund.money.refundedClientCents, null);
+assert.equal(ambiguousPartialRefund.money.coverage, 'incomplete');
+assert.match(ambiguousPartialRefund.money.profitReason, /Unresolved refund/);
+assert.equal(ambiguousPartialRefund.money.drawableCashCents, null);
+
+const vendorRefundUnresolved = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client-ok', eventId: 'evt-vendor-refund', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-bill', eventId: 'evt-vendor-refund', lineLabel: 'Elevated vendor', invoiceTotal: 300, amountPaid: 300, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-refund', eventId: 'evt-vendor-refund', lineLabel: 'Elevated vendor', invoiceTotal: 50, amountPaid: 50, balanceDue: 0, paymentStatus: 'Refunded' }
+  ],
+  payouts: []
+});
+assert.equal(vendorRefundUnresolved.counts.refundedVendorRows, 1);
+assert.equal(vendorRefundUnresolved.counts.unresolvedRefundRows, 1);
+assert.equal(vendorRefundUnresolved.money.vendorCommittedCents, 30000);
+assert.equal(vendorRefundUnresolved.money.forecastMarginCents, null);
+assert.equal(vendorRefundUnresolved.money.verifiedContributionCents, null);
+assert.equal(vendorRefundUnresolved.money.refundedVendorCents, null);
+assert.equal(vendorRefundUnresolved.money.incompleteFields.includes('refundTreatment'), true);
+assert.deepEqual(vendorRefundUnresolved.money.unresolvedRefundIds, ['vendor-refund']);
+assert.equal(vendorRefundUnresolved.money.drawableCashCents, null);
+
+const evidencedClientRefund = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'receipt-linked', eventId: 'evt-evidenced-refund', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    {
+      paymentId: 'refund-linked',
+      eventId: 'evt-evidenced-refund',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 200,
+      amountPaid: 200,
+      balanceDue: 0,
+      paymentStatus: 'Refunded',
+      refundOfPaymentId: 'receipt-linked',
+      refundDirection: 'client_outflow'
+    }
+  ],
+  payouts: []
+});
+assert.equal(evidencedClientRefund.counts.unresolvedRefundRows, 0);
+assert.equal(evidencedClientRefund.counts.refundRows, 1);
+assert.equal(evidencedClientRefund.money.verifiedClientReceiptsCents, 100000);
+assert.equal(evidencedClientRefund.money.forecastMarginCents, null, 'linked refund must not leave profitability available while excluding its effect');
+assert.equal(evidencedClientRefund.money.verifiedContributionCents, null, 'linked refund must not leave contribution available while excluding its effect');
+assert.equal(evidencedClientRefund.money.refundedClientCents, null);
+assert.equal(evidencedClientRefund.money.incompleteFields.includes('refundTreatment'), true);
+assert.match(evidencedClientRefund.money.profitReason, /Refund accounting is not established/);
+assert.notEqual(evidencedClientRefund.money.verifiedContributionCents, 100000);
+assert.notEqual(evidencedClientRefund.money.verifiedContributionCents, 80000);
+assert.equal(evidencedClientRefund.money.drawableCashCents, null);
+
+const refundedFeeBlocksProfit = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client-settled', eventId: 'evt-fee-refund', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-settled', eventId: 'evt-fee-refund', lineLabel: 'Elevated vendor', invoiceTotal: 200, amountPaid: 200, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'fee-original', eventId: 'evt-fee-refund', ledgerRole: 'fee', invoiceTotal: 50, amountPaid: 50, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    {
+      paymentId: 'fee-refunded',
+      eventId: 'evt-fee-refund',
+      ledgerRole: 'fee',
+      invoiceTotal: 50,
+      amountPaid: 50,
+      balanceDue: 0,
+      paymentStatus: 'Refunded',
+      refundOfPaymentId: 'fee-original',
+      refundDirection: 'vendor_inflow'
+    }
+  ],
+  payouts: []
+});
+assert.equal(refundedFeeBlocksProfit.counts.refundRows, 1);
+assert.equal(refundedFeeBlocksProfit.money.verifiedClientReceiptsCents, 100000);
+assert.equal(refundedFeeBlocksProfit.money.forecastMarginCents, null);
+assert.equal(refundedFeeBlocksProfit.money.verifiedContributionCents, null);
+assert.equal(refundedFeeBlocksProfit.money.incompleteFields.includes('refundTreatment'), true);
+assert.equal(refundedFeeBlocksProfit.money.coverage, 'incomplete');
+assert.match(refundedFeeBlocksProfit.money.profitReason, /Refund accounting is not established|Unresolved refund/);
+assert.equal(refundedFeeBlocksProfit.money.drawableCashCents, null);
+assert.equal(refundedFeeBlocksProfit.conflictPaymentIds.length, 0);
+
+const refundedTaxBlocksProfit = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client-settled-tax', eventId: 'evt-tax-refund', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-settled-tax', eventId: 'evt-tax-refund', lineLabel: 'Elevated vendor', invoiceTotal: 200, amountPaid: 200, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'tax-original', eventId: 'evt-tax-refund', ledgerRole: 'tax', invoiceTotal: 35, amountPaid: 35, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    {
+      paymentId: 'tax-refunded',
+      eventId: 'evt-tax-refund',
+      ledgerRole: 'tax',
+      invoiceTotal: 35,
+      amountPaid: 35,
+      balanceDue: 0,
+      paymentStatus: 'Refunded',
+      refundOfPaymentId: 'tax-original',
+      refundDirection: 'vendor_inflow'
+    }
+  ],
+  payouts: []
+});
+assert.equal(refundedTaxBlocksProfit.counts.refundRows, 1);
+assert.equal(refundedTaxBlocksProfit.money.forecastMarginCents, null);
+assert.equal(refundedTaxBlocksProfit.money.verifiedContributionCents, null);
+assert.equal(refundedTaxBlocksProfit.money.incompleteFields.includes('refundTreatment'), true);
+assert.equal(refundedTaxBlocksProfit.money.incompleteFields.includes('forecastMargin'), true);
+assert.equal(refundedTaxBlocksProfit.money.incompleteFields.includes('verifiedContribution'), true);
+assert.equal(refundedTaxBlocksProfit.money.coverage, 'incomplete');
+assert.match(refundedTaxBlocksProfit.money.profitReason, /Refund accounting is not established|Unresolved refund/);
+assert.equal(refundedTaxBlocksProfit.money.drawableCashCents, null);
+assert.equal(refundedTaxBlocksProfit.conflictPaymentIds.length, 0);
+assert.equal(refundedTaxBlocksProfit.counts.missingPaymentIds, 0);
+
+const feeTaxLedger = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client-paid', eventId: 'evt-fee', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-paid', eventId: 'evt-fee', lineLabel: 'Elevated vendor', invoiceTotal: 200, amountPaid: 200, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'fee-paid', eventId: 'evt-fee', ledgerRole: 'fee', invoiceTotal: 50, amountPaid: 50, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'tax-open', eventId: 'evt-fee', ledgerRole: 'tax', invoiceTotal: 35, amountPaid: 0, balanceDue: 35, paymentStatus: 'Invoice Sent' }
+  ],
+  payouts: []
+});
+assert.equal(feeTaxLedger.counts.feeTaxRows, 2);
+assert.equal(feeTaxLedger.money.feeTaxCommittedCents, 8500);
+assert.equal(feeTaxLedger.money.forecastMarginCents, 71500);
+assert.equal(feeTaxLedger.money.verifiedContributionCents, null, 'open tax obligation blocks contribution');
+assert.equal(feeTaxLedger.money.drawableCashCents, null);
+
+const feeTaxSettled = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client-paid', eventId: 'evt-fee', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor-paid', eventId: 'evt-fee', lineLabel: 'Elevated vendor', invoiceTotal: 200, amountPaid: 200, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'fee-paid', eventId: 'evt-fee', ledgerRole: 'fee', invoiceTotal: 50, amountPaid: 50, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'tax-paid', eventId: 'evt-fee', ledgerRole: 'tax', invoiceTotal: 35, amountPaid: 35, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(feeTaxSettled.money.forecastMarginCents, 71500);
+assert.equal(feeTaxSettled.money.verifiedContributionCents, 71500);
+assert.equal(feeTaxSettled.money.drawableCashCents, null);
+assert.equal(feeTaxSettled.money.bankSettlementVerified, false);
+
+const noAutoTax = buildLedger({
+  expensesComplete: true,
+  payments: [
+    { paymentId: 'client-only', eventId: 'evt-tax', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 0, balanceDue: 1000, paymentStatus: 'Invoice Sent' }
+  ],
+  payouts: []
+});
+assert.equal(noAutoTax.money.forecastMarginCents, null);
+assert.match(noAutoTax.money.profitReason, /Tax treatment is not established/);
+assert.equal(noAutoTax.money.drawableCashCents, null);
+
+const negativeProfit = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'small-client', eventId: 'evt-loss', ledgerRole: 'client_receivable', invoiceTotal: 100, amountPaid: 100, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'large-vendor', eventId: 'evt-loss', lineLabel: 'Elevated vendor', invoiceTotal: 500, amountPaid: 500, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(negativeProfit.money.forecastMarginCents, -40000);
+assert.ok(negativeProfit.money.forecastMarginCents < 0);
+assert.equal(negativeProfit.money.verifiedContributionCents, -40000);
+assert.equal(negativeProfit.money.drawableCashCents, null);
+
+const missingCost = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client-ok', eventId: 'evt-gap', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 0, balanceDue: 1000, paymentStatus: 'Invoice Sent' },
+    { paymentId: 'vendor-gap', eventId: 'evt-gap', lineLabel: 'Elevated vendor', paymentStatus: 'Invoice Sent' }
+  ],
+  payouts: []
+});
+assert.equal(missingCost.money.forecastMarginCents, null);
+assert.equal(missingCost.money.coverage, 'incomplete');
+assert.equal(missingCost.money.incompleteFields.includes('vendorCommitted'), true);
+assert.equal(missingCost.money.drawableCashCents, null);
+
+const ownerNotExpense = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client', eventId: 'evt-own', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 1000, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'vendor', eventId: 'evt-own', lineLabel: 'Elevated vendor', invoiceTotal: 200, amountPaid: 200, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: [
+    { payoutId: 'draw', eventId: 'evt-own', payoutType: 'Owner distribution', amount: 300, status: 'Paid' }
+  ]
+});
+assert.equal(ownerNotExpense.money.forecastMarginCents, 80000);
+assert.notEqual(ownerNotExpense.money.forecastMarginCents, 50000);
+assert.equal(ownerNotExpense.money.verifiedContributionCents, 50000);
+assert.equal(ownerNotExpense.money.ownerPaidCents, 30000);
+assert.equal(ownerNotExpense.money.drawableCashCents, null);
+
+const explicitOverlapLink = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    { paymentId: 'client', eventId: 'evt-link', ledgerRole: 'client_receivable', invoiceTotal: 1000, amountPaid: 0, balanceDue: 1000, paymentStatus: 'Invoice Sent' },
+    { paymentId: 'vendor-bill', eventId: 'evt-link', lineLabel: 'Elevated vendor', invoiceTotal: 220, amountPaid: 0, balanceDue: 220, paymentStatus: 'Invoice Sent' }
+  ],
+  payouts: [
+    { payoutId: 'linked-once', eventId: 'evt-link', payoutType: 'Vendor', amount: 220, status: 'Planned', linkedPaymentId: 'vendor-bill' },
+    { payoutId: 'amount-only', eventId: 'evt-link', payoutType: 'Vendor', amount: 220, status: 'Planned' }
+  ]
+});
+assert.equal(explicitOverlapLink.counts.payoutsExcludedAsDuplicateExpense, 1);
+assert.equal(explicitOverlapLink.counts.amountOverlapsNotMerged, 1);
+assert.equal(explicitOverlapLink.money.forecastMarginCents, null);
+assert.equal(explicitOverlapLink.money.drawableCashCents, null);
+
+const noAuthoritativeRewrite = documentedExceptions();
+assert.equal(noAuthoritativeRewrite.every((row) => row.includedInTotals === false), true);
+const decksUnadjusted = buildLedger({
+  payments: [
+    { paymentId: 'PAY-evt-nium-2026', eventId: 'evt-nium-2026', invoiceTotal: 50578.38, amountPaid: 50578.38, balanceDue: 0, paymentStatus: 'Paid In Full' },
+    { paymentId: 'PAY-evt-nium-2026-additional-decks-20260927', eventId: 'evt-nium-2026', invoiceTotal: 1353.39, amountPaid: 1353.39, balanceDue: 0, paymentStatus: 'Paid In Full' }
+  ],
+  payouts: []
+});
+assert.equal(decksUnadjusted.money.verifiedClientReceiptsCents, 5057838 + 135339);
+assert.notEqual(decksUnadjusted.money.verifiedClientReceiptsCents, 5057838 + 135339 - 41851);
+
 console.log('Event finance and source-status tests passed.');

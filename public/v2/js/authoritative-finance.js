@@ -35,13 +35,13 @@
         const counts = picture.report.counts || {};
         grid.innerHTML = [
           card('Issued invoices', counts.issuedInvoices ?? '—', `Client payment rows ${counts.clientPaymentRows ?? counts.clientInvoices ?? '—'}. Not invoiced ${counts.notInvoicedRows ?? '—'}. Unknown status ${counts.unknownInvoiceRows ?? '—'}.`),
-          card('Ledger-recorded receipts', money(collected), 'Paid in full on the sheet. Not a verified bank receipt. Incomplete means a conflicting or unidentified row was excluded.'),
+          card('Ledger-recorded receipts', money(collected), 'Paid in full on the sheet. Not a verified bank receipt. Refunds and Payment Initiated stay out. Any refund leaves profit and contribution unavailable until refund accounting is supported. Incomplete means a conflicting, unidentified, or refund-blocked total.'),
           card('Outstanding', money(shown('openClientExposure', report.openClientExposureCents)), 'Open balances only. A received final is not outstanding.'),
           card('Owner paid', money(shown('ownerPaid', report.ownerPaidCents)), 'Distributions marked Paid. Draws are not operating expenses.'),
           card('Owner planned', money(shown('ownerPlanned', report.ownerPlannedCents)), 'Planned draws are not expenses already paid.'),
           card('Ledger contribution', money(report.verifiedContributionCents), 'Recorded receipts minus recorded paid costs and recorded paid draws. Not bank-verified. Not drawable cash. Unavailable while a planned or unpaid obligation remains.'),
-          card('Forecast margin', money(report.forecastMarginCents), report.profitReason || 'Client invoices minus vendor bills and unlinked vendor payouts. Owner draws are not subtracted.'),
-          card('Drawable cash', 'Unavailable', report.drawableCashReason || 'Drawable cash is unavailable from the ledger.')
+          card('Forecast margin', money(report.forecastMarginCents), report.profitReason || 'Client invoices minus vendor bills, fee/tax ledger rows, and unlinked vendor payouts. Owner draws are not subtracted. Negative margin is preserved.'),
+          card('Drawable cash', 'Unavailable', report.drawableCashReason || 'Drawable cash is unavailable from the ledger. Ledger receipt never implies independent bank settlement.')
         ].join('');
       }
     }

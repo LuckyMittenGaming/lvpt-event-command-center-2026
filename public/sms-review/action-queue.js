@@ -49,6 +49,30 @@
   function decisionApplies(item,record) {
     return Boolean(item&&record&&record.sourceFingerprint===sourceFingerprint(item));
   }
+  // Terminal Action Required decisions pause an item from the active review
+  // lane. They never imply a customer send and never erase unresolved peers.
+  const TERMINAL_ACTION_DECISIONS=Object.freeze(['hold','dismissed']);
+  function isPausedByDecision(item,record) {
+    return decisionApplies(item,record) &&
+      TERMINAL_ACTION_DECISIONS.includes(String(record?.decision||''));
+  }
+  // Durable queue ownership: restore accepted terminal decisions into the
+  // monitoring lane while keeping every unresolved review item active.
+  // A missing, failed, or fingerprint-mismatched decision never resolves an item.
+  function partitionQueueItems(items,decisionsByKey) {
+    const list=Array.isArray(items)?items:[];
+    const lookup=decisionsByKey instanceof Map?decisionsByKey:
+      new Map(Object.entries(decisionsByKey&&typeof decisionsByKey==='object'?
+        decisionsByKey:{}));
+    const paused=item=>isPausedByDecision(item,lookup.get(item?.id));
+    const active=list.filter(item=>item&&item.group==='review'&&!paused(item));
+    const background=list.filter(item=>item&&(item.group!=='review'||paused(item)));
+    return {
+      active,
+      background,
+      pausedCount:list.filter(paused).length
+    };
+  }
   function eventMap(events) {
     return new Map((Array.isArray(events)?events:[])
       .filter(e=>e && typeof e.id==='string' && e.id)
@@ -255,5 +279,8 @@
       }
     };
   }
-  return {CLIENT_EVENT_IDS,buildQueue,sourceFingerprint,decisionApplies};
+  return {
+    CLIENT_EVENT_IDS,TERMINAL_ACTION_DECISIONS,buildQueue,sourceFingerprint,
+    decisionApplies,isPausedByDecision,partitionQueueItems
+  };
 });

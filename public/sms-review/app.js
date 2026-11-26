@@ -461,14 +461,15 @@
       gaps.push('Gmail '+brief.coverage.gmailConnected+'/'+brief.coverage.gmailTotal);
     if(!brief.coverage.businessInboxConnected)gaps.push('business inbox scan');
     else if(brief.coverage.businessInboxPartial)gaps.push('business inbox scan is limited');
-    const isPaused=item=>{
-      const record=actionDecisions.get(item.id);
-      return actionQueueEngine.decisionApplies(item,record) &&
-        (record.decision==='hold'||record.decision==='dismissed');
-    };
-    const activeItems=brief.items.filter(item=>item.group==='review'&&!isPaused(item));
-    const backgroundItems=brief.items.filter(item=>item.group!=='review'||isPaused(item));
-    const pausedCount=brief.items.filter(isPaused).length;
+    // Durable Action Required ownership: restore accepted hold/dismissed
+    // decisions after refresh while leaving unresolved review items active.
+    const partitioned=actionQueueEngine.partitionQueueItems(
+      brief.items,actionDecisions);
+    const activeItems=partitioned.active;
+    const backgroundItems=partitioned.background;
+    const pausedCount=partitioned.pausedCount;
+    const isPaused=item=>actionQueueEngine.isPausedByDecision(
+      item,actionDecisions.get(item.id));
     status.textContent=activeItems.length+' items for owner review · '+
       backgroundItems.length+' monitoring/held ('+pausedCount+' held or dismissed) · '+
       (gaps.length ?
@@ -1016,6 +1017,13 @@
 
   async function advanceToNextInboxThread(previousThreadId) {
     if(inboxQueueBusy||!sessionToken || !businessInboxReview?.connected)return;
+    // Exactly one active review at a time: never advance while a draft/approval
+    // lock is held, and never start a second scan while the queue is busy.
+    if(replyController.getActive()) {
+      showInboxQueueStatus(
+        'Finish or close the current draft before continuing the queue.');
+      return;
+    }
     inboxQueueBusy=true;
     // Clear the dismissed email from the visible review, even when the
     // current scan contains no other eligible conversations.

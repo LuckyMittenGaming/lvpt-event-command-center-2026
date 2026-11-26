@@ -17,7 +17,8 @@ const thread={
 const reply={
   at,direction:'inbound',relationshipHint:'unclassified',
   excerpt:'Could you send a quote for a corporate poker event?',
-  senderDomain:'example.com',truncated:false,hasAttachments:false
+  senderDomain:'example.com',truncated:false,hasAttachments:false,
+  messageId:'aabbccddeeff0011'
 };
 const context={threadId:thread.threadId,lastMessageAt:at,partial:false,
   totalMessages:1,messages:[reply],
@@ -76,6 +77,69 @@ assert.equal(workflow.validation(starter.subject,
 assert.equal(workflow.validation(starter.subject,
   written+'\nTBD').ok,false);
 
+// R12/T22 — owner decision policy and exact approval binding (synthetic).
+assert.equal(workflow.ownerDecisionPolicy('DENY').allowsSend,false);
+assert.equal(workflow.ownerDecisionPolicy('EDIT_MYSELF').allowsSend,false);
+assert.equal(workflow.ownerDecisionPolicy('MAKE_CHANGES').requiresRenewedReview,true);
+assert.equal(workflow.ownerDecisionPolicy('APPROVE').auditDecision,'approved_for_manual_copy');
+assert.equal(workflow.ownerDecisionPolicy('MAKE_CHANGES').auditDecision,'draft_prepared');
+assert.equal(workflow.ownerDecisionPolicy('DENY').auditDecision,'denied');
+assert.equal(workflow.ownerDecisionPolicy('EDIT_MYSELF').auditDecision,null);
+const sampleDigest='a'.repeat(64);
+const inboundIdentity=workflow.resolveLatestInboundIdentity(context);
+assert(inboundIdentity?.inboundEvidenceDigest,
+  'Latest inbound must resolve a deterministic evidence digest');
+assert.equal(inboundIdentity.providerMessageId,'aabbccddeeff0011');
+assert.equal(workflow.buildApprovalBinding({
+  threadId:thread.threadId,lastMessageAt:at,
+  recipientEmail:'customer@example.com',draftDigest:sampleDigest
+}),null,'Approval binding must fail closed without inbound identity');
+const binding=workflow.buildApprovalBinding({
+  threadId:thread.threadId,lastMessageAt:at,
+  recipientEmail:'customer@example.com',draftDigest:sampleDigest,
+  inboundIdentity
+});
+assert.equal(binding.recipientEmail,'customer@example.com');
+assert.equal(binding.inboundProviderMessageId,'aabbccddeeff0011');
+assert.equal(binding.inboundEvidenceDigest,inboundIdentity.inboundEvidenceDigest);
+const currentEvidence={
+  threadId:thread.threadId,lastMessageAt:at,
+  recipientEmail:'customer@example.com',draftDigest:sampleDigest,
+  inboundProviderMessageId:inboundIdentity.providerMessageId,
+  inboundEvidenceDigest:inboundIdentity.inboundEvidenceDigest
+};
+assert.equal(workflow.approvalBindingValid(binding,currentEvidence),true);
+assert.equal(workflow.approvalBindingValid(binding,{
+  ...currentEvidence,recipientEmail:'other@example.com'
+}),false,'Recipient change must invalidate approval');
+assert.equal(workflow.approvalBindingValid(binding,{
+  ...currentEvidence,
+  lastMessageAt:new Date(Date.parse(at)+60000).toISOString()
+}),false,'Inbound revision change must invalidate approval');
+assert.equal(workflow.approvalBindingValid(binding,{
+  ...currentEvidence,draftDigest:'b'.repeat(64)
+}),false,'Draft digest change must invalidate approval');
+const sameTimeDifferentId=workflow.resolveLatestInboundIdentity({
+  ...context,messages:[{...reply,messageId:'bbccddeeff001122',
+    excerpt:'Could you send a quote for a corporate poker event? Updated request.'}]
+});
+assert.notEqual(sameTimeDifferentId.providerMessageId,inboundIdentity.providerMessageId);
+assert.notEqual(sameTimeDifferentId.inboundEvidenceDigest,
+  inboundIdentity.inboundEvidenceDigest);
+assert.equal(workflow.approvalBindingValid(binding,{
+  ...currentEvidence,
+  inboundProviderMessageId:sameTimeDifferentId.providerMessageId,
+  inboundEvidenceDigest:sameTimeDifferentId.inboundEvidenceDigest
+}),false,'Same-timestamp inbound identity replacement must invalidate approval');
+assert.match(workflow.staleApprovalReason(binding,{
+  ...currentEvidence,recipientEmail:'other@example.com'
+}),/recipient/i);
+assert.match(workflow.staleApprovalReason(binding,{
+  ...currentEvidence,
+  inboundProviderMessageId:sameTimeDifferentId.providerMessageId,
+  inboundEvidenceDigest:sameTimeDifferentId.inboundEvidenceDigest
+}),/inbound identity/i);
+
 // Browser-level state machine under a minimal fake DOM. No real network.
 global.window={crypto:webcrypto};
 class Node {
@@ -104,7 +168,7 @@ const read=(node,predicate)=>{
   return null;
 };
 const button=(node,label)=>read(node,x=>x.tag==='button'&&x.textContent===label);
-const posted=[],aiRequests=[],advanced=[];
+const posted=[],aiRequests=[],advanced=[],sendPosts=[],recipientOverrides={to:'customer@example.com'};
 const fetchMock=async (url,options={})=>{
   if(url==='/api/sms/staging/reply-personalized-draft'&&options.body){
     aiRequests.push(options.body);
@@ -117,6 +181,10 @@ const fetchMock=async (url,options={})=>{
       needsReview:['Exact event date','Guest count'],
       sendTriggered:false,gmailDraftCreated:false
     };
+  }
+  if(typeof url==='string'&&url.includes('/reply-send')&&options.body){
+    sendPosts.push(options.body);
+    return {ok:false,sent:false,reason:'send_disabled_in_synthetic_adapter'};
   }
   if(options.body){
     const v=options.body;posted.push(v);
@@ -131,7 +199,7 @@ const fetchMock=async (url,options={})=>{
   if(url.includes('/reply-recipient?'))return {
     ok:true,source:'owner_selected_verified_recipient',
     threadId:thread.threadId,lastMessageAt:at,
-    to:'customer@example.com',from:'book@pokertraininglasvegas.com',
+    to:recipientOverrides.to,from:'book@pokertraininglasvegas.com',
     mailboxIdentityVerified:true,sendEnabled:false
   };
   if(url.includes('/reply-send?'))return {
@@ -242,8 +310,11 @@ async function sequence() {
   assert(!Object.prototype.hasOwnProperty.call(posted[1],'recipientEmail'));
   root=new Node('div');c.render(root,thread,context,q);
   assert(button(root,'Copy approved text and continue'));
-  assert(button(root,'Reopen for editing'));
+  assert(button(root,'Make changes — revise draft'));
+  assert(button(root,'Edit myself — close without sending'));
   assert(button(root,'Send email — disabled in staging').disabled);
+  assert.equal(c.getActive()?.ownerDecision,'APPROVE');
+  assert.equal(c.getActive()?.approvalBinding?.recipientEmail,'customer@example.com');
   button(root,'Verify recipient and send status (read-only)').trigger('click');
   await settle();await settle();
   root=new Node('div');c.render(root,thread,context,q);
@@ -255,16 +326,24 @@ async function sequence() {
     x.textContent.includes('customer@example.com'));
   assert(verifiedLabel,
     'Verified address should display for review without enabling send');
-  button(root,'Reopen for editing').trigger('click');
+  // MAKE CHANGES returns a revised draft that requires renewed APPROVE.
+  button(root,'Make changes — revise draft').trigger('click');
   await settle();
   assert.equal(posted[2].decision,'draft_prepared');
   root=new Node('div');c.render(root,thread,context,q);
+  assert.equal(c.getActive()?.phase,'prepared');
+  assert.equal(c.getActive()?.draftDigest,'');
+  assert.equal(c.getActive()?.approvalBinding,null);
+  assert(button(root,'Approve for manual copy').disabled,
+    'MAKE CHANGES must require renewed approval before any send path');
+  assert.equal(sendPosts.length,0,'MAKE CHANGES must never call reply-send');
   button(root,'Deny — no reply needed').trigger('click');
   await settle();
   assert.equal(posted[3].decision,'denied');
   assert.equal(c.getActive(),null);
   assert.deepEqual(advanced,[thread.threadId],
     'An audited denial must advance the one-email queue exactly once');
+  assert.equal(sendPosts.length,0,'DENY must never call reply-send');
   root=new Node('div');c.render(root,thread,context,q);
   assert(!button(root,'Prepare editable reply'),
     'A denied email revision must not reopen until a new incoming message');
@@ -372,12 +451,240 @@ async function sequence() {
     'Clipboard error may never advance or discard the approved draft');
   assert.equal(failed.getActive()?.phase,'approved_for_manual_copy');
   assert.equal(failed.handledThisSession(thread),null);
+
+  // EDIT MYSELF never sends and never posts a send intent.
+  const editAdvance=[];
+  const editSendBaseline=sendPosts.length;
+  const editCtrl=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},workflow,
+    onUpdate:()=>{},onNext:id=>editAdvance.push(id)
+  });
+  await editCtrl.loadAudit(thread);
+  root=new Node('div');editCtrl.render(root,thread,context,q);
+  const editCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  editCheck.checked=true;editCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');
+  await waitForCount(9);
+  root=new Node('div');editCtrl.render(root,thread,context,q);
+  assert(button(root,'Edit myself — close without sending'));
+  button(root,'Edit myself — close without sending').trigger('click');
+  await settle();
+  assert.equal(editCtrl.getActive(),null);
+  assert.equal(editCtrl.handledThisSession(thread),'edit_myself_not_sent');
+  assert.deepEqual(editAdvance,[thread.threadId]);
+  assert.equal(sendPosts.length,editSendBaseline,
+    'EDIT MYSELF must never call reply-send');
+  assert.equal(posted.filter(p=>p.decision==='approved_for_manual_copy').length>=1,true);
+
+  // Recipient change after APPROVE invalidates stale approval.
+  recipientOverrides.to='customer@example.com';
+  const invAdvance=[];
+  const inv=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},workflow,
+    onUpdate:()=>{},onNext:id=>invAdvance.push(id)
+  });
+  await inv.loadAudit(thread);
+  root=new Node('div');inv.render(root,thread,context,q);
+  const invCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  invCheck.checked=true;invCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');
+  await waitForCount(10);
+  root=new Node('div');inv.render(root,thread,context,q);
+  const invBody=read(root,x=>x.tag==='textarea');
+  invBody.value=written;invBody.trigger('input');
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');inv.render(root,thread,context,q);
+  const invBodyReady=read(root,x=>x.tag==='textarea');
+  invBodyReady.value=written;invBodyReady.trigger('input');
+  button(root,'Approve for manual copy').trigger('click');
+  await waitForCount(11);
+  assert.equal(inv.getActive()?.phase,'approved_for_manual_copy');
+  recipientOverrides.to='other-client@example.com';
+  root=new Node('div');inv.render(root,thread,context,q);
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');inv.render(root,thread,context,q);
+  assert.equal(inv.getActive()?.phase,'prepared',
+    'Changed recipient must invalidate stale APPROVE');
+  assert(read(root,x=>String(x.textContent||'').includes('recipient')||
+    String(x.textContent||'').includes('Renew review')||
+    String(x.textContent||'').includes('Make changes')),
+    'UI must explain that renewed review is required');
+  assert(!button(root,'Copy approved text and continue'),
+    'Stale approval must not keep copy-approved controls');
+  assert.equal(sendPosts.length,editSendBaseline,
+    'Recipient invalidation must never send');
+
+  // New inbound invalidates an in-memory APPROVE binding.
+  recipientOverrides.to='customer@example.com';
+  const inboundCtrl=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},workflow,onUpdate:()=>{}
+  });
+  await inboundCtrl.loadAudit(thread);
+  root=new Node('div');inboundCtrl.render(root,thread,context,q);
+  const inCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  inCheck.checked=true;inCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');
+  await waitForCount(12);
+  root=new Node('div');inboundCtrl.render(root,thread,context,q);
+  const inBody=read(root,x=>x.tag==='textarea');
+  inBody.value=written;inBody.trigger('input');
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');inboundCtrl.render(root,thread,context,q);
+  const inBodyReady=read(root,x=>x.tag==='textarea');
+  inBodyReady.value=written;inBodyReady.trigger('input');
+  button(root,'Approve for manual copy').trigger('click');
+  await waitForCount(13);
+  assert.equal(inboundCtrl.getActive()?.phase,'approved_for_manual_copy');
+  const newerAt=new Date(Date.parse(at)+120000).toISOString();
+  const newerThread={...thread,lastMessageAt:newerAt};
+  const newerContext={...context,lastMessageAt:newerAt,messages:[{...reply,at:newerAt}]};
+  const newerQ=qualifyThread(newerThread,newerContext);
+  root=new Node('div');inboundCtrl.render(root,newerThread,newerContext,newerQ);
+  assert.notEqual(inboundCtrl.getActive()?.phase,'approved_for_manual_copy',
+    'Newer inbound must invalidate stale APPROVE');
+  assert(read(root,x=>String(x.textContent||'').includes('Gmail evidence changed')||
+    String(x.textContent||'').includes('No email was sent')),
+    'Inbound invalidation must be visible and non-sending');
+
+  // Same timestamp, different provider message ID/content must invalidate
+  // APPROVE and keep copy/send blocked until renewed review.
+  recipientOverrides.to='customer@example.com';
+  const sameTsSendBaseline=sendPosts.length;
+  const sameTs=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},workflow,onUpdate:()=>{}
+  });
+  await sameTs.loadAudit(thread);
+  root=new Node('div');sameTs.render(root,thread,context,q);
+  const sameTsCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  sameTsCheck.checked=true;sameTsCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');
+  await waitForCount(14);
+  root=new Node('div');sameTs.render(root,thread,context,q);
+  const sameTsBody=read(root,x=>x.tag==='textarea');
+  sameTsBody.value=written;sameTsBody.trigger('input');
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');sameTs.render(root,thread,context,q);
+  const sameTsBodyReady=read(root,x=>x.tag==='textarea');
+  sameTsBodyReady.value=written;sameTsBodyReady.trigger('input');
+  button(root,'Approve for manual copy').trigger('click');
+  await waitForCount(15);
+  assert.equal(sameTs.getActive()?.phase,'approved_for_manual_copy');
+  assert(sameTs.getActive()?.approvalBinding?.inboundEvidenceDigest);
+  const replacedContext={
+    ...context,
+    messages:[{
+      ...reply,
+      messageId:'ccddeeff00112233',
+      excerpt:'Could you send a quote for a corporate poker event? Please include AV needs.'
+    }]
+  };
+  const replacedQ=qualifyThread(thread,replacedContext);
+  root=new Node('div');sameTs.render(root,thread,replacedContext,replacedQ);
+  assert.equal(sameTs.getActive()?.phase,'prepared',
+    'Same-timestamp inbound ID/content replacement must invalidate APPROVE');
+  assert(!button(root,'Copy approved text and continue'),
+    'Copy must stay blocked after inbound identity replacement');
+  assert(!button(root,'Send this approved reply'),
+    'Send must stay blocked after inbound identity replacement');
+  assert(button(root,'Approve for manual copy'),
+    'Renewed APPROVE must be required after inbound identity replacement');
+  assert(read(root,x=>/inbound identity|Renew review|No email was sent/i
+    .test(String(x.textContent||''))),
+    'UI must explain inbound identity invalidation without sending');
+  assert.equal(sendPosts.length,sameTsSendBaseline,
+    'Inbound identity invalidation must never call reply-send');
+
+  // Missing recipient: binding must fail before any approved audit write.
+  const approvedBeforeMissingRecipient=posted.filter(
+    p=>p.decision==='approved_for_manual_copy').length;
+  const missingRecipientWorkflow={
+    ...workflow,
+    approvalReady:()=>({ready:true,reason:'synthetic gate open',mutatesGmail:false})
+  };
+  const missingRecipient=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},
+    workflow:missingRecipientWorkflow,onUpdate:()=>{}
+  });
+  await missingRecipient.loadAudit(thread);
+  root=new Node('div');missingRecipient.render(root,thread,context,q);
+  const missRecCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  missRecCheck.checked=true;missRecCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');
+  await waitForCount(16);
+  root=new Node('div');missingRecipient.render(root,thread,context,q);
+  const missRecBody=read(root,x=>x.tag==='textarea');
+  missRecBody.value=written;missRecBody.trigger('input');
+  // Intentionally skip recipient verification.
+  button(root,'Approve for manual copy').trigger('click');
+  await settle();await settle();
+  assert.equal(
+    posted.filter(p=>p.decision==='approved_for_manual_copy').length,
+    approvedBeforeMissingRecipient,
+    'Missing recipient must produce zero approved audit writes');
+  assert.notEqual(missingRecipient.getActive()?.phase,'approved_for_manual_copy');
+  assert(!button(root,'Copy approved text and continue'),
+    'Missing recipient must not enable copy');
+  assert(!button(root,'Send this approved reply'),
+    'Missing recipient must not enable send');
+  assert.equal(sendPosts.length,sameTsSendBaseline,
+    'Missing recipient path must never call reply-send');
+
+  // Missing inbound identity: binding must fail before any approved audit write.
+  const approvedBeforeMissingInbound=posted.filter(
+    p=>p.decision==='approved_for_manual_copy').length;
+  const missingInboundWorkflow={
+    ...workflow,
+    approvalReady:()=>({ready:true,reason:'synthetic gate open',mutatesGmail:false}),
+    resolveLatestInboundIdentity:()=>null
+  };
+  const missingInbound=controls.createController({
+    getProtected:fetchMock,makeText,qualification:{},
+    workflow:missingInboundWorkflow,onUpdate:()=>{}
+  });
+  await missingInbound.loadAudit(thread);
+  root=new Node('div');missingInbound.render(root,thread,context,q);
+  const missInCheck=read(root,x=>x.tag==='input'&&x.type==='checkbox');
+  missInCheck.checked=true;missInCheck.trigger('change');
+  button(root,'Prepare editable reply').trigger('click');
+  await waitForCount(17);
+  root=new Node('div');missingInbound.render(root,thread,context,q);
+  const missInBody=read(root,x=>x.tag==='textarea');
+  missInBody.value=written;missInBody.trigger('input');
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=new Node('div');missingInbound.render(root,thread,context,q);
+  const missInBodyReady=read(root,x=>x.tag==='textarea');
+  missInBodyReady.value=written;missInBodyReady.trigger('input');
+  button(root,'Approve for manual copy').trigger('click');
+  await settle();await settle();
+  assert.equal(
+    posted.filter(p=>p.decision==='approved_for_manual_copy').length,
+    approvedBeforeMissingInbound,
+    'Missing inbound evidence must produce zero approved audit writes');
+  assert.notEqual(missingInbound.getActive()?.phase,'approved_for_manual_copy');
+  root=new Node('div');missingInbound.render(root,thread,context,q);
+  assert(!button(root,'Copy approved text and continue'),
+    'Missing inbound evidence must not enable copy');
+  assert(!button(root,'Send this approved reply'),
+    'Missing inbound evidence must not enable send');
+  assert(read(root,x=>String(x.textContent||'').includes('Approval NOT recorded')||
+    String(x.textContent||'').includes('binding unavailable')||
+    button(root,'Approve for manual copy')),
+    'Missing inbound must leave review non-approved');
+  assert.equal(sendPosts.length,sameTsSendBaseline,
+    'Missing inbound path must never call reply-send');
 }
 sequence().then(()=>{
   const api=fs.readFileSync(path.join(__dirname,
     '../app/api/sms/staging/reply-decisions/route.ts'),'utf8');
   const ui=fs.readFileSync(path.join(__dirname,
     '../public/sms-review/reply-review-controls.js'),'utf8');
+  const wf=fs.readFileSync(path.join(__dirname,
+    '../public/sms-review/reply-workflow.js'),'utf8');
   const app=fs.readFileSync(path.join(__dirname,'../public/sms-review/app.js'),'utf8');
   const html=fs.readFileSync(path.join(__dirname,'../public/sms-review/index.html'),'utf8');
   const ddl=fs.readFileSync(path.join(__dirname,
@@ -392,6 +699,9 @@ sequence().then(()=>{
   assert.match(api,/prepare_draft_before_approval/);
   assert.match(api,/draft_digest:decision==='approved_for_manual_copy'\?digest:null/);
   assert.match(api,/noGmailWrites:true,noAutomaticSend:true/);
+  assert.match(api,/type Decision='draft_prepared'\|'approved_for_manual_copy'\|'denied'/);
+  assert(!/GmailApp\.sendEmail|MailApp\.sendEmail|createDraft/.test(api),
+    'Decision route must remain non-sending (read/audit only)');
   assert.match(ddl,/enable row level security/i);
   assert.match(ddl,/revoke all.*anon,authenticated/i);
   assert.match(ddl,/Stores no client email bodies/i);
@@ -401,6 +711,20 @@ sequence().then(()=>{
   assert.match(app,/gmail-context-limitations/);
   assert.match(ui,/approvalReady/);
   assert.match(ui,/Not approval-ready/);
+  assert.match(ui,/Make changes — revise draft/);
+  assert.match(ui,/Edit myself — close without sending/);
+  assert.match(ui,/buildApprovalBinding/);
+  assert.match(ui,/invalidateStaleApproval/);
+  assert.match(ui,/resolveLatestInboundIdentity/);
+  assert.match(ui,/inboundIdentityChanged/);
+  assert.match(ui,/let approvedBinding=null/);
+  assert.match(ui,/APPROVE: construct and validate the complete binding BEFORE any audit/);
+  assert.match(ui,/approvalBinding:approvedBinding/);
+  assert.match(wf,/OWNER_DECISIONS/);
+  assert.match(wf,/approvalBindingValid/);
+  assert.match(wf,/resolveLatestInboundIdentity/);
+  assert.match(wf,/inboundEvidenceDigest/);
+  assert.match(wf,/Fail closed: inbound identity is required/);
   assert.match(app,/Latest email — current review focus/,
     'Latest message must be prominent as the only default email excerpt');
   assert.match(app,/const earlier=messages.slice\(0,-1\)/);

@@ -188,5 +188,185 @@
     return {ok:true,reason:''};
   }
 
-  return {canPrepare,approvalReady,draftStarter,validation};
+  // Owner vocabulary maps onto the existing one-at-a-time audit decisions.
+  // Never create a competing state machine; DENY / EDIT MYSELF never send.
+  const DIGEST=/^[a-f0-9]{64}$/;
+  const OWNER_DECISIONS=Object.freeze({
+    APPROVE:{kind:'APPROVE',auditDecision:'approved_for_manual_copy',
+      allowsSend:false,requiresRenewedReview:false},
+    MAKE_CHANGES:{kind:'MAKE_CHANGES',auditDecision:'draft_prepared',
+      allowsSend:false,requiresRenewedReview:true},
+    DENY:{kind:'DENY',auditDecision:'denied',
+      allowsSend:false,requiresRenewedReview:false},
+    EDIT_MYSELF:{kind:'EDIT_MYSELF',auditDecision:null,
+      allowsSend:false,requiresRenewedReview:false}
+  });
+
+  function ownerDecisionPolicy(kind) {
+    return OWNER_DECISIONS[kind]||null;
+  }
+
+  function sameEvidenceInstant(a,b) {
+    if(typeof a!=='string'||typeof b!=='string')return false;
+    if(a===b)return true;
+    const left=Date.parse(a),right=Date.parse(b);
+    return Number.isFinite(left)&&Number.isFinite(right)&&left===right;
+  }
+
+  const PROVIDER_MESSAGE_ID=/^[a-f0-9]{8,32}$/i;
+  const INBOUND_EVIDENCE_DIGEST=/^[a-f0-9]{16}$/;
+
+  // Compact deterministic digest of existing inbound evidence fields.
+  // Used when a stable provider message ID is absent. Not cryptographic auth.
+  function hashEvidence(parts) {
+    const payload=JSON.stringify(parts);
+    let a=2166136261,b=2779096485;
+    for(let i=0;i<payload.length;i++){
+      const code=payload.charCodeAt(i);
+      a=Math.imul(a^code,16777619)>>>0;
+      b=Math.imul(b^code,2246822519)>>>0;
+    }
+    return a.toString(16).padStart(8,'0')+b.toString(16).padStart(8,'0');
+  }
+
+  function stableProviderMessageId(message) {
+    const candidates=[
+      message?.providerMessageId,message?.messageId,
+      message?.gmailMessageId,message?.id
+    ];
+    for(const value of candidates) {
+      const id=String(value==null?'':value).toLowerCase().trim();
+      if(PROVIDER_MESSAGE_ID.test(id))return id;
+    }
+    return null;
+  }
+
+  function deterministicInboundDigest(message) {
+    if(!message||typeof message!=='object')return null;
+    const excerpt=String(message.excerpt==null?'':message.excerpt);
+    const at=String(message.at||'');
+    const direction=String(message.direction||'');
+    if(!excerpt.trim()||!at||direction!=='inbound')return null;
+    return hashEvidence([
+      'inbound_v1',
+      direction,
+      at,
+      excerpt,
+      String(message.senderDomain||''),
+      String(message.relationshipHint||''),
+      message.truncated===true,
+      message.hasAttachments===true,
+      stableProviderMessageId(message)||''
+    ]);
+  }
+
+  // Prefer a stable provider message ID; always require a deterministic
+  // evidence digest from existing inbound fields. Fail closed otherwise.
+  function resolveLatestInboundIdentity(context) {
+    const preview=previewApi();
+    const inbound=preview&&typeof preview.retainLatestInbound==='function'?
+      preview.retainLatestInbound(context):null;
+    if(!inbound?.present||inbound.matchesContextRevision!==true)
+      return null;
+    const messages=Array.isArray(context?.messages)?context.messages:[];
+    const message=inbound.index>=0?messages[inbound.index]:null;
+    if(!message)return null;
+    const providerMessageId=stableProviderMessageId(message);
+    const inboundEvidenceDigest=deterministicInboundDigest(message);
+    if(!inboundEvidenceDigest)return null;
+    return {
+      providerMessageId,
+      inboundEvidenceDigest,
+      at:inbound.at||String(message.at||'')
+    };
+  }
+
+  function sameInboundIdentity(bound,current) {
+    if(!bound||!current)return false;
+    const boundDigest=String(bound.inboundEvidenceDigest||'');
+    const currentDigest=String(current.inboundEvidenceDigest||'');
+    if(!INBOUND_EVIDENCE_DIGEST.test(boundDigest)||
+       !INBOUND_EVIDENCE_DIGEST.test(currentDigest)||
+       boundDigest!==currentDigest)
+      return false;
+    const boundId=bound.inboundProviderMessageId?
+      String(bound.inboundProviderMessageId).toLowerCase():'';
+    const currentId=current.inboundProviderMessageId?
+      String(current.inboundProviderMessageId).toLowerCase():'';
+    // When either side carries a provider message ID, both must match.
+    // Timestamp alone never establishes inbound identity.
+    if(boundId||currentId) {
+      if(!PROVIDER_MESSAGE_ID.test(boundId)||!PROVIDER_MESSAGE_ID.test(currentId))
+        return false;
+      if(boundId!==currentId)return false;
+    }
+    return true;
+  }
+
+  // Approval is bound to exact recipient, thread, draft digest, and the
+  // latest relevant inbound's provider message ID and/or evidence digest.
+  function buildApprovalBinding({
+    threadId,lastMessageAt,recipientEmail,draftDigest,
+    inboundProviderMessageId,inboundEvidenceDigest,inboundIdentity
+  }) {
+    const recipient=verifiedRecipient(recipientEmail);
+    const digest=String(draftDigest||'');
+    const id=String(threadId||'');
+    const at=String(lastMessageAt||'');
+    const inboundDigest=String(
+      inboundEvidenceDigest||inboundIdentity?.inboundEvidenceDigest||'');
+    const inboundIdRaw=inboundProviderMessageId||
+      inboundIdentity?.providerMessageId||null;
+    const inboundId=inboundIdRaw?
+      String(inboundIdRaw).toLowerCase().trim():null;
+    if(!id||!at||!recipient||!DIGEST.test(digest))return null;
+    // Fail closed: inbound identity is required beyond a shared timestamp.
+    if(!INBOUND_EVIDENCE_DIGEST.test(inboundDigest))return null;
+    if(inboundId&&!PROVIDER_MESSAGE_ID.test(inboundId))return null;
+    return {
+      threadId:id,
+      lastMessageAt:at,
+      recipientEmail:recipient,
+      draftDigest:digest,
+      inboundProviderMessageId:inboundId,
+      inboundEvidenceDigest:inboundDigest
+    };
+  }
+
+  function approvalBindingValid(binding,current) {
+    if(!binding||!current)return false;
+    const recipient=verifiedRecipient(current.recipientEmail);
+    const digest=String(current.draftDigest||'');
+    return binding.threadId===String(current.threadId||'') &&
+      sameEvidenceInstant(binding.lastMessageAt,current.lastMessageAt) &&
+      Boolean(recipient) && binding.recipientEmail===recipient &&
+      DIGEST.test(digest) && binding.draftDigest===digest &&
+      sameInboundIdentity(binding,current);
+  }
+
+  function staleApprovalReason(binding,current) {
+    if(!binding)return 'No exact approval binding is present.';
+    if(!current)return 'Current review evidence is missing.';
+    if(binding.threadId!==String(current.threadId||''))
+      return 'Provider thread identity changed; prior approval is invalid.';
+    if(!sameEvidenceInstant(binding.lastMessageAt,current.lastMessageAt))
+      return 'Latest relevant inbound changed; prior approval is invalid.';
+    if(!sameInboundIdentity(binding,current))
+      return 'Latest relevant inbound identity changed; prior approval is invalid.';
+    const recipient=verifiedRecipient(current.recipientEmail);
+    if(!recipient||binding.recipientEmail!==recipient)
+      return 'Verified recipient changed; prior approval is invalid.';
+    const digest=String(current.draftDigest||'');
+    if(!DIGEST.test(digest)||binding.draftDigest!==digest)
+      return 'Draft revision/digest changed; prior approval is invalid.';
+    return '';
+  }
+
+  return {
+    canPrepare,approvalReady,draftStarter,validation,
+    OWNER_DECISIONS,ownerDecisionPolicy,
+    buildApprovalBinding,approvalBindingValid,staleApprovalReason,
+    sameEvidenceInstant,resolveLatestInboundIdentity,
+    sameInboundIdentity,deterministicInboundDigest,stableProviderMessageId
+  };
 });

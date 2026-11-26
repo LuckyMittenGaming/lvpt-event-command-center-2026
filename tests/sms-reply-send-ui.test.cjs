@@ -35,13 +35,17 @@ const button=(r,txt)=>find(r,x=>x.tag==='button'&&x.textContent===txt);
 const dt=new Date(Date.now()-3600000).toISOString();
 const meta={threadId:'aabbccddeeff0011',lastMessageAt:dt,
   lastDirection:'inbound',relationshipHint:'unclassified',
-  sourceType:'email_thread',subject:'Poker event pricing'};
+  sourceType:'email_thread',subject:'Poker event pricing',
+  mailboxIdentityVerified:true,mailbox:'book@pokertraininglasvegas.com'};
 const context={threadId:meta.threadId,lastMessageAt:dt,
   partial:false,totalMessages:1,messages:[{
     at:dt,direction:'inbound',relationshipHint:'unclassified',
     excerpt:'Can you send me pricing and available dates for our group?',
-    truncated:false,hasAttachments:false
-  }]};
+    senderDomain:'example.com',truncated:false,hasAttachments:false,
+    messageId:'aabbccddeeff0011'
+  }],
+  mailboxIdentityVerified:true,mailbox:'book@pokertraininglasvegas.com',
+  source:'owner_selected_read_only_thread_review'};
 const q=qualifyThread(meta,context);
 assert.equal(q.outcome,'reply_candidate');
 const audits=[],sends=[],next=[];
@@ -98,11 +102,22 @@ const wait=async(test,label)=>{
   body.value=workflow.draftStarter(meta).body.replace(/\[[^\]]+\]/g,
     'Our two-hour private experience starts with training, followed by live play. I can confirm availability and an exact quote with your event date and group size.');
   body.trigger('input');
+  // Recipient + inbound identity must be bound before APPROVE; verify first.
+  button(root,'Verify recipient and send status (read-only)').trigger('click');
+  await settle();await settle();
+  root=render();
+  const readyBody=find(root,x=>x.tag==='textarea');
+  readyBody.value=body.value;readyBody.trigger('input');
+  assert(!button(root,'Approve for manual copy').disabled,
+    'Verified recipient and inbound identity may unlock APPROVE');
   button(root,'Approve for manual copy').trigger('click');
   await wait(()=>audits.length===2,'approval audit');
   root=render();
-  assert(button(root,'Send email — disabled in staging'),
-    'The default state must not permit a send before recipient verification');
+  assert.equal(c.getActive()?.approvalBinding?.inboundEvidenceDigest?.length,16,
+    'APPROVE must bind a deterministic inbound evidence digest');
+  assert(button(root,'Send email — disabled in staging')||
+    button(root,'Send this approved reply'),
+    'Approved review remains on the non-automatic send path');
   button(root,'Verify recipient and send status (read-only)').trigger('click');
   await settle();await settle();
   root=render();

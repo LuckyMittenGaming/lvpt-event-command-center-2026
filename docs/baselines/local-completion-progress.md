@@ -239,17 +239,29 @@ Rules:
 | Evidence (T20) | Protected readers/routes unchanged. Readiness delegates to triage `assessThreadContext`. Latest revision: `evaluateClient` no longer falls back observed `mailbox` to `BUSINESS_MAILBOX`—only explicit thread/record mailbox evidence establishes observed identity; expected mailbox may still default to `BUSINESS_MAILBOX`. Regression asserts missing mailbox keeps `mailboxIdentityVerified` / `fullThreadReady` / `completeClientContext` false; explicit business mailbox still verifies positively. |
 | Evidence (T21 revision) | Wired `describeContext`/`displayLines` + `retainLatestInbound` into review UI and qualification. `approvalReady` gates live Approve controls. Conflict-aware mailbox verification. **Latest fix:** `resolveEvidenceKind` / `incompleteContext` treat any `context.messages[].truncated===true` as truncated (not only latest); `approvalReady` also fails closed on any earlier truncated message. Regressions cover earlier truncated + complete latest: display truncated/incomplete, `canPrepare` allowed, Approve disabled with “Not approval-ready”. Provider readers/send untouched. Not LIVE_VERIFIED; no auto-send. |
 | Remaining blocker | Live full-thread confirmation and owner-approved send remain later (R24); not LIVE_VERIFIED; no auto-send |
-| Next task | R12 — one-at-a-time approval state machine |
+| Next task | R12/T22 completed — proceed to R13 |
 
 ### R12 — Complete one-at-a-time approval state machine
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING / gap fill) |
+| Status | IMPLEMENTED_TESTED (T22 + inbound-identity + pre-audit binding revisions — synthetic; not LIVE_VERIFIED) |
+| Date/time | 2026-11-26 |
 | Dependencies | R11 |
-| Evidence | reply workflow/controls/tests; hub does not record approvals |
-| Remaining blocker | Synthetic-only until R24 |
-| Next task | Strengthen state machine tests without enabling send |
+| Files inspected (read-only) | `app/api/sms/staging/reply-decisions/route.ts` |
+| Files changed (T22) | `public/sms-review/reply-workflow.js`, `public/sms-review/reply-review-controls.js`, `tests/sms-reply-review.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Files changed (T22 revision) | `public/sms-review/reply-workflow.js`, `public/sms-review/reply-review-controls.js`, `tests/sms-reply-review.test.cjs`, `tests/sms-reply-send-ui.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Files changed (T22 revision 2) | `public/sms-review/reply-review-controls.js`, `tests/sms-reply-review.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands (T22) | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/sms-reply-review.test.cjs,tests/sms-reply-qualification.test.cjs` |
+| Exact test commands (T22 revision / revision 2) | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/sms-reply-review.test.cjs,tests/sms-reply-qualification.test.cjs,tests/sms-reply-send-ui.test.cjs,tests/sms-reply-send.test.cjs,tests/sms-reply-send-runtime.test.cjs` |
+| Exit codes (T22) | Targeted verify **0** (sms-reply-review 0; sms-reply-qualification 0) |
+| Exit codes (T22 revision) | Targeted verify **0** (review 0; qualification 0; send-ui 0; send 0; send-runtime 0) |
+| Exit codes (T22 revision 2) | Targeted verify **0** (review 0; qualification 0; send-ui 0; send 0; send-runtime 0) |
+| Evidence (T22) | Extended existing one-at-a-time controls (no competing state machine). Owner decisions: APPROVE → `approved_for_manual_copy` with exact recipient/thread/inbound/digest binding; MAKE CHANGES → `draft_prepared` clearing binding and requiring renewed APPROVE; DENY → `denied` (never sends); EDIT MYSELF → local close without send/audit send. Recipient, draft digest, and newer inbound invalidate stale APPROVE. Decision route inspected read-only (`noGmailWrites`/`noAutomaticSend`; decisions limited to draft_prepared/approved_for_manual_copy/denied). Synthetic adapters only. Not LIVE_VERIFIED; no auto-send. |
+| Evidence (T22 revision) | APPROVE now binds latest relevant inbound via stable provider `messageId` when present **and** a deterministic inbound evidence digest from existing excerpt/direction/at/domain/flags (not timestamp alone). `buildApprovalBinding` fails closed without inbound identity. Same-timestamp replacement of inbound ID/content invalidates APPROVE; copy/send stay blocked pending renewed review. Live routes untouched. |
+| Evidence (T22 revision 2) | `save()` validates complete APPROVE binding (recipient, thread, inbound identity, draft digest) **before** the decision/audit adapter call; failure records zero `approved_for_manual_copy` writes and reuses the pre-validated binding on success. Regressions cover missing recipient and missing inbound evidence: no approved audit, no copy/send. |
+| Remaining blocker | Live decision recording / controlled send remain later (R13/R24); synthetic-only until owner gates |
+| Next task | R13 — exactly-once approval delivery safety |
 
 ### R13 — Verify exactly-once approval delivery safety
 
@@ -447,7 +459,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED** (Gmail thread-context + review context limitations) |
-| Next authorized task | R12 — one-at-a-time approval state machine |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22 **IMPLEMENTED_TESTED** (APPROVE binding validated before audit write; missing recipient/inbound → zero approved audits) |
+| Next authorized task | R13 — exactly-once approval delivery safety |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

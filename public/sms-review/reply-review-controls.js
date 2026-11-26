@@ -21,10 +21,10 @@
     const finished=new Map();
     const recipients=new Map(),sendRecords=new Map();
     const status=new Map();
-    let active=null,working='';
+    let active=null,working='',evidenceContext=null;
     function reset() {
       audits.clear();verified.clear();finished.clear();recipients.clear();sendRecords.clear();
-      status.clear();active=null;working='';
+      status.clear();active=null;working='';evidenceContext=null;
     }
     const fingerprint=(text)=>window.crypto.subtle.digest('SHA-256',
       new TextEncoder().encode(text)).then(buffer=>
@@ -92,11 +92,30 @@
       if(decision==='draft_prepared'&&verified.get(t.threadId)!==t.lastMessageAt)return false;
       if(decision==='approved_for_manual_copy'&&
          (!active||active.phase!=='prepared'||active.threadId!==t.threadId))return false;
+      // APPROVE: construct and validate the complete binding BEFORE any audit
+      // write. Missing recipient, thread, inbound identity, or draft digest
+      // must fail closed with zero approved decisions recorded.
+      let approvedBinding=null;
       if(decision==='approved_for_manual_copy') {
         const gate=readiness(t,context,q);
         if(gate.ready!==true) {
           status.set(t.threadId,'Not approval-ready: '+(gate.reason||
             'Required Gmail context evidence is absent.'));
+          onUpdate();
+          return false;
+        }
+        const recipient=recipients.get(t.threadId);
+        const inboundIdentity=typeof workflow.resolveLatestInboundIdentity==='function'?
+          workflow.resolveLatestInboundIdentity(context||evidenceContext):null;
+        approvedBinding=typeof workflow.buildApprovalBinding==='function'?
+          workflow.buildApprovalBinding({
+            threadId:t.threadId,lastMessageAt:t.lastMessageAt,
+            recipientEmail:recipient?.to,draftDigest,
+            inboundIdentity
+          }):null;
+        if(!approvedBinding) {
+          status.set(t.threadId,
+            'Approval NOT recorded: exact recipient/thread/inbound identity/digest binding unavailable. No email sent.');
           onUpdate();
           return false;
         }
@@ -120,16 +139,23 @@
         });
         status.set(t.threadId,'Decision recorded in separate append-only review audit. No email sent.');
         if(decision==='draft_prepared') {
+          // MAKE CHANGES / prepare: clear prior approval binding so a revised
+          // draft always requires renewed owner review. Never sends.
           finished.delete(t.threadId);
           recipients.delete(t.threadId);
           const draft=active&&active.threadId===t.threadId?
             active:workflow.draftStarter(t);
           active={
             ...draft,threadId:t.threadId,lastMessageAt:t.lastMessageAt,
-            phase:'prepared',draftDigest:'',verified:true
+            phase:'prepared',draftDigest:'',verified:true,
+            approvalBinding:null,ownerDecision:null
           };
         }else if(decision==='approved_for_manual_copy') {
-          active={...active,phase:'approved_for_manual_copy',draftDigest};
+          // Reuse the binding validated before the audit adapter call.
+          active={
+            ...active,phase:'approved_for_manual_copy',draftDigest,
+            approvalBinding:approvedBinding,ownerDecision:'APPROVE'
+          };
         }else if(decision==='denied') {
           finished.delete(t.threadId);
           recipients.delete(t.threadId);active=null;
@@ -224,6 +250,55 @@
       }finally {working='';onUpdate();}
     }
 
+    function approvalEvidence(t,context) {
+      const recipient=recipients.get(t?.threadId);
+      const source=context||evidenceContext;
+      const inbound=typeof workflow.resolveLatestInboundIdentity==='function'?
+        workflow.resolveLatestInboundIdentity(source):null;
+      return {
+        threadId:t?.threadId,
+        lastMessageAt:t?.lastMessageAt,
+        recipientEmail:recipient?.to||active?.approvalBinding?.recipientEmail||null,
+        draftDigest:active?.draftDigest||'',
+        inboundProviderMessageId:inbound?.providerMessageId||null,
+        inboundEvidenceDigest:inbound?.inboundEvidenceDigest||null
+      };
+    }
+    function approvalStillValid(t,context) {
+      if(!active||active.threadId!==t?.threadId||
+         active.phase!=='approved_for_manual_copy')return false;
+      if(typeof workflow.approvalBindingValid!=='function')
+        return Boolean(active.draftDigest);
+      const evidence=approvalEvidence(t,context);
+      // Fail closed when current inbound identity cannot be resolved.
+      if(!evidence.inboundEvidenceDigest)return false;
+      return workflow.approvalBindingValid(active.approvalBinding,evidence);
+    }
+    function invalidateStaleApproval(t,reason) {
+      if(!active||active.threadId!==t?.threadId)return;
+      if(active.phase!=='approved_for_manual_copy')return;
+      active={
+        ...active,phase:'prepared',draftDigest:'',
+        approvalBinding:null,ownerDecision:null
+      };
+      status.set(t.threadId,(reason||'Prior approval is invalid.')+
+        ' Make changes and renew approval. No email was sent.');
+    }
+    // EDIT MYSELF: owner handles outside this workflow. Never audits a send
+    // and never calls reply-send. Advances the one-email queue only.
+    function editMyself(t) {
+      if(working||!t?.threadId)return;
+      if(active&&active.threadId!==t.threadId)return;
+      const policy=typeof workflow.ownerDecisionPolicy==='function'?
+        workflow.ownerDecisionPolicy('EDIT_MYSELF'):{allowsSend:false};
+      if(policy?.allowsSend===true)return;
+      status.set(t.threadId,
+        'Edit myself recorded locally: owner will handle outside this review. No email sent.');
+      finished.set(t.threadId,{kind:'edit_myself_not_sent',lastMessageAt:t.lastMessageAt});
+      active=null;verified.delete(t.threadId);recipients.delete(t.threadId);
+      onUpdate();
+      if(typeof onNext==='function')onNext(t.threadId);
+    }
     async function sendApproved(t,ownerReviewed,confirmation) {
       if(working||!active||active.threadId!==t.threadId||
          active.phase!=='approved_for_manual_copy')return;
@@ -234,7 +309,15 @@
          confirmation!=='SEND THIS EMAIL')return;
       const exact=await fingerprint(JSON.stringify([active.subject,active.body]));
       if(exact!==active.draftDigest) {
-        status.set(t.threadId,'Content changed since owner approval. Reapprove before sending.');
+        invalidateStaleApproval(t,
+          'Draft revision/digest changed since owner approval.');
+        onUpdate();return;
+      }
+      if(!approvalStillValid(t)) {
+        const reason=typeof workflow.staleApprovalReason==='function'?
+          workflow.staleApprovalReason(active.approvalBinding,approvalEvidence(t)):
+          'Approval binding no longer matches current evidence.';
+        invalidateStaleApproval(t,reason);
         onUpdate();return;
       }
       working=t.threadId;onUpdate();
@@ -280,6 +363,7 @@
     };
     function render(container,t,context,q) {
       if(!eligible(t,context,q))return;
+      evidenceContext=context||null;
       const wrap=makeText('section','reply-review-workflow','');
       wrap.append(makeText('strong','',
         'Step 47 · One-email-at-a-time approval (non-sending)'));
@@ -339,10 +423,54 @@
           'Recipient is deliberately unavailable in this preview. Verify the real recipient in Gmail. No draft is sent, saved to Gmail or shared with an AI model.'));
         container.append(wrap);return;
       }
-      if(active.lastMessageAt!==t.lastMessageAt) {
+      const currentInbound=typeof workflow.resolveLatestInboundIdentity==='function'?
+        workflow.resolveLatestInboundIdentity(context):null;
+      const inboundIdentityChanged=Boolean(active.approvalBinding)&&
+        (typeof workflow.sameInboundIdentity!=='function'||
+          !currentInbound||
+          !workflow.sameInboundIdentity(active.approvalBinding,{
+            inboundProviderMessageId:currentInbound.providerMessageId||null,
+            inboundEvidenceDigest:currentInbound.inboundEvidenceDigest||null
+          }));
+      const inboundTimestampChanged=active.lastMessageAt!==t.lastMessageAt||
+        (Boolean(active.approvalBinding)&&
+          typeof workflow.sameEvidenceInstant==='function'&&
+          !workflow.sameEvidenceInstant(active.approvalBinding.lastMessageAt,
+            t.lastMessageAt));
+      // Newer revision timestamp: force a full refresh (do not keep draft UI).
+      if(inboundTimestampChanged) {
+        invalidateStaleApproval(t,
+          'Latest relevant inbound changed; prior approval is invalid.');
         wrap.append(makeText('p','case-alert',
-          'Gmail evidence changed. Refresh the inbox and start a new review.'));
+          'Gmail evidence changed. Refresh the inbox and start a new review. No email was sent.'));
         container.append(wrap);return;
+      }
+      const verifiedRecipientNow=recipients.get(t.threadId);
+      if(active.phase==='approved_for_manual_copy'&&
+         active.approvalBinding?.recipientEmail&&
+         verifiedRecipientNow?.to&&
+         String(verifiedRecipientNow.to).toLowerCase()!==
+           active.approvalBinding.recipientEmail) {
+        invalidateStaleApproval(t,
+          'Verified recipient changed; prior approval is invalid.');
+        wrap.append(makeText('p','case-alert',status.get(t.threadId)||
+          'Recipient changed after APPROVE. Renew review. No email sent.'));
+      }else if(active.phase==='approved_for_manual_copy'&&
+               inboundIdentityChanged) {
+        // Same timestamp, different provider message ID or evidence digest.
+        invalidateStaleApproval(t,
+          'Latest relevant inbound identity changed; prior approval is invalid.');
+        wrap.append(makeText('p','case-alert',status.get(t.threadId)||
+          'Inbound identity changed after APPROVE. Renew review. No email sent.'));
+      }else if(active.phase==='approved_for_manual_copy'&&
+               !approvalStillValid(t,context)) {
+        const reason=typeof workflow.staleApprovalReason==='function'?
+          workflow.staleApprovalReason(active.approvalBinding,
+            approvalEvidence(t,context)):
+          'Prior approval no longer matches recipient, thread, digest, or inbound.';
+        invalidateStaleApproval(t,reason);
+        wrap.append(makeText('p','case-alert',status.get(t.threadId)||reason));
+        // Fall through into prepared controls after invalidation.
       }
       wrap.append(makeText('p','action-draft-status',
         'To: VERIFY in the original LVPT Gmail thread (not provided or inferred here).'));
@@ -414,9 +542,17 @@
           ()=>void save(t,context,q,'denied')));
       }else if(active.phase==='approved_for_manual_copy') {
         wrap.append(makeText('p','action-draft-status',
-          'Approved text is locked. No email has been sent by this review step.'));
+          'APPROVE recorded. Approved text is locked. No email has been sent by this review step.'));
+        if(active.approvalBinding?.recipientEmail)
+          wrap.append(makeText('p','action-draft-meta',
+            'Approval bound to recipient '+active.approvalBinding.recipientEmail+
+            ' · thread '+active.approvalBinding.threadId+
+            ' · inbound '+(active.approvalBinding.inboundProviderMessageId||
+              active.approvalBinding.inboundEvidenceDigest||
+              active.approvalBinding.lastMessageAt)+'.'));
         controls.append(button('Copy approved text and continue',()=>void copyApproved()));
-        controls.append(button('Reopen for editing',
+        // MAKE CHANGES: returns to prepared draft; renewed APPROVE required.
+        controls.append(button('Make changes — revise draft',
           ()=>void save(t,context,q,'draft_prepared')));
         const read=recipients.get(t.threadId);
         const record=sendRecords.get(t.threadId);
@@ -434,10 +570,12 @@
           wrap.append(makeText('p','hint',
             'Check recipient and content in the original Gmail conversation. No CC or BCC is added.'));
         }
-        if(record?.doNotRetry) {
+        if(active.phase==='approved_for_manual_copy'&&record?.doNotRetry) {
           wrap.append(makeText('p','case-alert',
             'Send intent '+record.status+'. Check Gmail Sent. Duplicate sending is blocked.'));
-        }else if(read?.sendEnabled && record?.status==='not_attempted') {
+        }else if(active.phase==='approved_for_manual_copy'&&
+                 read?.sendEnabled && record?.status==='not_attempted'&&
+                 approvalStillValid(t)) {
           const reviewBox=document.createElement('input');
           reviewBox.type='checkbox';
           reviewBox.id='step48-send-confirm-'+t.threadId;
@@ -459,7 +597,7 @@
           reviewBox.addEventListener('change',update);
           phrase.addEventListener('input',update);
           wrap.append(send);
-        }else {
+        }else if(active.phase==='approved_for_manual_copy') {
           wrap.append(makeText('p','hint',
             'Verified Gmail sending is OFF until both Vercel and Apps Script opt-in switches are enabled. Manual copying is still available.'));
         }
@@ -470,6 +608,13 @@
       async function copyApproved() {
         if(working||!active||active.phase!=='approved_for_manual_copy'||
            active.threadId!==t.threadId)return;
+        if(!approvalStillValid(t)) {
+          const reason=typeof workflow.staleApprovalReason==='function'?
+            workflow.staleApprovalReason(active.approvalBinding,approvalEvidence(t)):
+            'Approval binding no longer matches current evidence.';
+          invalidateStaleApproval(t,reason);
+          onUpdate();return;
+        }
         working=t.threadId;onUpdate();
         let copied=false;
         try {
@@ -506,12 +651,9 @@
           if(typeof onNext==='function')onNext(t.threadId);
         }
       }
-      controls.append(button('Close review; choose next email',()=>{
-        active=null;verified.delete(t.threadId);onUpdate();
-        // This is a user-clicked read-only transition to the next candidate.
-        // No email is sent, queued, drafted, or scheduled automatically.
-        if(typeof onNext==='function')onNext(t.threadId);
-      }));
+      // EDIT MYSELF never sends; DENY is audited separately above.
+      controls.append(button('Edit myself — close without sending',
+        ()=>editMyself(t)));
       wrap.append(controls);
       const read=recipients.get(t.threadId);
       if(!read?.sendEnabled) {

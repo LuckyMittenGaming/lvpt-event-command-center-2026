@@ -35,6 +35,8 @@ function json(value,status=200){
 }
 function harness(options={}){
   const seen={requests:[],apps:[],reservations:[],patches:[],gated:false};
+  // Durable uniqueness by thread + inbound revision (mirrors SQL unique key).
+  const intentLedger=options.sharedLedger||new Map();
   const mod={exports:{}};
   const env={LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND:
     options.off?'false':'true',VERCEL_ENV:options.production?'production':'preview'};
@@ -49,6 +51,8 @@ function harness(options={}){
       return {...verified,...options.verified};
     if(action==='sendOwnerApprovedGmailReply') {
       if(options.sendThrows)throw Error('Synthetic uncertain Gmail response');
+      if(typeof options.sendDelayMs==='number'&&options.sendDelayMs>0)
+        await new Promise(resolve=>setTimeout(resolve,options.sendDelayMs));
       return {
         ok:true,source:'lvpt_owner_approved_gmail_send',
         mailboxIdentityVerified:true,threadId,
@@ -66,20 +70,49 @@ function harness(options={}){
       return json(options.noApproval?[]:[{...record,...options.approval}]);
     if(name.includes('lvpt_reply_send_intents')) {
       if(method==='POST'){
-        seen.reservations.push(JSON.parse(init.body));
-        if(options.duplicate)return json({code:'23505'},409);
-        return json([JSON.parse(init.body)]);
+        const body=JSON.parse(init.body);
+        seen.reservations.push(body);
+        const key=String(body.thread_id)+'|'+String(body.last_message_at);
+        if(options.duplicate||intentLedger.has(key))
+          return json({code:'23505'},409);
+        const row={
+          ...body,status:'reserved',reserved_at:new Date().toISOString(),
+          gmail_message_id:null,completed_at:null
+        };
+        intentLedger.set(key,row);
+        return json([row]);
       }
       if(method==='PATCH') {
         const data=JSON.parse(init.body);
         seen.patches.push(data);
         if(options.unconfirmedAudit)return json([]);
+        const lookup=new URL(name.includes('://')?name:'https://mocked.invalid/'+name);
+        const patchIntent=String(lookup.searchParams.get('intent_id')||'')
+          .replace(/^eq\./,'')||intentId;
+        const intentKey=[...intentLedger.entries()]
+          .find(([,row])=>row.intent_id===patchIntent);
+        const key=intentKey?intentKey[0]:(threadId+'|'+at);
+        const prior=intentLedger.get(key)||{intent_id:patchIntent,thread_id:threadId};
+        const row={
+          ...prior,intent_id:patchIntent,status:data.status,
+          gmail_message_id:data.gmail_message_id||null,
+          completed_at:new Date().toISOString()
+        };
+        intentLedger.set(key,row);
         return json([{
-          intent_id:intentId,thread_id:threadId,status:data.status,
-          gmail_message_id:data.gmail_message_id
+          intent_id:row.intent_id,thread_id:row.thread_id,status:row.status,
+          gmail_message_id:row.gmail_message_id
         }]);
       }
-      return json([]);
+      // GET status lookup by thread + revision.
+      const lookup=new URL(name.includes('://')?name:'https://mocked.invalid/'+name);
+      const threadEq=String(lookup.searchParams.get('thread_id')||'')
+        .replace(/^eq\./,'');
+      const atEq=String(lookup.searchParams.get('last_message_at')||'')
+        .replace(/^eq\./,'');
+      const key=threadEq+'|'+atEq;
+      const row=intentLedger.get(key);
+      return json(row?[row]:[]);
     }
     throw Error('Unexpected mock URL: '+name);
   };
@@ -122,7 +155,14 @@ function harness(options={}){
     const response=await mod.exports.POST(request);
     return {status:response.status,json:await response.json()};
   };
-  return {seen,post};
+  const get=async(query={threadId,lastMessageAt:at})=>{
+    const params=new URLSearchParams(query);
+    const request=new Request(
+      'https://staging.invalid/api/sms/staging/reply-send?'+params,{method:'GET'});
+    const response=await mod.exports.GET(request);
+    return {status:response.status,json:await response.json()};
+  };
+  return {seen,post,get,intentLedger};
 }
 (async()=>{
   let h=harness({production:true});
@@ -235,5 +275,67 @@ function harness(options={}){
   assert.equal(x.json.doNotRetry,true);
   assert.equal(h.seen.patches.length,1);
   assert.equal(h.seen.patches[0].status,'uncertain');
-  console.log('Step 54: 15 synthetic auth, opt-in, digest, recipient, duplicate, send-ack and audit-reconciliation scenarios passed. No external requests.');
+
+  // Provider failure without throw: ok:false → uncertain, never automatic resend.
+  h=harness({sendResponse:{ok:false}});
+  x=await h.post();
+  assert.equal(x.status,502);
+  assert.equal(x.json.reason,'send_outcome_uncertain_check_gmail_sent');
+  assert.equal(x.json.doNotRetry,true);
+  assert.equal(h.seen.patches[0].status,'uncertain');
+  assert.equal(h.seen.apps.filter(v=>v.action==='sendOwnerApprovedGmailReply').length,1);
+
+  // Missing provider message identity cannot be treated as SENT.
+  h=harness({sendResponse:{gmailMessageId:''}});
+  x=await h.post();
+  assert.equal(x.status,502);
+  assert.equal(x.json.doNotRetry,true);
+  assert.equal(h.seen.patches[0].status,'uncertain');
+
+  // Concurrent duplicate intents: durable uniqueness allows exactly one send.
+  const sharedLedger=new Map();
+  const first=harness({sharedLedger,sendDelayMs:25});
+  const second=harness({sharedLedger});
+  const [a,b]=await Promise.all([
+    first.post(),
+    second.post({...baseline,intentId:'124162c7-5ebc-49ba-a314-e43932e0c185'})
+  ]);
+  const outcomes=[a,b].sort((l,r)=>l.status-r.status);
+  assert.equal(outcomes[0].status,200,'One concurrent attempt may confirm send');
+  assert.equal(outcomes[0].json.sent,true);
+  assert.equal(outcomes[0].json.gmailMessageId,'aabbccdd11223344');
+  assert.equal(outcomes[1].status,409,'Peer concurrent attempt is rejected');
+  assert.equal(outcomes[1].json.reason,'duplicate_send_intent_exists');
+  assert.equal(outcomes[1].json.doNotRetry,true);
+  const sendCalls=first.seen.apps.filter(v=>v.action==='sendOwnerApprovedGmailReply')
+    .concat(second.seen.apps.filter(v=>v.action==='sendOwnerApprovedGmailReply'));
+  assert.equal(sendCalls.length,1,'Exactly one provider send under concurrency');
+
+  // After uncertain/timeout reservation, status lookup forbids retry.
+  h=harness({sendThrows:true});
+  x=await h.post();
+  assert.equal(x.status,502);
+  assert.equal(x.json.doNotRetry,true);
+  const status=await h.get();
+  assert.equal(status.status,200);
+  assert.equal(status.json.status,'uncertain');
+  assert.equal(status.json.doNotRetry,true);
+  assert.equal(status.json.noAutomaticSend,true);
+  const retry=await h.post({...baseline,intentId:'134162c7-5ebc-49ba-a314-e43932e0c185'});
+  assert.equal(retry.status,409,'Retry after uncertain outcome stays blocked');
+  assert.equal(retry.json.reason,'duplicate_send_intent_exists');
+  assert.equal(retry.json.doNotRetry,true);
+  assert.equal(h.seen.apps.filter(v=>v.action==='sendOwnerApprovedGmailReply').length,1,
+    'Uncertain outcome must never trigger a second provider send');
+
+  // Refresh-safe GET for a confirmed send keeps doNotRetry and message ID.
+  h=harness();
+  x=await h.post();
+  assert.equal(x.status,200);
+  const refreshed=await h.get();
+  assert.equal(refreshed.json.status,'sent');
+  assert.equal(refreshed.json.gmailMessageId,'aabbccdd11223344');
+  assert.equal(refreshed.json.doNotRetry,true);
+
+  console.log('Step 54 / R13: synthetic auth, opt-in, digest, recipient, duplicate, concurrent, uncertain, timeout-retry, send-ack and audit-reconciliation scenarios passed. No external requests.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

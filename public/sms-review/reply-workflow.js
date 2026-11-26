@@ -362,11 +362,105 @@
     return '';
   }
 
+  // Exactly-once send-intent classification for approval delivery safety.
+  // Clipboard copy is never SENT. Provider-confirmed message identity is
+  // required for SENT. Reserved/uncertain outcomes reconcile with doNotRetry
+  // and never authorize automatic resend. Protected routes stay authoritative.
+  function classifySendIntentOutcome(input) {
+    const kind=String(input?.kind||input?.sessionKind||'');
+    if(kind==='clipboard_copy'||kind==='copied_not_sent')
+      return {
+        deliveryState:'copied_not_sent',sent:false,doNotRetry:false,
+        allowsAutomaticResend:false,mayAttemptSend:false,
+        reason:'Clipboard copy is not a provider send.'
+      };
+    if(kind==='denied'||kind==='edit_myself'||kind==='edit_myself_not_sent'||
+       kind==='make_changes'||kind==='draft_prepared')
+      return {
+        deliveryState:'not_sent',sent:false,doNotRetry:false,
+        allowsAutomaticResend:false,mayAttemptSend:false,
+        reason:'Owner decision does not authorize a provider send.'
+      };
+
+    const status=String(input?.status||'').toLowerCase();
+    const gmailMessageId=String(input?.gmailMessageId||'').toLowerCase().trim();
+    const explicitApproval=input?.explicitApproval===true&&
+      input?.confirmation==='SEND THIS EMAIL'&&
+      input?.ownerReviewed===true&&
+      input?.approvalBindingValid===true;
+    const providerConfirmed=input?.sent===true||status==='sent';
+
+    if(providerConfirmed) {
+      if(!PROVIDER_MESSAGE_ID.test(gmailMessageId))
+        return {
+          deliveryState:'uncertain',sent:false,doNotRetry:true,
+          allowsAutomaticResend:false,mayAttemptSend:false,
+          reason:'SENT requires provider-confirmed message identity.'
+        };
+      return {
+        deliveryState:'sent',sent:true,doNotRetry:true,
+        allowsAutomaticResend:false,mayAttemptSend:false,
+        gmailMessageId,
+        reason:'Provider-confirmed send; duplicate send is blocked.'
+      };
+    }
+    if(status==='reserved'||status==='uncertain'||input?.doNotRetry===true)
+      return {
+        deliveryState:status==='reserved'?'reserved':'uncertain',
+        sent:false,doNotRetry:true,
+        allowsAutomaticResend:false,mayAttemptSend:false,
+        reason:'Unknown or reserved delivery must reconcile; never automatic resend.'
+      };
+    // Only an authoritative explicit not_attempted status may arm a send.
+    // Missing, empty, or "none" ledger evidence must reconcile fail-closed.
+    if(status==='not_attempted')
+      return {
+        deliveryState:'not_attempted',sent:false,doNotRetry:false,
+        allowsAutomaticResend:false,mayAttemptSend:explicitApproval,
+        reason:explicitApproval?
+          'Exact explicit approval present; one send attempt may proceed.':
+          'No send without exact explicit approval.'
+      };
+    if(status===''||status==='none')
+      return {
+        deliveryState:'uncertain',sent:false,doNotRetry:true,
+        allowsAutomaticResend:false,mayAttemptSend:false,
+        reason:'Send ledger status missing; reconcile before any send attempt.'
+      };
+    return {
+      deliveryState:'uncertain',sent:false,doNotRetry:true,
+      allowsAutomaticResend:false,mayAttemptSend:false,
+      reason:'Unrecognized send status; fail closed without resend.'
+    };
+  }
+
+  // Client/UI gate: one attempt only when approval binding is still exact and
+  // the durable send ledger explicitly reports not_attempted without doNotRetry.
+  // Absent records or missing/empty/unrecognized status never authorize send.
+  function sendAttemptAllowed({
+    phase,statusRecord,confirmation,ownerReviewed,approvalBinding,currentEvidence
+  }) {
+    if(phase!=='approved_for_manual_copy')return false;
+    if(ownerReviewed!==true||confirmation!=='SEND THIS EMAIL')return false;
+    if(!approvalBindingValid(approvalBinding,currentEvidence))return false;
+    if(!statusRecord||typeof statusRecord!=='object')return false;
+    if(statusRecord.doNotRetry===true)return false;
+    if(!Object.prototype.hasOwnProperty.call(statusRecord,'status'))return false;
+    const status=String(statusRecord.status==null?'':statusRecord.status)
+      .toLowerCase().trim();
+    if(status!=='not_attempted')return false;
+    return classifySendIntentOutcome({
+      status,explicitApproval:true,confirmation,ownerReviewed,
+      approvalBindingValid:true
+    }).mayAttemptSend===true;
+  }
+
   return {
     canPrepare,approvalReady,draftStarter,validation,
     OWNER_DECISIONS,ownerDecisionPolicy,
     buildApprovalBinding,approvalBindingValid,staleApprovalReason,
     sameEvidenceInstant,resolveLatestInboundIdentity,
-    sameInboundIdentity,deterministicInboundDigest,stableProviderMessageId
+    sameInboundIdentity,deterministicInboundDigest,stableProviderMessageId,
+    classifySendIntentOutcome,sendAttemptAllowed
   };
 });

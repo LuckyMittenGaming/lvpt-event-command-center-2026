@@ -264,18 +264,27 @@ Rules:
 | Evidence (T22 revision) | APPROVE now binds latest relevant inbound via stable provider `messageId` when present **and** a deterministic inbound evidence digest from existing excerpt/direction/at/domain/flags (not timestamp alone). `buildApprovalBinding` fails closed without inbound identity. Same-timestamp replacement of inbound ID/content invalidates APPROVE; copy/send stay blocked pending renewed review. Live routes untouched. |
 | Evidence (T22 revision 2) | `save()` validates complete APPROVE binding (recipient, thread, inbound identity, draft digest) **before** the decision/audit adapter call; failure records zero `approved_for_manual_copy` writes and reuses the pre-validated binding on success. Regressions cover missing recipient and missing inbound evidence: no approved audit, no copy/send. |
 | Evidence (T23) | Existing queue ownership extended (no second state machine). `action-queue.js` adds `isPausedByDecision`/`partitionQueueItems` for durable hold/dismissed restore; `app.js` uses them and refuses `advanceToNextInboxThread` while a draft lock is active. Queue-navigation regressions cover exactly-once concurrent advance, synthetic audit persistence across refresh, unresolved-item preservation, duplicate terminal decisions, and fail-closed decision reads. No private message persistence; live decision recording not enabled. Not LIVE_VERIFIED; no auto-send. |
-| Remaining blocker | Live decision recording / controlled send remain later (R13/R24); synthetic-only until owner gates |
+| Remaining blocker | Live decision recording / controlled send remain later (R24); synthetic-only until owner gates |
 | Next task | R13 — exactly-once approval delivery safety |
 
 ### R13 — Verify exactly-once approval delivery safety
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING / gap fill) |
+| Status | **IMPLEMENTED_TESTED** (T24) |
+| Date/time | 2026-11-26 |
 | Dependencies | R12 |
-| Evidence | reply-send regression suite; production Gmail send route 403 |
-| Remaining blocker | Live delivery proof blocked on owner |
-| Next task | Idempotency / unknown-result reconciliation tests |
+| Files inspected (read-only) | `app/api/gmail/send/route.ts`, `app/api/sms/staging/reply-send/route.ts`, `app/api/sms/staging/reply-recipient/route.ts`, `app/api/sms/staging/reply-decisions/route.ts` |
+| Files changed (T24) | `public/sms-review/reply-workflow.js`, `public/sms-review/reply-review-controls.js`, `tests/approval-idempotency.test.mjs` (NEW), `tests/sms-reply-send-runtime.test.cjs`, `tests/sms-reply-send.test.cjs`, `docs/baselines/local-completion-progress.md` |
+| Files changed (T24 revision) | `public/sms-review/reply-workflow.js`, `tests/approval-idempotency.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/sms-reply-send.test.cjs,tests/sms-reply-send-runtime.test.cjs,tests/sms-reply-send-ui.test.cjs,tests/sms-negative-gmail-canary.test.mjs,tests/approval-idempotency.test.mjs` |
+| Exit codes | Targeted verify **0** (send 0; send-runtime 0; send-ui 0; negative-canary 0; approval-idempotency 0) |
+| Exit codes (T24 revision) | Targeted verify **0** |
+| Evidence (T24) | Protected send/recipient/decision routes inspected read-only with isolated provider mocks: production Gmail POST 403; staging reply-send requires dual opt-in + exact confirmation + approval digest + unique intent reservation; uncertain/timeout outcomes mark `doNotRetry` without automatic resend; SENT requires provider `gmailMessageId`. Concurrent duplicate claims allow exactly one provider send. Workflow adds `classifySendIntentOutcome` / `sendAttemptAllowed` (clipboard never SENT; recipient/revision/inbound invalidate). Client `sendApproved` now claims busy lock before first await and will not downgrade a confirmed SENT on a late duplicate error. Four-times-daily approval automation remains disabled in hub. Not LIVE_VERIFIED; no production send enabled. |
+| Evidence (T24 revision) | `sendAttemptAllowed` no longer defaults missing ledger status to `not_attempted`; absent/null/empty/`none`/unrecognized status fail closed. `classifySendIntentOutcome` grants `mayAttemptSend` only for explicit authoritative `not_attempted`. Idempotency regressions cover absent records and missing/empty statuses with otherwise valid approval. Protected routes unchanged. |
+| Protected-runtime flaws | None requiring a protected-route patch. Client busy-lock race (fingerprint await before `working=`) was fixed in authorized UI controls; durable server uniqueness remains the backstop. |
+| Remaining blocker | Live controlled send proof remains R24 (owner-approved recipient/message/window) |
+| Next task | R14 — Android SMS readiness |
 
 ### R14 — Verify Android SMS readiness
 
@@ -463,7 +472,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED** (durable one-at-a-time queue advancement + APPROVE binding) |
-| Next authorized task | R13 — exactly-once approval delivery safety |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED** (exactly-once send-intent safety) |
+| Next authorized task | R14 — Android SMS readiness |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

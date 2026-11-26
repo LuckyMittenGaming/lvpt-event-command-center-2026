@@ -300,6 +300,8 @@
       if(typeof onNext==='function')onNext(t.threadId);
     }
     async function sendApproved(t,ownerReviewed,confirmation) {
+      // Busy lock is set before the first await so double-clicks / concurrent
+      // handlers cannot start a second provider POST for the same revision.
       if(working||!active||active.threadId!==t.threadId||
          active.phase!=='approved_for_manual_copy')return;
       const recipient=recipients.get(t.threadId);
@@ -307,26 +309,31 @@
       if(!recipient?.sendEnabled||record?.doNotRetry||
          record?.status!=='not_attempted'||ownerReviewed!==true||
          confirmation!=='SEND THIS EMAIL')return;
-      const exact=await fingerprint(JSON.stringify([active.subject,active.body]));
-      if(exact!==active.draftDigest) {
-        invalidateStaleApproval(t,
-          'Draft revision/digest changed since owner approval.');
-        onUpdate();return;
-      }
-      if(!approvalStillValid(t)) {
-        const reason=typeof workflow.staleApprovalReason==='function'?
-          workflow.staleApprovalReason(active.approvalBinding,approvalEvidence(t)):
-          'Approval binding no longer matches current evidence.';
-        invalidateStaleApproval(t,reason);
-        onUpdate();return;
-      }
+      const subject=active.subject;
+      const body=active.body;
+      const draftDigest=active.draftDigest;
       working=t.threadId;onUpdate();
       try {
+        const exact=await fingerprint(JSON.stringify([subject,body]));
+        if(!active||active.threadId!==t.threadId||
+           active.phase!=='approved_for_manual_copy')return;
+        if(exact!==draftDigest) {
+          invalidateStaleApproval(t,
+            'Draft revision/digest changed since owner approval.');
+          return;
+        }
+        if(!approvalStillValid(t)) {
+          const reason=typeof workflow.staleApprovalReason==='function'?
+            workflow.staleApprovalReason(active.approvalBinding,approvalEvidence(t)):
+            'Approval binding no longer matches current evidence.';
+          invalidateStaleApproval(t,reason);
+          return;
+        }
         const sent=await getProtected('/api/sms/staging/reply-send',{
           body:{
             intentId:window.crypto.randomUUID(),threadId:t.threadId,
             lastMessageAt:t.lastMessageAt,recipient:recipient.to,
-            subject:active.subject,body:active.body,
+            subject,body,
             confirmation:'SEND THIS EMAIL',ownerReviewed:true
           }
         });
@@ -341,11 +348,14 @@
       }catch {
         // A network failure may occur AFTER Gmail sends. Never offer an
         // automatic retry; the persistent send reservation also blocks it.
-        sendRecords.set(t.threadId,{
-          status:'uncertain',doNotRetry:true
-        });
-        status.set(t.threadId,
-          'Send result uncertain or blocked. STOP: inspect Gmail Sent and the send audit before any further action. Never retry automatically.');
+        // Do not downgrade an already provider-confirmed SENT status.
+        if(sendRecords.get(t.threadId)?.status!=='sent'&&active?.phase!=='sent') {
+          sendRecords.set(t.threadId,{
+            status:'uncertain',doNotRetry:true
+          });
+          status.set(t.threadId,
+            'Send result uncertain or blocked. STOP: inspect Gmail Sent and the send audit before any further action. Never retry automatically.');
+        }
       }finally {working='';onUpdate();}
       // Advance only after a positive Gmail acknowledgement, never on
       // uncertain or failed delivery; preserve the send audit.

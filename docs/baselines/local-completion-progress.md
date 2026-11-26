@@ -290,11 +290,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING code; ops UNVERIFIED) |
+| Status | IMPLEMENTED_TESTED (code/contracts); ops UNVERIFIED |
+| Date/time | 2026-11-26 |
 | Dependencies | R00 |
-| Evidence | SMS staging routes/tests; historical metadata present in Part A notes |
-| Remaining blocker | No current heartbeat; checklist doc absent; R25 for live |
-| Next task | Readiness docs/tests; never treat ciphertext as content |
+| Files inspected | `lib/sms-bridge.mjs`, `lib/sms-scan-health.mjs`, `lib/source-reliability.mjs`, `app/api/sms/staging/_lib.ts`, `app/api/sms/staging/ingest/route.ts`, `app/api/sync/operating-picture/route.ts`, `sql/sms-staging.sql`, `SMS-STAGING-SETUP.md`, `SMS-REVIEW-README.md`, phase baselines through `phase-07m` |
+| Files changed | `lib/sms-scan-health.mjs`, `tests/sms-scan-health.test.mjs`, `docs/android-sms-operational-checklist.md`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/sms-scan-health.test.mjs,tests/source-reliability.test.mjs,tests/sms-intelligence.test.mjs` |
+| Exit codes | Targeted verify **0** (sms-scan-health 0; source-reliability 0; sms-intelligence 0) |
+| Evidence | Android APK/source absent locally; bridge lives on documented `feature/lvpt-sms-bridge-prototype`. Server allowlist/AES-GCM/sms_id dedup/unmatched review verified offline. `classifyBridgeHeartbeat` requires `last_success_at`; historical rows never imply sync. Preview passes `heartbeat: null`. Checklist records exact SMS-STAGING-SETUP Android v0.5 UI steps without inventing adb/gradle commands. |
+| Remaining blocker | Approved handset current `last_success_at` (R25); no heartbeat persistence reader on this preview |
+| Next task | R15 — RCS collector readiness |
 
 ### R15 — Verify RCS collector readiness
 
@@ -472,7 +477,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED** (exactly-once send-intent safety) |
-| Next authorized task | R14 — Android SMS readiness |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED) |
+| Next authorized task | R15 — RCS collector readiness |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

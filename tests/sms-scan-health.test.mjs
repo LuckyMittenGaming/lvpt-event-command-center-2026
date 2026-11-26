@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { classifySmsScan, observedTime, SMS_PAGE_CAP } from '../lib/sms-scan-health.mjs';
+import {
+  ANDROID_BRIDGE_PACKAGE,
+  classifyBridgeHeartbeat,
+  classifySmsScan,
+  observedTime,
+  SMS_BRIDGE_HEARTBEAT_UNVERIFIED,
+  SMS_PAGE_CAP
+} from '../lib/sms-scan-health.mjs';
+import { validateBridgeStatus } from '../lib/sms-bridge.mjs';
+import { classifyStoredCollection } from '../lib/source-reliability.mjs';
 
 const require = createRequire(import.meta.url);
 const { sourceStatus } = require('../public/v2/js/event-finance.js');
@@ -11,6 +20,25 @@ const recentIngest = '2026-11-24T17:30:00.000Z';
 const recentMessage = Date.parse('2026-11-24T17:00:00.000Z');
 const oldIngest = '2026-11-05T05:36:06.000Z';
 const oldMessage = Date.parse('2026-11-19T12:00:00.000Z');
+const recentHeartbeat = '2026-11-24T17:50:00.000Z';
+const staleHeartbeat = '2026-11-20T12:00:00.000Z';
+
+/** Synthetic bridge status — no live collection, no real contacts. */
+function bridgeStatus(overrides = {}) {
+  return {
+    device_id: '11111111-2222-4333-8444-555555555555',
+    read_sms: true,
+    receive_sms: true,
+    monitoring: true,
+    auto_sync: true,
+    battery_unrestricted: true,
+    cursor_sms_id: 42,
+    accepted_last_batch: 3,
+    last_failure: null,
+    last_success_at: recentHeartbeat,
+    ...overrides
+  };
+}
 
 function row(message, ingest) {
   return {
@@ -344,5 +372,141 @@ const errorHtml = await rendered('action');
 assert.match(errorHtml, /action_inbox_unavailable/);
 assert.equal(errorHtml.includes('>LIVE<'), false);
 assert.equal(errorHtml.includes('stored metadata rows'), false);
+
+// --- R14 / T25: bridge heartbeat contract (offline; no collection initiated) ---
+assert.equal(validateBridgeStatus({ body: 'secret', phone: '7025550100', device_id: '11111111-2222-4333-8444-555555555555' }), null);
+assert.equal(validateBridgeStatus({ ...bridgeStatus(), ciphertext: 'x' }), null);
+
+const missingHeartbeat = classifyBridgeHeartbeat({
+  status: null,
+  historicalRowCount: 12,
+  now
+});
+assert.equal(missingHeartbeat.verified, false);
+assert.equal(missingHeartbeat.status, 'NOT VERIFIED');
+assert.equal(missingHeartbeat.fresh, false);
+assert.equal(missingHeartbeat.heartbeat, null);
+assert.equal(missingHeartbeat.historicalImpliesSync, false);
+assert.equal(missingHeartbeat.historicalRowCount, 12);
+assert.match(missingHeartbeat.detail, /Historical stored rows/);
+assert.match(missingHeartbeat.detail, /not this heartbeat/);
+assert.equal(missingHeartbeat.detail.includes(SMS_BRIDGE_HEARTBEAT_UNVERIFIED.slice(0, 40)), true);
+assert.equal(JSON.stringify(missingHeartbeat).includes('7025550100'), false);
+assert.equal(JSON.stringify(missingHeartbeat).includes('body'), false);
+
+const emptySuccess = classifyBridgeHeartbeat({
+  status: bridgeStatus({ last_success_at: null, last_failure: 'network_timeout' }),
+  historicalRowCount: 99,
+  now
+});
+assert.equal(emptySuccess.verified, false);
+assert.equal(emptySuccess.status, 'NOT VERIFIED');
+assert.equal(emptySuccess.collectorFailure, true);
+assert.equal(emptySuccess.heartbeat, null);
+assert.equal(emptySuccess.historicalImpliesSync, false);
+assert.match(emptySuccess.detail, /last_success_at is missing/);
+assert.match(emptySuccess.detail, /network_timeout/);
+
+const currentHeartbeat = classifyBridgeHeartbeat({
+  status: bridgeStatus(),
+  historicalRowCount: 12,
+  now
+});
+assert.equal(currentHeartbeat.verified, true);
+assert.equal(currentHeartbeat.status, 'LIVE');
+assert.equal(currentHeartbeat.fresh, true);
+assert.equal(currentHeartbeat.collectorFailure, false);
+assert.equal(currentHeartbeat.orderingUncertain, false);
+assert.equal(currentHeartbeat.lastSuccessAt, recentHeartbeat);
+assert.equal(currentHeartbeat.priorLastSuccessAt, recentHeartbeat);
+assert.deepEqual(currentHeartbeat.heartbeat, { read: true, lastSuccessAt: recentHeartbeat });
+assert.equal(currentHeartbeat.probe.owner, ANDROID_BRIDGE_PACKAGE);
+assert.equal(currentHeartbeat.historicalImpliesSync, false);
+assert.match(currentHeartbeat.detail, /collector execution evidence/);
+
+const successWithUnresolvedFailure = classifyBridgeHeartbeat({
+  status: bridgeStatus({ last_success_at: recentHeartbeat, last_failure: 'sync_http_502' }),
+  historicalRowCount: 12,
+  now
+});
+assert.equal(successWithUnresolvedFailure.priorLastSuccessAt, recentHeartbeat);
+assert.equal(successWithUnresolvedFailure.lastSuccessAt, recentHeartbeat);
+assert.equal(successWithUnresolvedFailure.collectorFailure, true);
+assert.equal(successWithUnresolvedFailure.orderingUncertain, true);
+assert.equal(successWithUnresolvedFailure.verified, false);
+assert.equal(successWithUnresolvedFailure.fresh, false);
+assert.notEqual(successWithUnresolvedFailure.status, 'LIVE');
+assert.equal(successWithUnresolvedFailure.status, 'NOT VERIFIED');
+assert.equal(successWithUnresolvedFailure.heartbeat, null);
+assert.equal(successWithUnresolvedFailure.probe.lastSuccess, '');
+assert.match(successWithUnresolvedFailure.detail, /ordering cannot be established/);
+assert.match(successWithUnresolvedFailure.detail, /not treated as healthy or current/);
+assert.match(successWithUnresolvedFailure.detail, /sync_http_502/);
+assert.match(successWithUnresolvedFailure.detail, /preserved separately/);
+
+const staleBridge = classifyBridgeHeartbeat({
+  status: bridgeStatus({ last_success_at: staleHeartbeat }),
+  now
+});
+assert.equal(staleBridge.verified, true);
+assert.equal(staleBridge.status, 'STALE');
+assert.equal(staleBridge.fresh, false);
+assert.equal(staleBridge.orderingUncertain, false);
+
+const storedWithoutHeartbeat = classifyStoredCollection({
+  storeReached: true,
+  newestIngestAt: recentIngest,
+  newestMessageAt: observedTime(oldMessage, now),
+  rowCount: 12,
+  recentImportCount: 1,
+  heartbeat: missingHeartbeat.heartbeat,
+  now
+});
+assert.equal(storedWithoutHeartbeat.heartbeatVerified, false);
+assert.equal(storedWithoutHeartbeat.collectionLive, false);
+assert.equal(storedWithoutHeartbeat.uploadStatus, 'UNVERIFIED');
+assert.equal(storedWithoutHeartbeat.heartbeatStatus, 'NOT VERIFIED');
+assert.notEqual(storedWithoutHeartbeat.uploadStatus, 'LIVE');
+
+const storedWithHeartbeat = classifyStoredCollection({
+  storeReached: true,
+  newestIngestAt: recentIngest,
+  newestMessageAt: observedTime(oldMessage, now),
+  rowCount: 12,
+  recentImportCount: 1,
+  heartbeat: currentHeartbeat.heartbeat,
+  now
+});
+assert.equal(storedWithHeartbeat.heartbeatVerified, true);
+assert.equal(storedWithHeartbeat.collectionLive, true);
+assert.equal(storedWithHeartbeat.heartbeat.lastSuccess, recentHeartbeat);
+assert.notEqual(storedWithHeartbeat.heartbeat.lastSuccess, storedWithHeartbeat.newestMessageAt);
+assert.notEqual(storedWithHeartbeat.heartbeat.lastSuccess, storedWithHeartbeat.newestIngestAt);
+
+const checklist = readFileSync(new URL('../docs/android-sms-operational-checklist.md', import.meta.url), 'utf8');
+assert.match(checklist, /com\.lvpt\.smsbridge/);
+assert.match(checklist, /last_success_at/);
+assert.match(checklist, /LVPT_SMS_STAGING_ALLOWED_NUMBERS/);
+assert.match(checklist, /lib\/sms-bridge\.mjs/);
+assert.match(checklist, /feature\/lvpt-sms-bridge-prototype/);
+assert.match(checklist, /AES-256-GCM|body_ciphertext/);
+assert.match(checklist, /on_conflict=tenant_id,device_id,sms_id|ignore-duplicates/);
+assert.doesNotMatch(checklist, /702555\d{4}/);
+assert.doesNotMatch(checklist, /eyJ[A-Za-z0-9_-]{10,}/);
+
+const bridgeLib = readFileSync(new URL('../lib/sms-bridge.mjs', import.meta.url), 'utf8');
+assert.match(bridgeLib, /export function validateBridgeStatus/);
+assert.match(bridgeLib, /last_success_at/);
+assert.match(picture, /heartbeat: null/);
+assert.match(picture, /com\.lvpt\.smsbridge/);
+
+const ingest = readFileSync(new URL('../app/api/sms/staging/ingest/route.ts', import.meta.url), 'utf8');
+const stagingLib = readFileSync(new URL('../app/api/sms/staging/_lib.ts', import.meta.url), 'utf8');
+assert.match(ingest, /ignore-duplicates/);
+assert.match(stagingLib, /allowedNumbers/);
+assert.match(stagingLib, /encryptBatch/);
+assert.match(stagingLib, /createCipheriv\('aes-256-gcm'/);
+assert.match(stagingLib, /seen\.has\(sms_id\)/);
+assert.doesNotMatch(ingest, /fetch\(['\"]https:\/\/.*supabase/);
 
 console.log('sms scan health tests passed');

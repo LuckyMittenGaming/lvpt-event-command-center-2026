@@ -214,6 +214,9 @@ const inbox = readFileSync(new URL('../app/api/sync/action-inbox/route.ts', impo
 const rcs = readFileSync(new URL('../app/api/sms/staging/rcs-collector/route.ts', import.meta.url), 'utf8');
 assert.equal(picture.includes('November 5'), false);
 assert.match(picture, /classifyStoredCollection/);
+assert.match(picture, /normalizeSourceHealth/);
+assert.match(picture, /normalizeLocalReadiness/);
+assert.match(picture, /sourceHealth/);
 assert.match(picture, /heartbeat: null/);
 assert.match(inbox, /classifyGmailHeaderRead/);
 assert.match(inbox, /gmailFresh: false/);

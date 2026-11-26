@@ -18,6 +18,70 @@
     return `<span class="badge ${tone}">${esc(status)}</span>`;
   }
 
+  function examinedLabel(value) {
+    if (value === null || value === undefined || value === '') return 'Not counted';
+    return value;
+  }
+
+  function coverageLabel(value) {
+    const raw = String(value || '').trim();
+    if (!raw || raw === 'unspecified') return 'Unspecified';
+    if (raw === 'read-complete') return 'Read complete';
+    if (raw === 'partial' || raw === 'newest_row_only' || raw === 'property-only') {
+      return raw === 'partial' ? 'Partial' : raw === 'newest_row_only' ? 'Newest row only' : 'Property only';
+    }
+    if (raw === 'unavailable') return 'Unavailable';
+    return raw;
+  }
+
+  function honestJobStatus(job) {
+    const probe = job && typeof job === 'object' ? { ...job } : { connected: false };
+    const scheduleOnly = probe.scheduleVersusExecution
+      && probe.scheduleVersusExecution.scheduleIsNotExecution === true
+      && !probe.executedAt;
+    if (scheduleOnly && probe.observable !== false && !probe.disabled) {
+      // A configured schedule must never paint green as a successful run.
+      probe.lastSuccess = '';
+      if (probe.status === 'LIVE' || probe.status === 'HEALTHY') delete probe.status;
+    }
+    if (probe.heartbeatVerified === false && /heartbeat/i.test(String(probe.name || probe.id || ''))) {
+      probe.lastSuccess = '';
+      probe.status = probe.status === 'UNVERIFIED' ? 'UNVERIFIED' : 'NOT VERIFIED';
+    }
+    return finance.sourceStatus(probe);
+  }
+
+  function sourceHealthCards(sourceHealth) {
+    if (!sourceHealth || typeof sourceHealth !== 'object') return '';
+    const cards = [
+      ['Gmail', sourceHealth.gmail],
+      ['SMS store', sourceHealth.sms],
+      ['SMS collector', sourceHealth.smsHeartbeat],
+      ['RCS collector', sourceHealth.rcs],
+      ['Safe TaskSync', sourceHealth.calendar]
+    ].filter((entry) => entry[1] && typeof entry[1] === 'object');
+    if (!cards.length) return '';
+    const rows = cards.map(([label, evidence]) => {
+      const status = evidence.explicitState || evidence.status || 'NOT VERIFIED';
+      const scheduleNote = evidence.scheduleVersusExecution && evidence.scheduleVersusExecution.scheduleIsNotExecution
+        ? 'Schedule is not execution.'
+        : (evidence.executedAt ? `Executed ${evidence.executedAt}.` : 'No execution evidence.');
+      const freshness = `Coverage ${coverageLabel(evidence.coverage)}. Latest record ${evidence.latestRecordAt || 'none'}. Latest ingest ${evidence.latestIngestAt || 'none'}. Heartbeat ${evidence.heartbeatVerified ? (evidence.heartbeatAt || 'verified') : 'not verified'}.`;
+      return `<tr data-source-health="${esc(evidence.source || label)}"><td>${esc(label)}</td><td>${badge(status)}</td><td>${esc(coverageLabel(evidence.coverage))}</td><td>${esc(evidence.latestRecordAt || '—')}</td><td>${esc(evidence.latestIngestAt || '—')}</td><td>${esc(evidence.executedAt || '—')}</td><td>${esc(scheduleNote)} ${esc(freshness)}</td><td>${esc(evidence.ownerAction || '')}</td></tr>`;
+    }).join('');
+    return `<h3>Normalized source health</h3><p class="muted">Scheduler ownership, actual execution, stored activity, collector health, and owner-required actions stay separate. A stored row is not a heartbeat. A schedule is not a successful run.</p><div class="hub-table-wrap"><table class="hub-table" data-health-table="source-health"><thead><tr><th>Source</th><th>Status</th><th>Coverage</th><th>Latest record</th><th>Latest ingest</th><th>Executed</th><th>Freshness</th><th>Owner action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function healthJobRows(jobs) {
+    return jobs.map((job) => {
+      const status = honestJobStatus(job);
+      const scheduleNote = job.scheduleVersusExecution && job.scheduleVersusExecution.scheduleIsNotExecution
+        ? 'Schedule only — not execution'
+        : (job.executedAt ? `Executed ${job.executedAt}` : (job.observable === false ? 'Not observable' : 'No execution evidence'));
+      return `<tr data-job-id="${esc(job.id || '')}" data-job-name="${esc(job.name || '')}"><td>${esc(job.name)}</td><td>${esc(job.owner || '—')}</td><td>${esc(job.schedule || '—')}</td><td>${badge(status)}</td><td>${esc(coverageLabel(job.coverage))}</td><td>${esc(job.lastAttempt || '—')}</td><td>${esc(job.lastSuccess || '—')}</td><td>${esc(job.latestRecordAt || '—')}</td><td>${esc(job.latestIngestAt || '—')}</td><td>${esc(examinedLabel(job.recordsExamined))}</td><td>${esc(scheduleNote)}</td><td>${esc(job.ownerAction || '')}</td><td>${esc(job.detail || '')}</td></tr>`;
+    }).join('');
+  }
+
   function smsScanBlock(sms, probe) {
     const source = probe && typeof probe === 'object' ? probe : { connected: false, detail: 'SMS scan status was not reported. No message count is shown.' };
     const status = finance.sourceStatus(source);
@@ -372,23 +436,29 @@
     ]);
     if (generation !== readGeneration) return;
     if (picture.status === 401 || inbox.status === 401) {
-      view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'Sign-in is separate from provider health.', `<p>${badge('AUTH REQUIRED')} Owner session required.</p><p>Provider status was not read. A blocked read is not a disconnected provider and not an empty source.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>`);
+      view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'Sign-in is separate from provider health.', `<p>${badge('AUTH REQUIRED')} Owner session required.</p><p>Provider status was not read. A blocked read is not a disconnected provider and not an empty source. Failed authorization does not invent zero totals.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>`);
       return;
     }
+    const pictureTimedOut = picture.status === 0;
+    const inboxTimedOut = inbox.status === 0;
     const jobs = picture.ok && picture.data && Array.isArray(picture.data.jobs) ? picture.data.jobs : [];
     const namedJobs = jobs.length ? jobs : [
-      { name: 'Financial source sync', schedule: 'This page read', owner: 'Command Center sheet', connected: false, detail: (picture.data && picture.data.message) || 'The sheet ledger did not load.' },
-      { name: 'Gmail ingestion', schedule: 'Not scheduled here', owner: 'No ingestion cursor', connected: false, detail: 'No mailbox read was recorded.' },
-      { name: 'SMS ingestion', schedule: 'Android staging import', owner: 'Encrypted store', connected: false, detail: 'An audit response is not a message sync.' }
+      { name: 'Financial source sync', schedule: 'This page read', owner: 'Command Center sheet', connected: false, recordsExamined: null, coverage: 'unavailable', detail: (picture.data && picture.data.message) || 'The sheet ledger did not load.', ownerAction: 'Restore the shared operating-picture read before trusting source counts.', scheduleVersusExecution: { scheduleIsNotExecution: true } },
+      { name: 'Gmail ingestion', schedule: 'Not scheduled here', owner: 'No ingestion cursor', connected: false, recordsExamined: null, coverage: 'unavailable', detail: 'No mailbox read was recorded.', ownerAction: 'Do not treat a missing Gmail read as an empty mailbox.' },
+      { name: 'SMS ingestion', schedule: 'Android staging import', owner: 'Encrypted store', connected: false, recordsExamined: null, coverage: 'unavailable', detail: 'An audit response is not a message sync.', ownerAction: 'Confirm SMS staging metadata separately from audit health.' }
     ];
     const scan = smsScanJob(inbox);
     const gmailHeader = inbox.ok && inbox.data && inbox.data.sources ? inbox.data.sources.gmailHeader : null;
     const gmailJob = inbox.ok && inbox.data && inbox.data.gmailProbe
       ? inbox.data.gmailProbe
-      : { name: 'Gmail header metadata', connected: false, lastSuccess: '', recordsExamined: null, recordsCreated: 0, detail: 'The Gmail header read did not load. No header count was taken.' };
+      : { name: 'Gmail header metadata', connected: false, lastSuccess: '', recordsExamined: null, recordsCreated: 0, coverage: 'unavailable', detail: 'The Gmail header read did not load. No header count was taken.', ownerAction: 'Retry the bounded header read after authorization. A failed read is not zero headers.' };
     const listed = namedJobs.concat([scan, gmailJob]);
     const sms = inbox.ok && inbox.data && inbox.data.sources ? inbox.data.sources.sms : null;
-    const body = `${smsScanBlock(sms, scan)}${gmailScanBlock(gmailHeader)}<div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Job</th><th>Status</th><th>Last attempt</th><th>Last success</th><th>Examined</th><th>Created</th><th>Duplicates</th><th>Review</th><th>Evidence</th></tr></thead><tbody>${listed.map((job) => `<tr><td>${esc(job.name)}</td><td>${badge(finance.sourceStatus(job))}</td><td>${esc(job.lastAttempt || '—')}</td><td>${esc(job.lastSuccess || '—')}</td><td>${esc(job.recordsExamined ?? '—')}</td><td>${esc(job.recordsCreated ?? '—')}</td><td>${esc(job.duplicates ?? '—')}</td><td>${esc(job.unmatched ?? '—')}</td><td>${esc(job.detail || '')}</td></tr>`).join('')}</tbody></table></div><p class="muted">A historical import is not a current ingestion. A database response is not a phone upload. A stored row is not a device heartbeat. A partial metadata scan is not a complete import. A Gmail header is not a full thread. A job with no readable history stays Not observable. No customer message was sent by this check.</p>`;
+    const sourceHealth = picture.ok && picture.data ? picture.data.sourceHealth : null;
+    const timeoutNote = (pictureTimedOut || inboxTimedOut)
+      ? `<div class="hub-callout"><strong>${badge('TIMED OUT')} Shared read timed out.</strong><p>A timeout is not disconnection proof of an empty source and is not a successful schedule execution. Examined counts stay not counted until a complete authorized read finishes.</p></div>`
+      : '';
+    const body = `${timeoutNote}${smsScanBlock(sms, scan)}${gmailScanBlock(gmailHeader)}${sourceHealthCards(sourceHealth)}<h3>Jobs and collectors</h3><p class="muted">Owner column is scheduler ownership. Executed stays blank unless actual run evidence exists. Partial coverage and freshness timestamps are listed beside status — never as green success alone.</p><div class="hub-table-wrap"><table class="hub-table" data-health-table="jobs"><thead><tr><th>Job</th><th>Owner</th><th>Schedule</th><th>Status</th><th>Coverage</th><th>Last attempt</th><th>Last success</th><th>Latest record</th><th>Latest ingest</th><th>Examined</th><th>Execution</th><th>Owner action</th><th>Evidence</th></tr></thead><tbody>${healthJobRows(listed)}</tbody></table></div><p class="muted">A historical import is not a current ingestion. A database response is not a phone upload. A stored row is not a device heartbeat. A partial metadata scan is not a complete import. A Gmail header is not a full thread. A job with no readable history stays Not observable. Schedules are never successful executions. No customer message was sent by this check. Shared operating-picture and action-inbox requests were reused for this view.</p>`;
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', body);
   }
 

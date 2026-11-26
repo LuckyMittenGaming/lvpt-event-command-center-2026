@@ -147,10 +147,120 @@ const ledger = {
   gmailActivityCount: 4,
   gmailThreadCount: 2,
   gmailQueue: [{ domainKey: 'example.test', lastMessageAt: '2026-11-20T18:00:00.000Z', lastDirection: 'inbound', subject: 'Synthetic header' }],
+  sourceHealth: {
+    liveVerified: false,
+    gmail: {
+      source: 'gmail',
+      status: 'NOT VERIFIED',
+      explicitState: 'NOT VERIFIED',
+      coverage: 'read-complete',
+      latestRecordAt: '2026-11-20T18:00:00.000Z',
+      latestIngestAt: '2026-11-20T12:00:00.000Z',
+      executedAt: '',
+      heartbeatVerified: false,
+      ownerAction: 'Do not treat a bounded header read as production Gmail ingestion.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true, scheduleSubstitutesForExecution: false }
+    },
+    sms: {
+      source: 'sms',
+      status: 'UNVERIFIED',
+      explicitState: 'NOT VERIFIED',
+      coverage: 'partial',
+      latestRecordAt: '2026-11-18T00:00:00.000Z',
+      latestIngestAt: '2026-11-22T00:00:00.000Z',
+      executedAt: '',
+      heartbeatVerified: false,
+      ownerAction: 'Treat stored import timestamps as stored activity only until a verified collector heartbeat arrives.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true, storedRowSubstitutesForHeartbeat: false }
+    },
+    smsHeartbeat: {
+      source: 'sms-heartbeat',
+      status: 'NOT VERIFIED',
+      explicitState: 'NOT VERIFIED',
+      coverage: 'unavailable',
+      latestRecordAt: '',
+      latestIngestAt: '',
+      executedAt: '',
+      heartbeatVerified: false,
+      ownerAction: 'Run the LVPT SMS bridge on the approved handset and confirm a current last_success_at.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true, storedRowSubstitutesForHeartbeat: false }
+    },
+    rcs: {
+      source: 'rcs',
+      status: 'NOT VERIFIED',
+      explicitState: 'NOT VERIFIED',
+      coverage: 'unavailable',
+      executedAt: '',
+      heartbeatVerified: false,
+      ownerAction: 'Pair the read-only collector on the approved computer and confirm a current collector success time.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true, storedRowSubstitutesForHeartbeat: false }
+    },
+    calendar: {
+      source: 'calendar',
+      status: 'NOT OBSERVABLE',
+      explicitState: 'NOT OBSERVABLE',
+      coverage: 'unspecified',
+      schedule: 'Hourly',
+      executedAt: '',
+      ownerAction: 'Confirm an actual runLVPTSafeTaskSync cycle. Do not treat the hourly schedule as execution.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true, scheduleSubstitutesForExecution: false, auditIsNotExecution: true }
+    }
+  },
   jobs: [
-    { id: 'gmail-production', name: 'Gmail production ingestion', coverage: 'read-complete', connected: true, detail: 'Bounded header read.' },
-    { id: 'financial-sync', name: 'Financial source sync', lastSuccess: '2026-11-25T12:00:00.000Z', connected: true, detail: 'Synthetic sheet read.' },
-    { id: 'sms-heartbeat', name: 'Android SMS collector heartbeat', status: 'NOT VERIFIED', connected: false, detail: 'No heartbeat on this fixture.' }
+    {
+      id: 'tasksync',
+      name: 'Safe TaskSync',
+      schedule: 'Hourly',
+      owner: 'LVPT Calendar Command Center',
+      observable: false,
+      coverage: 'unspecified',
+      recordsExamined: null,
+      executedAt: '',
+      ownerAction: 'Confirm an actual runLVPTSafeTaskSync cycle. Do not treat the hourly schedule as execution.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true, scheduleSubstitutesForExecution: false },
+      detail: 'The hourly schedule is configuration, not proof that runLVPTSafeTaskSync ran.'
+    },
+    {
+      id: 'gmail-production',
+      name: 'Gmail production ingestion',
+      coverage: 'read-complete',
+      connected: true,
+      lastSuccess: '',
+      recordsExamined: 2,
+      latestRecordAt: '2026-11-20T18:00:00.000Z',
+      latestIngestAt: '2026-11-20T12:00:00.000Z',
+      executedAt: '',
+      ownerAction: 'Do not treat a bounded header read as production Gmail ingestion.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true },
+      detail: 'Bounded header read.'
+    },
+    {
+      id: 'financial-sync',
+      name: 'Financial source sync',
+      schedule: 'This page read',
+      owner: 'Command Center Payments and Event Payouts',
+      lastAttempt: '2026-11-25T12:00:00.000Z',
+      lastSuccess: '2026-11-25T12:00:00.000Z',
+      executedAt: '2026-11-25T12:00:00.000Z',
+      connected: true,
+      coverage: 'read-complete',
+      recordsExamined: 3,
+      ownerAction: 'Ledger-recorded totals remain sheet evidence, not bank settlement.',
+      detail: 'Synthetic sheet read.'
+    },
+    {
+      id: 'sms-heartbeat',
+      name: 'Android SMS collector heartbeat',
+      status: 'NOT VERIFIED',
+      connected: false,
+      heartbeatVerified: false,
+      coverage: 'unavailable',
+      recordsExamined: null,
+      executedAt: '',
+      ownerAction: 'Run the LVPT SMS bridge on the approved handset and confirm a current last_success_at.',
+      scheduleVersusExecution: { scheduleIsNotExecution: true, storedRowSubstitutesForHeartbeat: false },
+      detail: 'No heartbeat on this fixture.'
+    }
   ]
 };
 const leadInboxRecord = {
@@ -1540,9 +1650,31 @@ try {
   assert.match(await page.locator('#commandView').innerText(), /Synthetic Lead/);
   assert.ok(Math.abs(await page.evaluate(() => window.scrollY) - searchScroll) < 80);
   await page.locator('[data-command-view="health"]').click();
-  await page.waitForTimeout(400);
+  await page.waitForFunction(() => /Source health|What ran/i.test(document.querySelector('#commandView')?.innerText || ''));
   const health = await page.locator('#commandView').innerText();
   assert.equal(health.includes('AUTH REQUIRED'), false);
+  assert.match(health, /Normalized source health|Scheduler ownership|Owner action/i);
+  assert.match(health, /Schedule is not execution|Schedule only/i);
+  assert.match(health, /Safe TaskSync/);
+  assert.match(health, /runLVPTSafeTaskSync|hourly schedule/i);
+  assert.match(health, /Android SMS collector heartbeat/);
+  assert.match(health, /NOT VERIFIED|Not verified/i);
+  assert.match(health, /last_success_at|approved handset/i);
+  assert.match(health, /Partial|Coverage/i);
+  const healthBadges = await page.evaluate(() => {
+    const heartbeat = document.querySelector('[data-job-id="sms-heartbeat"] .badge, [data-source-health="sms-heartbeat"] .badge');
+    const tasksync = document.querySelector('[data-job-id="tasksync"] .badge, [data-source-health="calendar"] .badge');
+    return {
+      heartbeat: heartbeat ? heartbeat.textContent : '',
+      tasksync: tasksync ? tasksync.textContent : ''
+    };
+  });
+  assert.notEqual(healthBadges.heartbeat, 'LIVE');
+  assert.notEqual(healthBadges.tasksync, 'LIVE');
+  assert.match(healthBadges.heartbeat, /NOT VERIFIED|UNVERIFIED|NOT CONNECTED|NOT OBSERVABLE/i);
+  assert.match(healthBadges.tasksync, /NOT OBSERVABLE|NOT VERIFIED/i);
+  assert.equal(await page.locator('[data-health-table="source-health"]').count(), 1);
+  assert.equal(await page.locator('[data-health-table="jobs"]').count(), 1);
   assert.equal(await overflow(), true);
 
   const tenViews = [

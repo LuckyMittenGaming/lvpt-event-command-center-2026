@@ -8,11 +8,64 @@ import { denyPrivateRead } from '../_owner-read';
 import { jsonNoStore } from '../../sms/staging/_lib';
 import { collapseDuplicateIds } from '../../../../lib/action-inbox.mjs';
 import { observedTime, SMS_INGEST_STALE_HOURS } from '../../../../lib/sms-scan-health.mjs';
-import { classifyGmailHeaderRead, classifyStoredCollection } from '../../../../lib/source-reliability.mjs';
+import {
+  classifyGmailHeaderRead,
+  classifyStoredCollection,
+  normalizeLocalReadiness,
+  normalizeSourceHealth
+} from '../../../../lib/source-reliability.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
+
+type HealthEvidence = Record<string, unknown>;
+
+/** Attach normalized source-health evidence onto a job probe for the hub. */
+function presentJob(job: Record<string, unknown>, evidenceInput: Record<string, unknown> = {}): Record<string, unknown> {
+  const evidence = normalizeSourceHealth({
+    source: String(job.id || job.name || evidenceInput.source || 'job'),
+    name: String(job.name || evidenceInput.name || 'Source job'),
+    schedule: job.schedule,
+    owner: job.owner,
+    observable: job.observable,
+    disabled: job.disabled === true,
+    connected: job.connected === true,
+    partial: job.partial === true,
+    lastAttempt: job.lastAttempt,
+    lastSuccess: job.lastSuccess,
+    staleAfterHours: job.staleAfterHours,
+    recordsExamined: job.recordsExamined,
+    recordsCreated: job.recordsCreated,
+    duplicates: job.duplicates,
+    unmatched: job.unmatched,
+    detail: job.detail,
+    coverage: job.coverage,
+    status: job.status,
+    ...evidenceInput
+  }) as HealthEvidence;
+  const examined = evidence.recordsExamined;
+  return {
+    ...job,
+    lastAttempt: evidence.lastAttempt || job.lastAttempt || '',
+    lastSuccess: evidence.lastSuccess !== undefined ? evidence.lastSuccess : job.lastSuccess,
+    recordsExamined: examined === undefined ? job.recordsExamined : examined,
+    recordsCreated: evidence.recordsCreated ?? job.recordsCreated ?? 0,
+    coverage: evidence.coverage || job.coverage || '',
+    latestRecordAt: evidence.latestRecordAt || '',
+    latestIngestAt: evidence.latestIngestAt || '',
+    heartbeatAt: evidence.heartbeatAt || '',
+    heartbeatVerified: evidence.heartbeatVerified === true,
+    executedAt: evidence.executedAt || '',
+    scheduleVersusExecution: evidence.scheduleVersusExecution,
+    ownerAction: evidence.ownerAction || '',
+    failureKind: evidence.failureKind,
+    explicitState: evidence.explicitState,
+    retry: evidence.retry,
+    actionable: evidence.actionable,
+    evidence
+  };
+}
 
 type LedgerApi = {
   buildLedger: (input: Record<string, unknown>) => Record<string, unknown>;
@@ -89,9 +142,11 @@ async function smsMeta(): Promise<Record<string, unknown>> {
   if (!smsStoreConfigured()) {
     const unread = classifyStoredCollection({ storeReached: false, now: attempt });
     return {
-      database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: 'SMS staging is not configured on this deployment.' },
+      database: { connected: false, lastAttempt: attempt, recordsExamined: null, recordsCreated: 0, detail: 'SMS staging is not configured on this deployment.' },
       upload: unread.upload,
-      heartbeat: unread.heartbeat
+      heartbeat: unread.heartbeat,
+      stored: unread,
+      evidence: unread.evidence
     };
   }
   const url = (process.env.LVPT_SMS_STAGING_SUPABASE_URL || '').trim().replace(/\/$/, '');
@@ -105,9 +160,11 @@ async function smsMeta(): Promise<Record<string, unknown>> {
     if (ingest.status < 200 || ingest.status >= 300) {
       const unread = classifyStoredCollection({ storeReached: false, now: attempt });
       return {
-        database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` },
+        database: { connected: false, lastAttempt: attempt, recordsExamined: null, recordsCreated: 0, detail: `The SMS store returned HTTP ${ingest.status}. Message text was not read.` },
         upload: unread.upload,
-        heartbeat: unread.heartbeat
+        heartbeat: unread.heartbeat,
+        stored: unread,
+        evidence: unread.evidence
       };
     }
     const ingested = JSON.parse(ingest.body) as Array<{ received_at?: string }>;
@@ -151,15 +208,19 @@ async function smsMeta(): Promise<Record<string, unknown>> {
         detail: `The metadata query succeeded. Stored rows ${rowCount === null ? 'not counted' : rowCount}. A healthy database is not a fresh phone upload and is not a device heartbeat. Message text was not read.`
       },
       upload: stored.upload,
-      heartbeat: stored.heartbeat
+      heartbeat: stored.heartbeat,
+      stored,
+      evidence: stored.evidence
     };
   } catch (error) {
     const detail = `SMS metadata did not respond (${socketError(error)}). This stopped before an HTTP status. Message text was not read.`;
     const unread = classifyStoredCollection({ storeReached: false, now: attempt });
     return {
-      database: { connected: false, lastAttempt: attempt, recordsExamined: 0, recordsCreated: 0, detail },
+      database: { connected: false, lastAttempt: attempt, recordsExamined: null, recordsCreated: 0, detail },
       upload: { ...unread.upload, detail: 'Upload freshness was not checked because the database query did not finish.' },
-      heartbeat: unread.heartbeat
+      heartbeat: unread.heartbeat,
+      stored: unread,
+      evidence: unread.evidence
     };
   }
 }
@@ -219,8 +280,12 @@ async function gmailProbe(knownThreadIds: Set<string>, storedNewest: string): Pr
     queue,
     newest: health.newestHeaderAt,
     coverage: health.coverage,
+    partial: health.partial === true,
+    connected: health.connected === true,
     metadataOnly: true,
     fullThreadAccess: false,
+    header: health,
+    evidence: health.evidence,
     detail: `${health.detail} ${duplicates} header threads were already on the sheet. ${queue.length} are queued for review and were not assigned to an event. No Gmail Activity row was written.`
   };
 }
@@ -341,6 +406,249 @@ export async function GET(request: Request) {
     const gmailReady = gmailConfigured();
     const gmailLive = await gmailProbe(knownThreadIds, newestGmail);
     const sendEnabled = process.env.LVPT_ENABLE_OWNER_APPROVED_GMAIL_SEND === 'true';
+    const gmailHeader = (gmailLive.header && typeof gmailLive.header === 'object')
+      ? gmailLive.header as Record<string, unknown>
+      : null;
+    const smsStored = (sms.stored && typeof sms.stored === 'object')
+      ? sms.stored as Record<string, unknown>
+      : null;
+    const sourceHealth = normalizeLocalReadiness({
+      now: serverTime,
+      gmail: gmailHeader || undefined,
+      sms: undefined,
+      smsHeartbeat: undefined,
+      rcs: {
+        connected: false,
+        heartbeatVerified: false,
+        reason: 'RCS pairing is reported by the dedicated collector route. This operating-picture read does not invent a collector heartbeat from stored rows.'
+      },
+      calendar: {
+        schedule: 'Hourly',
+        owner: 'LVPT Calendar Command Center · runLVPTSafeTaskSync',
+        auditSucceeded: false,
+        executionEvidence: false,
+        connected: false,
+        detail: 'Not observable from this preview. The hourly schedule is configuration, not proof that runLVPTSafeTaskSync ran.'
+      }
+    });
+    const smsUploadEvidence = (sms.evidence && typeof sms.evidence === 'object')
+      ? sms.evidence as Record<string, unknown>
+      : null;
+    const jobs = [
+      presentJob({
+        id: 'tasksync',
+        name: 'Safe TaskSync',
+        schedule: 'Hourly',
+        nextExpected: 'Hourly in Apps Script. This deployment cannot read the trigger.',
+        owner: 'LVPT Calendar Command Center',
+        observable: false,
+        recordsExamined: null,
+        recordsCreated: 0,
+        detail: 'Not observable from this preview. The hourly schedule is configuration, not proof that runLVPTSafeTaskSync ran. The writer was not called and was not changed.'
+      }, {
+        source: 'calendar',
+        executionEvidence: false,
+        notVerified: true,
+        ownerAction: 'Confirm an actual runLVPTSafeTaskSync cycle on the authorized business calendars. Do not treat the hourly schedule as execution.'
+      }),
+      presentJob({
+        id: 'client-lifecycle',
+        name: 'Client lifecycle scan',
+        schedule: 'Apps Script property only',
+        nextExpected: 'Not scheduled by this preview.',
+        owner: 'LVPT_LAST_CLIENT_SCAN_AT',
+        connected: scanRead === 'present',
+        lastAttempt: serverTime,
+        lastSuccess: scanAt,
+        staleAfterHours: 36,
+        recordsExamined: null,
+        recordsCreated: 0,
+        detail: scanRead === 'failed'
+          ? 'The scan property could not be read.'
+          : scanRead === 'present'
+            ? `Last success ${scanAt}. A separate last-attempt time is not stored.`
+            : 'The property was read and is empty. That is not a success.'
+      }, {
+        source: 'client-lifecycle',
+        acceptLastSuccess: scanRead === 'present',
+        executionEvidence: scanRead === 'present',
+        executedAt: scanRead === 'present' ? scanAt : '',
+        coverage: scanRead === 'present' ? 'property-only' : 'unavailable',
+        ownerAction: scanRead === 'present'
+          ? 'Treat LVPT_LAST_CLIENT_SCAN_AT as scan evidence only. It is not a Safe TaskSync execution proof.'
+          : 'Investigate why the client lifecycle scan property is empty or unreadable.'
+      }),
+      presentJob({
+        id: 'morning-review',
+        name: 'Morning client review',
+        schedule: '8:00 AM ET',
+        nextExpected: '8:00 AM ET is the known schedule. The next run was not confirmed.',
+        owner: 'External schedule',
+        observable: false,
+        recordsExamined: null,
+        recordsCreated: 0,
+        detail: 'Not observable. This job does not share the client-scan timestamp.'
+      }, { source: 'morning-review', executionEvidence: false, notVerified: true }),
+      presentJob({
+        id: 'evening-review',
+        name: 'Evening client review',
+        schedule: '7:00 PM ET',
+        nextExpected: '7:00 PM ET is the known schedule. The next run was not confirmed.',
+        owner: 'External schedule',
+        observable: false,
+        recordsExamined: null,
+        recordsCreated: 0,
+        detail: 'Not observable. This job does not share the client-scan timestamp.'
+      }, { source: 'evening-review', executionEvidence: false, notVerified: true }),
+      presentJob({
+        id: 'executive-brief',
+        name: 'Morning executive inbox brief',
+        schedule: '8:01 AM ET',
+        nextExpected: '8:01 AM ET is the known schedule. The next run was not confirmed.',
+        owner: 'External schedule',
+        observable: false,
+        recordsExamined: null,
+        recordsCreated: 0,
+        detail: 'Not observable. No run history is stored for this job.'
+      }, { source: 'executive-brief', executionEvidence: false, notVerified: true }),
+      presentJob({
+        id: 'gmail-credentials',
+        name: 'Gmail credentials',
+        schedule: 'Server environment',
+        owner: 'Vercel Gmail routes',
+        connected: false,
+        recordsExamined: null,
+        recordsCreated: 0,
+        detail: gmailReady
+          ? 'Vercel Gmail credentials exist. They are not the ingestion path.'
+          : 'Vercel has no Gmail OAuth variables. The authorized reader is the existing Apps Script project, so a second OAuth client was not added.'
+      }, {
+        source: 'gmail-credentials',
+        notVerified: true,
+        coverage: 'unspecified',
+        ownerAction: 'Use the authorized Apps Script Gmail reader. Vercel credentials alone are not ingestion proof.'
+      }),
+      presentJob({
+        id: 'gmail-staging',
+        name: 'Gmail staging ingestion',
+        schedule: 'Hourly Apps Script trigger, not installed',
+        nextExpected: 'No staging trigger exists yet.',
+        owner: 'LVPT Gmail Ingestion — Staging',
+        observable: false,
+        recordsExamined: null,
+        recordsCreated: 0,
+        duplicates: 0,
+        unmatched: 0,
+        detail: 'This preview cannot read a staging Apps Script run. The business mailbox sign-in is required before that project can be created. A header read below is not an ingested row.'
+      }, { source: 'gmail-staging', executionEvidence: false, notVerified: true }),
+      presentJob({
+        id: 'gmail-production',
+        name: 'Gmail production ingestion',
+        schedule: 'Not enabled',
+        nextExpected: 'No production writer is scheduled.',
+        owner: 'Command Center Gmail Activity',
+        ...(gmailLive as Record<string, unknown>),
+        unmatched: Array.isArray(gmailLive.queue) ? gmailLive.queue.length : 0,
+        lastSuccess: '',
+        recordsCreated: 0,
+        detail: `${gmailLive.detail} Production Gmail Activity still has ${gmailRows} stored rows. Appended to that sheet: 0.`
+      }, {
+        source: 'gmail',
+        ...(gmailLive.evidence && typeof gmailLive.evidence === 'object' ? gmailLive.evidence as Record<string, unknown> : {}),
+        latestRecordAt: typeof gmailLive.newest === 'string' ? gmailLive.newest : '',
+        latestIngestAt: newestGmail,
+        executionEvidence: false,
+        acceptLastSuccess: false,
+        ownerAction: 'Do not treat a bounded header read or stored sheet rows as production Gmail ingestion.'
+      }),
+      presentJob({
+        id: 'sms-database',
+        name: 'SMS database health',
+        schedule: 'This metadata query',
+        nextExpected: 'Each time this page reads metadata.',
+        owner: 'LVPT SMS Staging',
+        ...(sms.database as Record<string, unknown>)
+      }, {
+        source: 'sms-database',
+        coverage: smsStored && smsStored.storeAvailable === true ? 'newest_row_only' : 'unavailable',
+        latestIngestAt: smsStored && typeof smsStored.newestIngestAt === 'string' ? smsStored.newestIngestAt : '',
+        latestRecordAt: smsStored && typeof smsStored.newestMessageAt === 'string' ? smsStored.newestMessageAt : '',
+        executionEvidence: false,
+        acceptLastSuccess: false,
+        ownerAction: 'A healthy SMS database is not a phone upload and not a device heartbeat.'
+      }),
+      presentJob({
+        id: 'sms-upload',
+        name: 'Android SMS upload freshness',
+        schedule: 'LVPT SMS Test, about every 15 minutes when auto-sync is on',
+        nextExpected: 'The phone decides. This server has no heartbeat.',
+        owner: 'com.lvpt.smsbridge',
+        ...(sms.upload as Record<string, unknown>)
+      }, {
+        source: 'sms-store',
+        ...(smsUploadEvidence || {}),
+        latestRecordAt: smsStored && typeof smsStored.newestMessageAt === 'string' ? smsStored.newestMessageAt : '',
+        latestIngestAt: smsStored && typeof smsStored.newestIngestAt === 'string' ? smsStored.newestIngestAt : '',
+        heartbeatVerified: smsStored && smsStored.heartbeatVerified === true,
+        executionEvidence: smsStored && smsStored.heartbeatVerified === true,
+        ownerAction: 'Treat stored import timestamps as stored activity only until a verified collector heartbeat arrives.'
+      }),
+      presentJob({
+        id: 'sms-heartbeat',
+        name: 'Android SMS collector heartbeat',
+        schedule: 'Not read by this preview',
+        nextExpected: 'Unknown until the approved handset reports last_success_at.',
+        owner: 'com.lvpt.smsbridge',
+        ...(sms.heartbeat as Record<string, unknown>)
+      }, {
+        source: 'sms-heartbeat',
+        heartbeatVerified: false,
+        executionEvidence: false,
+        notVerified: true,
+        latestRecordAt: smsStored && typeof smsStored.newestMessageAt === 'string' ? smsStored.newestMessageAt : '',
+        latestIngestAt: smsStored && typeof smsStored.newestIngestAt === 'string' ? smsStored.newestIngestAt : '',
+        ownerAction: 'Run the LVPT SMS bridge on the approved handset and confirm a current last_success_at. Stored rows are not a heartbeat.'
+      }),
+      presentJob({
+        id: 'email-approval',
+        name: 'Email approval workflow',
+        schedule: 'Off',
+        nextExpected: 'Off until a supervised send test.',
+        owner: 'Owner approval gate',
+        disabled: true,
+        recordsExamined: null,
+        recordsCreated: 0,
+        detail: sendEnabled
+          ? 'The send switch is on. The reminder route still returns 403.'
+          : 'Sending is disabled. A browser confirmation is not owner approval.'
+      }, {
+        source: 'email-approval',
+        disabled: true,
+        ownerAction: 'Keep sending off until a supervised owner approval test passes.'
+      }),
+      presentJob({
+        id: 'financial-sync',
+        name: 'Financial source sync',
+        schedule: 'This page read',
+        nextExpected: 'Each time this page reads the sheet.',
+        owner: 'Command Center Payments and Event Payouts',
+        connected: true,
+        lastAttempt: serverTime,
+        lastSuccess: serverTime,
+        recordsExamined: payments.length + payouts.length,
+        recordsCreated: 0,
+        staleAfterHours: 6,
+        detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. No financial row was written.`
+      }, {
+        source: 'financial-sync',
+        acceptLastSuccess: true,
+        executionEvidence: true,
+        executedAt: serverTime,
+        coverage: 'read-complete',
+        latestRecordAt: serverTime,
+        ownerAction: 'Ledger-recorded totals remain sheet evidence, not bank settlement or drawable cash.'
+      })
+    ];
 
     return jsonNoStore({
       ok: true,
@@ -363,21 +671,8 @@ export async function GET(request: Request) {
       tasks,
       taskConflicts,
       gmailQueue: gmailLive.queue,
-      jobs: [
-        { id: 'tasksync', name: 'Safe TaskSync', schedule: 'Hourly', nextExpected: 'Hourly in Apps Script. This deployment cannot read the trigger.', owner: 'LVPT Calendar Command Center', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable from this preview. The hourly schedule is configuration, not proof that runLVPTSafeTaskSync ran. The writer was not called and was not changed.' },
-        { id: 'client-lifecycle', name: 'Client lifecycle scan', schedule: 'Apps Script property only', nextExpected: 'Not scheduled by this preview.', owner: 'LVPT_LAST_CLIENT_SCAN_AT', connected: scanRead === 'present', lastSuccess: scanAt, staleAfterHours: 36, recordsExamined: 0, recordsCreated: 0, detail: scanRead === 'failed' ? 'The scan property could not be read.' : scanRead === 'present' ? `Last success ${scanAt}. A separate last-attempt time is not stored.` : 'The property was read and is empty. That is not a success.' },
-        { id: 'morning-review', name: 'Morning client review', schedule: '8:00 AM ET', nextExpected: '8:00 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
-        { id: 'evening-review', name: 'Evening client review', schedule: '7:00 PM ET', nextExpected: '7:00 PM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. This job does not share the client-scan timestamp.' },
-        { id: 'executive-brief', name: 'Morning executive inbox brief', schedule: '8:01 AM ET', nextExpected: '8:01 AM ET is the known schedule. The next run was not confirmed.', owner: 'External schedule', observable: false, recordsExamined: 0, recordsCreated: 0, detail: 'Not observable. No run history is stored for this job.' },
-        { id: 'gmail-credentials', name: 'Gmail credentials', schedule: 'Server environment', owner: 'Vercel Gmail routes', connected: false, recordsExamined: 0, recordsCreated: 0, detail: gmailReady ? 'Vercel Gmail credentials exist. They are not the ingestion path.' : 'Vercel has no Gmail OAuth variables. The authorized reader is the existing Apps Script project, so a second OAuth client was not added.' },
-        { id: 'gmail-staging', name: 'Gmail staging ingestion', schedule: 'Hourly Apps Script trigger, not installed', nextExpected: 'No staging trigger exists yet.', owner: 'LVPT Gmail Ingestion — Staging', observable: false, recordsExamined: 0, recordsCreated: 0, duplicates: 0, unmatched: 0, detail: 'This preview cannot read a staging Apps Script run. The business mailbox sign-in is required before that project can be created. A header read below is not an ingested row.' },
-        { id: 'gmail-production', schedule: 'Not enabled', nextExpected: 'No production writer is scheduled.', owner: 'Command Center Gmail Activity', ...gmailLive, name: 'Gmail production ingestion', unmatched: Array.isArray(gmailLive.queue) ? gmailLive.queue.length : 0, lastSuccess: '', recordsCreated: 0, detail: `${gmailLive.detail} Production Gmail Activity still has ${gmailRows} stored rows. Appended to that sheet: 0.` },
-        { id: 'sms-database', name: 'SMS database health', schedule: 'This metadata query', nextExpected: 'Each time this page reads metadata.', owner: 'LVPT SMS Staging', ...(sms.database as Record<string, unknown>) },
-        { id: 'sms-upload', name: 'Android SMS upload freshness', schedule: 'LVPT SMS Test, about every 15 minutes when auto-sync is on', nextExpected: 'The phone decides. This server has no heartbeat.', owner: 'com.lvpt.smsbridge', ...(sms.upload as Record<string, unknown>) },
-        { id: 'sms-heartbeat', name: 'Android SMS collector heartbeat', schedule: 'Not read by this preview', nextExpected: 'Unknown until the approved handset reports last_success_at.', owner: 'com.lvpt.smsbridge', ...(sms.heartbeat as Record<string, unknown>) },
-        { id: 'email-approval', name: 'Email approval workflow', schedule: 'Off', nextExpected: 'Off until a supervised send test.', owner: 'Owner approval gate', disabled: true, recordsExamined: 0, recordsCreated: 0, detail: sendEnabled ? 'The send switch is on. The reminder route still returns 403.' : 'Sending is disabled. A browser confirmation is not owner approval.' },
-        { id: 'financial-sync', name: 'Financial source sync', schedule: 'This page read', nextExpected: 'Each time this page reads the sheet.', owner: 'Command Center Payments and Event Payouts', connected: true, lastAttempt: serverTime, lastSuccess: serverTime, recordsExamined: payments.length + payouts.length, recordsCreated: 0, staleAfterHours: 6, detail: `Read ${payments.length} payment rows and ${payouts.length} payout rows. No financial row was written.` }
-      ]
+      sourceHealth,
+      jobs
     }, 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ledger read failed.';

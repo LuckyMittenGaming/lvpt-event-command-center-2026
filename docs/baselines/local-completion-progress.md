@@ -1,7 +1,7 @@
 # Local completion progress
 
 Persistent automation resume record for `remaining-spec.md` tasks R00–R31.
-Updated: 2026-11-26 22:55 -05:00 (America/New_York; T46 / R31 reconciliation).
+Updated: 2026-11-26 23:15 -05:00 (America/New_York; T47 / R31 handoff supervisor revision).
 Companion reconciliation: `docs/baselines/local-baseline-reconciliation.md`.
 Final handoff: `docs/COMMAND_CENTER_FINAL_HANDOFF.md`.
 
@@ -19,19 +19,20 @@ Rules:
 | Field | Value |
 | --- | --- |
 | Branch | `ai-build/command-center-loop` |
-| HEAD | `58635961be3a99423fdaff82fa3581e854228a86` |
+| HEAD | `9403ff83dee2b0f7648f9fef20f47dba8b6d1112` |
 | Upstream | `origin/feature/command-center-completion-20261124` |
-| Ahead of staging tip | **47** commits |
+| Ahead of staging tip | **48** commits |
 | Candidate included | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` (ancestor of HEAD) |
 | Preview alias mapping | **UNKNOWN** this session (historical URLs in `AGENTS.md` only) |
 | Deployment protection | **UNKNOWN** this session |
-| Working tree | T46 R31 additive reconciliation + handoff; T35 `final-local-regression.md` restored; untracked `.orchestrator/` |
+| Working tree | T47 handoff/progress revision + new `docs/baselines/r31-changed-file-manifest.md`; untracked `.orchestrator/` |
 | Node | PATH `v24.22.1` (**owner-approved** for all local verification); Program Files `v24.19.0`; CI remains Node 22 |
 | npm | 11.17.0 |
 | Chrome | Program Files Chrome 158 resolved by harness; `LVPT_CHROME_PATH` supported |
 | playwright-core | Available locally (`1.65.1`); browser regression exit 0 |
 | Newest completed phase baseline | `docs/baselines/phase-07m-production-sync.md` |
-| T46 Full verify | `PASS Mode=Full` — 79/79 exit 0 — capture `8e78aec7-04e0-46fa-a170-bbbce74d2139.txt`; additive evidence `docs/baselines/r31-final-acceptance-reconciliation.md` |
+| T46 Full verify | `PASS Mode=Full` — 79/79 exit 0 on pre-commit tree `5863596…`; committed as `9403ff8…`; additive evidence `docs/baselines/r31-final-acceptance-reconciliation.md` |
+| Markers | `COMMAND_CENTER_LOCAL_DEVELOPMENT_READY` + `COMMAND_CENTER_OWNER_ACTION_REQUIRED` (not OPERATIONAL_ACCEPTANCE_PASSED; not PRODUCTION_RELEASE_APPROVED) |
 
 ---
 
@@ -587,16 +588,17 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | **IMPLEMENTED_TESTED** (T46 evidence sync + handoff); ops remain **COMMAND_CENTER_OWNER_ACTION_REQUIRED** — not OPERATIONAL_ACCEPTANCE_PASSED; not PRODUCTION_RELEASE_APPROVED |
-| Date/time | 2026-11-26 22:55 -05:00 |
+| Status | **IMPLEMENTED_TESTED** (T46 evidence sync + T47 consolidated delivery + supervisor revision); ops remain **COMMAND_CENTER_OWNER_ACTION_REQUIRED** — not OPERATIONAL_ACCEPTANCE_PASSED; not PRODUCTION_RELEASE_APPROVED |
+| Date/time | 2026-11-26 23:15 -05:00 (T47 revision; delivery 23:10; T46 sync 22:55–23:00) |
 | Dependencies | All safe R00–R30 local/prep tasks |
-| Files inspected | `remaining-spec.md` R31, `docs/baselines/local-completion-progress.md`, `docs/baselines/final-local-regression.md` (T35 preserved), `docs/baselines/t36-full-local-regression.md`, `docs/baselines/r31-final-acceptance-reconciliation.md`, `docs/command-center-completion-matrix.md`, `docs/command-center-staging-acceptance.md`, `docs/command-center-release-plan.md`, `docs/command-center-rollback-plan.md`, Git HEAD / ahead-47 / Full verify capture |
-| Files changed | `docs/baselines/final-local-regression.md` (restored to pre-T46 T35 contents via targeted patch), `docs/baselines/r31-final-acceptance-reconciliation.md` (NEW additive), `docs/command-center-completion-matrix.md`, `docs/command-center-staging-acceptance.md`, `docs/COMMAND_CENTER_FINAL_HANDOFF.md` (NEW), `docs/baselines/local-completion-progress.md` |
-| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Full`; `git diff --check`; `git status --short` |
-| Exit codes | Pre-doc Full **`FULL_EXIT=0`** (`[verify] PASS Mode=Full`, 79/79; capture `8e78aec7-04e0-46fa-a170-bbbce74d2139.txt`). Intermediate post-doc Full **`FULL_EXIT=0`** (`[verify] PASS Mode=Full`, 79/79; capture `09397b21-b426-43a3-914d-462c2593197e.txt`) then `git diff --check` failed on trailing whitespace in overwritten T35 file. Supervisor revision: restored T35 baseline + additive `r31-final-acceptance-reconciliation.md`; re-ran Full **`FULL_EXIT=0`** (`[verify] PASS Mode=Full`, 79/79; capture `1157c3f3-9072-4934-b84e-1b3f7396eb6c.txt`) and `git diff --check` **0**. |
-| Evidence | All safe R00–R30 statuses evidence-backed (IMPLEMENTED_TESTED / VERIFIED_EXISTING / BLOCKED_OWNER as applicable). Regression evidence matched to HEAD `5863596…` in `docs/baselines/r31-final-acceptance-reconciliation.md`. T35 baseline restored verbatim. Owner blockers consolidated and ordered in staging acceptance + handoff §12. Markers: `COMMAND_CENTER_LOCAL_DEVELOPMENT_READY` + `COMMAND_CENTER_OWNER_ACTION_REQUIRED`. No LIVE_VERIFIED; no production approval. Historical phase baselines unmodified. |
+| Files inspected | `remaining-spec.md` R31, `.orchestrator/current-prompt.md` T47 revision, `docs/baselines/local-completion-progress.md`, `docs/baselines/final-local-regression.md` (T35 preserved), `docs/baselines/t36-full-local-regression.md`, `docs/baselines/r31-final-acceptance-reconciliation.md`, `docs/command-center-completion-matrix.md`, `docs/command-center-staging-acceptance.md`, `docs/command-center-release-plan.md`, `docs/command-center-rollback-plan.md`, read-only `git diff --name-only 292103fc…..HEAD` (143 net unique; 266 historical occurrences), Git HEAD `9403ff8…` / ahead-48 |
+| Files changed (T46) | `docs/baselines/final-local-regression.md` (restored to pre-T46 T35 contents via targeted patch), `docs/baselines/r31-final-acceptance-reconciliation.md` (NEW additive), `docs/command-center-completion-matrix.md`, `docs/command-center-staging-acceptance.md`, `docs/COMMAND_CENTER_FINAL_HANDOFF.md` (NEW), `docs/baselines/local-completion-progress.md` — committed as `9403ff8…` |
+| Files changed (T47 uncommitted) | `docs/COMMAND_CENTER_FINAL_HANDOFF.md` (§5 exhaustive inventory link + count clarification; §6 exact verify command); `docs/baselines/local-completion-progress.md` (this close-out); `docs/baselines/r31-changed-file-manifest.md` (NEW additive exhaustive 143-path list). Distinct from the committed 143-path base→HEAD inventory. |
+| Exact test commands | T46: `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Full`. T47 supplied verification (exact): `git diff --check; if ($LASTEXITCODE -ne 0) { throw 'Diff check failed' }; git status --short; foreach ($file in @('docs/COMMAND_CENTER_FINAL_HANDOFF.md','docs/baselines/local-completion-progress.md','docs/command-center-completion-matrix.md')) { if (-not (Test-Path -LiteralPath $file)) { throw "Missing handoff artifact: $file" } }` |
+| Exit codes | T46 Full **`FULL_EXIT=0`** (`[verify] PASS Mode=Full`, 79/79; captures `8e78aec7-…`, `09397b21-…`, `1157c3f3-…`); T46 final `git diff --check` **0**. T47 supplied verification re-run after revision: process exit **0** (`git diff --check` **0**; foreach artifacts present; no throw). No git commit/push/deploy. |
+| Evidence | All safe R00–R30 statuses evidence-backed. Handoff §1–§16 complete on HEAD `9403ff8…` (48 ahead of `292103fc…`). §5: **143 = net unique paths** base→HEAD; **266 = historical occurrences**; exhaustive list in `docs/baselines/r31-changed-file-manifest.md`. T35 baseline preserved. Markers: `COMMAND_CENTER_LOCAL_DEVELOPMENT_READY` + `COMMAND_CENTER_OWNER_ACTION_REQUIRED`. Measured paid USD `$0`; token→USD UNKNOWN. No LIVE_VERIFIED; no production approval. Historical phase baselines unmodified. Production HOLD. |
 | Remaining blocker | Owner R22–R30 live/release sequence; alias/protection UNKNOWN; Agent Relay UNRESOLVED if release depends on it |
-| Next task | Owner executes ordered blockers; automation should stop paid/local loop on safe-complete + OWNER_ACTION_REQUIRED |
+| Next task | **None for local safe automation.** Owner executes ordered blockers in handoff §12; keep production HOLD |
 
 ---
 
@@ -604,7 +606,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00–R30 as previously recorded; **R31/T46 IMPLEMENTED_TESTED** (final acceptance/regression sync + `docs/COMMAND_CENTER_FINAL_HANDOFF.md`; Full PASS 79/79 on HEAD `5863596…`; LOCAL_DEVELOPMENT_READY + OWNER_ACTION_REQUIRED; not OPERATIONAL_ACCEPTANCE_PASSED; not PRODUCTION_RELEASE_APPROVED) |
-| Next authorized task | Owner R22 signed-in preview (BLOCKED_OWNER) after alias/protection confirmation; R23–R27 live evidence fill-in only with written authorization — keep send/mark-read off; R28 live capability activation only with per-CAP owner approval; R29 schedule restore only after R24 LIVE_VERIFIED + explicit owner authorization; production release only after release-plan G0–G8 + explicit owner approval — Cursor must not pair RCS, launch collectors, execute TaskSync, clasp push, enable production event writes, enable ChatGPT approval slots, merge, or deploy |
-| Stop conditions currently active | Safe local development complete → handoff to owner; repository-execution from untrusted orchestrator remains denied by policy when applicable; paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
+| Last completed task | R00–R30 as previously recorded; **R31/T46 IMPLEMENTED_TESTED** (evidence sync); **R31/T47 IMPLEMENTED_TESTED** (consolidated `docs/COMMAND_CENTER_FINAL_HANDOFF.md` delivered on HEAD `9403ff8…`, ahead 48; Full PASS 79/79 evidence from T46; LOCAL_DEVELOPMENT_READY + OWNER_ACTION_REQUIRED; not OPERATIONAL_ACCEPTANCE_PASSED; not PRODUCTION_RELEASE_APPROVED; production HOLD) |
+| Next authorized task | **Owner-only, in order:** (1) confirm preview alias→revision + Vercel Authentication/deployment protection; (2) R22 signed-in staging checklist; (3) R23 authorized live completeness; (4) R24 controlled non-customer Gmail pilot (schedule off); (5) R25 Android current collection; (6) R26 RCS current collection; (7) R27 three timestamped SafeTaskSync executions; (8) R28 per-CAP editing activation; (9) R29 schedule restore only after R24 LIVE_VERIFIED + explicit auth; (10) R30 G0–G8 + explicit production release approval. Cursor must not pair RCS, launch collectors, execute TaskSync, clasp push, enable production event writes, enable ChatGPT approval slots, merge, or deploy. |
+| Stop conditions currently active | Safe local development complete → handoff delivered; stop paid/local loop; repository-execution from untrusted orchestrator remains denied when applicable; paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

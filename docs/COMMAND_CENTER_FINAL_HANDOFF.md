@@ -1,7 +1,7 @@
 # LVPT Event Command Center — consolidated final handoff
 
-Updated: 2026-11-26 22:55 -05:00 (America/New_York)
-Task: R31 / T46
+Updated: 2026-11-26 23:15 -05:00 (America/New_York)
+Task: R31 / T47 (delivery + supervisor revision). Evidence sync: R31 / T46.
 Decision: **HOLD production.** Local synthetic development is ready. Operational acceptance and production release are **not** approved.
 
 Companion evidence:
@@ -10,6 +10,7 @@ Companion evidence:
 - `docs/baselines/final-local-regression.md` (T35 preserved)
 - `docs/baselines/t36-full-local-regression.md`
 - `docs/baselines/r31-final-acceptance-reconciliation.md` (T46 / R31 additive)
+- `docs/baselines/r31-changed-file-manifest.md` (T47 exhaustive base→HEAD path list)
 - `docs/command-center-completion-matrix.md`
 - `docs/command-center-staging-acceptance.md`
 - `docs/command-center-release-plan.md`
@@ -21,12 +22,16 @@ Companion evidence:
 
 | Marker | State | Meaning |
 | --- | --- | --- |
-| `COMMAND_CENTER_LOCAL_DEVELOPMENT_READY` | **SET** | Every safe local development task R00–R30 is IMPLEMENTED_TESTED or VERIFIED_EXISTING; Full local suite PASS (79/79 exit 0). |
+| `COMMAND_CENTER_LOCAL_DEVELOPMENT_READY` | **SET** | Every safe local development task R00–R30 is IMPLEMENTED_TESTED or VERIFIED_EXISTING; Full local suite PASS (79/79 exit 0) on the T46 tested tree; T47 is docs-only delivery on that committed result. |
 | `COMMAND_CENTER_OWNER_ACTION_REQUIRED` | **SET** | Remaining work needs owner auth, devices, live providers, or release approval. |
 | `COMMAND_CENTER_OPERATIONAL_ACCEPTANCE_PASSED` | **NOT SET** | R22–R27 live/authenticated checks are BLOCKED_OWNER / PENDING_*. |
 | `COMMAND_CENTER_PRODUCTION_RELEASE_APPROVED` | **NOT SET** | Production remains HOLD. No owner release authorization recorded. |
 
 The local development marker does **not** authorize production release.
+
+COMMAND_CENTER_LOCAL_DEVELOPMENT_READY
+
+COMMAND_CENTER_OWNER_ACTION_REQUIRED
 
 ---
 
@@ -35,12 +40,13 @@ The local development marker does **not** authorize production release.
 | Field | Value |
 | --- | --- |
 | Branch | `ai-build/command-center-loop` |
-| HEAD | `58635961be3a99423fdaff82fa3581e854228a86` |
-| Subject | `docs: prepare R30 production release and rollback plans` |
+| HEAD | `9403ff83dee2b0f7648f9fef20f47dba8b6d1112` |
+| Subject | `docs: reconcile R31 acceptance and regression evidence` |
 | Upstream | `origin/feature/command-center-completion-20261124` |
-| Ahead of staging remote tip | **47** commits |
+| Ahead of staging remote tip | **48** commits |
 | Staging / historical verified candidate | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` (ancestor of HEAD) |
-| Working tree at reconciliation | Untracked `.orchestrator/` only (plus T46 documentation updates) |
+| Working tree at T47 delivery | Untracked `.orchestrator/` only (plus this T47 handoff/progress refresh) |
+| T46 Full tested revision (pre-commit) | `58635961be3a99423fdaff82fa3581e854228a86` — docs-only commit `9403ff8` followed |
 
 ---
 
@@ -94,75 +100,81 @@ R00–R30 completed as IMPLEMENTED_TESTED or VERIFIED_EXISTING for **local/synth
 | R22–R27 | Owner checklists/protocols PROCEDURE_READY; live evidence BLOCKED_OWNER |
 | R28–R30 | Editing activation / automation ownership / release+rollback plans; live DISABLED/HOLD |
 
-R31 / T46: evidence synchronization + this handoff.
+R31 / T46: evidence synchronization + initial handoff draft.
+R31 / T47: consolidated owner delivery of this handoff + progress close-out.
 
 ---
 
-## 5. Exact files changed (local development vs staging tip)
+## 5. Exact files changed
 
-Unique paths touched on `ai-build/command-center-loop` since staging remote tip `292103fc…` include (non-exhaustive categories; full history in Git):
+### 5a. Committed range inventory (base → HEAD)
 
-**Application / lib**
+Read-only inspection:
 
-- `lib/action-inbox.mjs`, `lib/event-mutation-contract.mjs`, `lib/sms-scan-health.mjs`, `lib/source-reliability.mjs`
-- `public/v2/js/*` (lifecycle, unified-hub, event-finance, event-status, documents, reports, central-sync, sheet-snapshot, authoritative-finance, workspace)
-- `public/v2/lifecycle-command-center.css`, `public/v2/unified-hub.css`, `public/v2/app.js`
-- `public/sms-review/*` (queue, reply, gmail intelligence, preview)
+```powershell
+git diff --name-only 292103fc14480adbe84ae9c2404e4fed54ac1bf9..HEAD | Sort-Object -Unique
+```
 
-**Scripts / policy**
+| Field | Value |
+| --- | --- |
+| Base | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` |
+| HEAD | `9403ff83dee2b0f7648f9fef20f47dba8b6d1112` |
+| Commits in range | **48** |
+| **Net unique paths** | **143** |
+| Historical path occurrences (sum across commits) | **266** |
+| Historical unique paths | **143** (same set as net unique for this range) |
 
-- `scripts/verify-command-center.ps1`, `scripts/local-agent-policy.*`, `scripts/local-agent-loop.*`, `scripts/lvpt-safe-readonly-dry-run.cjs`
+**What “143” means:** it is the count of **distinct repository-relative paths that differ between the base tree and HEAD** (`git diff --name-only base..HEAD`, unique-sorted). It is **net changed paths**, not a per-commit historical touch sum. Summing every path line across all commits in the range yields **266** occurrences (paths re-touched in multiple commits).
 
-**Tests**
+**Exhaustive manifest:** every one of the 143 paths is listed in linked artifact `docs/baselines/r31-changed-file-manifest.md` (additive; not a historical phase baseline rewrite).
 
-- Acceptance/browser harnesses, action-inbox, CRM, finance, mutation contract, source reliability, RCS, calendar safe suite, private-asset exposure, approval/idempotency, operational reports, verify-command-center runner tests
+Paths under `apps-script/live/**`, `apps-script/calendar-command-center/**`, and historical `docs/baselines/phase-*` appear in that Git inventory because they differ from the staging-tip ancestor in branch history. That does **not** mean the R31/T47 Cursor loop edited those historical baselines or performed clasp / Calendar / Sheet / production mutations. Production send remains disabled; no clasp push, Calendar write, Sheet write, or production deploy from this loop.
 
-**Docs (additive; historical phase baselines untouched)**
+### 5b. T47 uncommitted working-tree changes (separate from the 143)
 
-- Completion matrix, staging acceptance, release/rollback, editing activation, automation ownership, Gmail/Android/RCS/Calendar operational checklists, live-source acceptance, local progress/regression baselines, this handoff
+These are **not** part of the 143 committed-range paths above (the handoff/progress paths are already among the 143 at their last committed revision; the rows below are the **current uncommitted documentation edits** on top of HEAD):
 
-**Protected / not mutated by this loop**
+| Path | Role |
+| --- | --- |
+| `docs/COMMAND_CENTER_FINAL_HANDOFF.md` | T47 delivery + supervisor revision (this file) |
+| `docs/baselines/local-completion-progress.md` | R31/T47 progress close-out + revision |
 
-- `apps-script/live/**`, `apps-script/calendar-command-center/**` (treated read-only)
-- Production send remains disabled in `app/api/gmail/send/route.ts`
-- No clasp push, Calendar write, Sheet write, or production deploy
+Also untracked (orchestrator state only; not a product deliverable): `.orchestrator/`.
 
-T46 this session changed (after supervisor revision):
-
-- `docs/baselines/final-local-regression.md` — restored to pre-T46 T35 contents (targeted patch; no git restore/reset)
-- `docs/baselines/r31-final-acceptance-reconciliation.md` (NEW additive T46 evidence)
-- `docs/command-center-completion-matrix.md`
-- `docs/command-center-staging-acceptance.md`
-- `docs/COMMAND_CENTER_FINAL_HANDOFF.md` (NEW)
-- `docs/baselines/local-completion-progress.md`
+Also new uncommitted additive artifact created for §5a: `docs/baselines/r31-changed-file-manifest.md` (exhaustive 143-path list).
 
 ---
 
-## 6. Exact tests executed (T46 authoritative Full)
+## 6. Exact tests executed
+
+Authoritative local Full (T46; still the last Full before docs-only delivery):
 
 ```powershell
 powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Full
 ```
 
-Evidence file: `docs/baselines/r31-final-acceptance-reconciliation.md`.
-Also applicable prior Targeted suites are recorded per-task in `docs/baselines/local-completion-progress.md`.
+Evidence: `docs/baselines/r31-final-acceptance-reconciliation.md`.
+Per-task Targeted suites: `docs/baselines/local-completion-progress.md`.
+
+Supplied T47 verification command (exact; includes failure checks and foreach artifact validation):
+
+```powershell
+git diff --check; if ($LASTEXITCODE -ne 0) { throw 'Diff check failed' }; git status --short; foreach ($file in @('docs/COMMAND_CENTER_FINAL_HANDOFF.md','docs/baselines/local-completion-progress.md','docs/command-center-completion-matrix.md')) { if (-not (Test-Path -LiteralPath $file)) { throw "Missing handoff artifact: $file" } }
+```
 
 ---
 
-## 7. Actual exit codes (T46 Full)
+## 7. Actual exit codes
 
 | Result | Value |
 | --- | --- |
-| Pre-doc process | `FULL_EXIT=0` |
-| Pre-doc log line | `[verify] PASS Mode=Full` |
-| Pre-doc steps | **79** / 79 exit **0** |
-| Pre-doc capture | `agent-tools/8e78aec7-04e0-46fa-a170-bbbce74d2139.txt` |
-| Post-doc process | `FULL_EXIT=0` (`[verify] PASS Mode=Full`, 79/79) |
-| Post-doc capture | `agent-tools/09397b21-b426-43a3-914d-462c2593197e.txt` |
-| Post-doc `git diff --check` (same run) | Failed on trailing whitespace in overwritten T35 file — fixed by restoring T35 + additive R31 baseline |
-| Supervisor-revision re-verify | Full **`FULL_EXIT=0`** (`[verify] PASS Mode=Full`, 79/79; capture `1157c3f3-9072-4934-b84e-1b3f7396eb6c.txt`); `git diff --check` **0** |
+| T46 pre-doc Full | `FULL_EXIT=0` — `[verify] PASS Mode=Full` — **79**/79 exit **0** — capture `agent-tools/8e78aec7-04e0-46fa-a170-bbbce74d2139.txt` |
+| T46 post-doc Full | `FULL_EXIT=0` — 79/79 — capture `agent-tools/09397b21-b426-43a3-914d-462c2593197e.txt` (then trailing-whitespace `git diff --check` failed on overwritten T35 file) |
+| T46 supervisor revision Full | `FULL_EXIT=0` — 79/79 — capture `agent-tools/1157c3f3-9072-4934-b84e-1b3f7396eb6c.txt`; `git diff --check` **0** after T35 restore + additive R31 baseline |
+| T47 supplied verification (post-revision re-run) | Process exit **0** — `git diff --check` **0**; all three foreach artifacts present; no throw |
+| T47 working tree after verify | Modified: handoff + progress (+ new manifest); untracked `.orchestrator/` |
 
-No required inventory step failed or was skipped.
+No required Full inventory step failed or was skipped on the T46 run.
 
 ---
 
@@ -271,7 +283,9 @@ Follow, do not short-circuit:
 | Item | Value |
 | --- | --- |
 | Paid orchestrator budget | `$0` / fail-closed (`insufficient-isolation`) |
-| Paid API spend this T46 task | **None measurable** (deterministic Full verify only) |
+| Measured paid USD (`.orchestrator/loop-state.json`) | **`$0`** |
+| Paid API spend this T47 task | **None measurable** (docs-only handoff delivery; no paid worker launch) |
+| Orchestrator token counters (`.orchestrator/state.json` totals) | OpenAI in/out/reasoning recorded; Cursor in/out/cache/reasoning recorded — **USD conversion UNKNOWN** (not invented) |
 | Paid background agents | Not launched |
 
 ---
@@ -302,7 +316,8 @@ Follow, do not short-circuit:
 | R23 | Procedure IMPLEMENTED_TESTED; live observations **PENDING_AUTHORIZED_READ** / **BLOCKED_OWNER** |
 | R24–R27 | Protocol IMPLEMENTED_TESTED; live **BLOCKED_OWNER** / **PENDING_OWNER_EVIDENCE** |
 | R28–R30 | Plan/doc IMPLEMENTED_TESTED; live activation/release **BLOCKED_OWNER** / **HOLD** |
-| R31 / T46 | IMPLEMENTED_TESTED (additive reconciliation + handoff; T35 baseline restored); ops still OWNER_ACTION_REQUIRED |
+| R31 / T46 | IMPLEMENTED_TESTED (additive reconciliation; T35 baseline restored) |
+| R31 / T47 | IMPLEMENTED_TESTED (consolidated handoff delivered); ops remain **OWNER_ACTION_REQUIRED** |
 
 COMMAND_CENTER_LOCAL_DEVELOPMENT_READY
 

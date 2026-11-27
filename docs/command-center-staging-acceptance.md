@@ -4,6 +4,8 @@ Decision: **Hold production.** Draft PR #19 remains the staging integration targ
 
 T37 / R22 preparation date: 2026-11-26. No deployment and no owner sign-in were performed for this update.
 
+T46 / R31 reconciliation date: 2026-11-26. Candidate revision, ahead-count, Full regression evidence, and ordered owner blockers synchronized to current HEAD. Still **not** authenticated staging and **not** LIVE_VERIFIED.
+
 ---
 
 ## Candidate, preview, and protection evidence
@@ -11,14 +13,15 @@ T37 / R22 preparation date: 2026-11-26. No deployment and no owner sign-in were 
 | Item | Status | Verified evidence |
 | --- | --- | --- |
 | Local workspace branch | RECORDED | `ai-build/command-center-loop` |
-| Exact local candidate revision (HEAD) | RECORDED | `4e53021b1d52527a26cbb332d2124c5e2bd11646` — `test: complete and record full local regression` |
-| Upstream tracking branch | RECORDED | `origin/feature/command-center-completion-20261124` (local branch ahead by 38 commits) |
+| Exact local candidate revision (HEAD) | RECORDED | `58635961be3a99423fdaff82fa3581e854228a86` — `docs: prepare R30 production release and rollback plans` |
+| Upstream tracking branch | RECORDED | `origin/feature/command-center-completion-20261124` (local branch ahead by **47** commits) |
 | Last independently verified remote candidate | HISTORICAL | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` — ancestor of HEAD; subject `Finish the read-only command center handoff.` |
 | Last verified remote CI (historical) | HISTORICAL | GitHub Actions run `45524866760` — SUCCESS (recorded in `AGENTS.md`; not re-run this session) |
+| Local Full regression (synthetic) | LOCAL_SYNTHETIC_PASS | T46 Full re-run on HEAD above: `PASS Mode=Full` (79/79 exit 0). See `docs/baselines/r31-final-acceptance-reconciliation.md` (T35 lifecycle baseline remains `docs/baselines/final-local-regression.md`). Not authenticated staging. |
 | Historical candidate deployment URL | HISTORICAL ONLY | `https://lvpt-event-command-center-2026-7v0lytkyn.vercel.app/v2/index.html` — recorded in `AGENTS.md` as last verified candidate deployment. **Not confirmed current for HEAD.** Do not treat as the R22 target by assumption. |
 | Historical branch preview alias | HISTORICAL ONLY | `https://lvpt-event-command-git-8f80fb-matt-carpenters-projects-7f34c5ab.vercel.app` — recorded in `AGENTS.md`. **Not confirmed mapped to HEAD.** |
-| Alias → revision mapping | **UNKNOWN** | No Vercel CLI / dashboard mapping check was available this session. Mapping to `4e53021…` or `292103fc…` is unverified. |
-| Deployment protection (Vercel Authentication / password) | **UNKNOWN** | Not probed. Owner must confirm protection before treating any preview as the acceptance host. |
+| Alias → revision mapping | **UNKNOWN** | No Vercel CLI / dashboard mapping check was available this session. Mapping to `5863596…` or `292103fc…` is unverified. |
+| Deployment protection (Vercel Authentication / password) | **UNKNOWN** | Not probed. Owner must confirm Vercel Authentication / deployment protection before treating any preview as the acceptance host. |
 | Current staging preview URL for R22 | **UNKNOWN** | Do not invent a URL. Owner supplies or confirms the host that serves the intended candidate after mapping/protection are verified. If a new preview deploy is required to expose local HEAD, that is an owner-authorized Git/deploy step outside this loop. |
 | Production URL | HOLD | `https://lvpt-event-command-center-2026.vercel.app/v2/index.html` — not used for R22. Production release remains HOLD. |
 
@@ -142,15 +145,27 @@ Rollback: do not merge. Production stays on its current release. Revert the stag
 
 ---
 
-## Remaining blockers
+## Remaining blockers (ordered — owner only)
 
-- Authenticated staging browser acceptance (**R22**) is **BLOCKED_OWNER**.
-- Current preview URL, alias→revision mapping, and deployment protection are **UNKNOWN** this session.
-- No live Apps Script, Gmail, SMS, RCS, or calendar call was made for T37.
+Pending owner work is **not** failed development. These are ordered prerequisites after local synthetic readiness:
+
+1. **Preview host gates (UNKNOWN).** Confirm alias→revision mapping and Vercel Authentication / deployment protection for the exact candidate SHA. Do not use historical URLs by assumption.
+2. **R22** — Authenticated staging browser acceptance on that verified host (checklist above). Local Full PASS does not satisfy this.
+3. **R23** — Authorized read-only live completeness comparison (`docs/baselines/live-source-acceptance.md`). Live cells remain PENDING_AUTHORIZED_READ.
+4. **R24** — Controlled Gmail approval pilot with non-customer recipient + provider message ID (`docs/gmail-operational-acceptance.md`). Four-times-daily schedule stays DISABLED.
+5. **R25** — Current Android SMS collection evidence (`docs/android-sms-operational-checklist.md`). Live duplicate-replay still BLOCKED_OWNER until an authorized mechanism is discovered.
+6. **R26** — Current RCS collection evidence (`docs/rcs-operational-checklist.md`). Unpaired/unavailable = BLOCKED_OWNER.
+7. **R27** — Actual Calendar execution evidence for `runLVPTSafeTaskSync` (`docs/calendar-operational-acceptance.md`). Do not run the writer from Cursor.
+8. **R28** — Per-capability editing activation only with explicit CAP approval (`docs/event-editing-release-plan.md`). Production Event writes stay DISABLED.
+9. **R29** — Restore four-times-daily approvals only after R24 LIVE_VERIFIED + separate owner authorization (`docs/automation-ownership.md`).
+10. **R30** — Production release only after gates G0–G8 + explicit owner approval (`docs/command-center-release-plan.md` / `docs/command-center-rollback-plan.md`). Production remains HOLD. Agent Relay UNRESOLVED if release depends on it.
+
+Also unresolved by design until later evidence:
+
 - Forecast margin and drawable cash stay unavailable from ledger-only evidence.
-- The hub still cannot record an approval or prove exactly-once delivery.
+- The hub still cannot record an approval or prove exactly-once delivery without R24 live proof.
 
-Local browser evidence remains synthetic. Completion matrix: `docs/command-center-completion-matrix.md`.
+Local browser evidence remains synthetic. Completion matrix: `docs/command-center-completion-matrix.md`. R31 reconciliation: `docs/baselines/r31-final-acceptance-reconciliation.md`. Final handoff: `docs/COMMAND_CENTER_FINAL_HANDOFF.md`.
 
 COMMAND_CENTER_BROWSER_REGRESSION_READY
 
@@ -161,3 +176,7 @@ COMMAND_CENTER_RECORD_NAVIGATION_READY
 COMMAND_CENTER_FULL_COMPLETION_HANDOFF_READY
 
 COMMAND_CENTER_R22_ACCEPTANCE_CHECKLIST_READY
+
+COMMAND_CENTER_LOCAL_DEVELOPMENT_READY
+
+COMMAND_CENTER_OWNER_ACTION_REQUIRED

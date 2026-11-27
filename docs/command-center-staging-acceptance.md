@@ -131,7 +131,12 @@ These remain separate from the R22 AUTHENTICATED_STAGING mark:
 
 ## Release and rollback
 
-Release, if the owner accepts it later: merge the staging draft only after R22 and dependent owner checks, then let the existing preview promotion path update the staging alias. Do not deploy Apps Script, change SQL, or enable send as part of that merge.
+Exact R30 sequences (PROCEDURE_READY; production remains **HOLD**):
+
+- Release: `docs/command-center-release-plan.md` — candidate/local divergence, production revision to preserve, protection/alias UNKNOWN gates, backups, selective PR #19 (never wholesale PR #6), activation flags DISABLED, Agent Relay UNRESOLVED, owner gates G0–G8, post-release checks.
+- Rollback: `docs/command-center-rollback-plan.md` — prefer do-not-merge; after promote, restore owner-recorded prior Vercel Deployment; preserve Sheet/Calendar/Gmail/SMS authoritative data.
+
+Release, if the owner accepts it later: merge the staging draft (PR #19 / exact SHA) only after R22 and dependent owner checks, then promote on existing project `prj_XWIQD5ptbx3J7NnVr1n6EfrdMEFs`. Do not deploy Apps Script, change SQL, or enable send as part of that merge.
 
 Rollback: do not merge. Production stays on its current release. Revert the staging branch if the preview is wrong. There is no Apps Script or database migration in this package to undo. The existing calendar writer is unchanged.
 

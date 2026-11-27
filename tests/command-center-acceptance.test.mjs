@@ -288,6 +288,25 @@ assert.match(checklist, /Hold production/);
 assert.match(checklist, /Owner-only checks/);
 assert.match(checklist, /Rollback/);
 
+const liveSource = read('docs/baselines/live-source-acceptance.md');
+assert.match(liveSource, /COMMAND_CENTER_R23_LIVE_COMPARISON_PROCEDURE_READY/);
+assert.match(liveSource, /PENDING_AUTHORIZED_READ/);
+assert.match(liveSource, /historical observations/i);
+assert.match(liveSource, /event_id/);
+assert.match(liveSource, /task_id/);
+assert.match(liveSource, /payment_id/);
+assert.match(liveSource, /payout_id/);
+assert.match(liveSource, /document_id/);
+assert.match(liveSource, /duplicate_copy/);
+assert.match(liveSource, /conflict_excluded/);
+assert.match(liveSource, /missing_id_excluded/);
+assert.match(liveSource, /UNEXPLAINED/);
+assert.match(liveSource, /observation_at/);
+assert.match(liveSource, /No LIVE_VERIFIED claim/);
+assert.match(liveSource, /No live writes were performed/);
+assert.match(liveSource, /Gmail Activity/);
+assert.match(liveSource, /Documents/);
+
 const reconciledLedger = buildLedger({
   expensesComplete: true,
   taxEstablished: true,

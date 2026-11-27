@@ -98,7 +98,7 @@ Full local gate evidence (R21 / T36): `docs/baselines/t36-full-local-regression.
 
 ## R22 — One owner checklist
 
-Do these in order on a **verified** staging host. Stop at the first failed expected result. None of these steps is a production deploy. None may be marked AUTHENTICATED_STAGING from local tests alone.
+Owner-only checks. Do these in order on a **verified** staging host. Stop at the first failed expected result. None of these steps is a production deploy. None may be marked AUTHENTICATED_STAGING from local tests alone.
 
 ### Preconditions (owner)
 

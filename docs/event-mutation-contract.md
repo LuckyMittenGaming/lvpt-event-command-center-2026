@@ -3,6 +3,8 @@
 Status: **Isolated development only** (R09)  
 Production editing remains disabled. Activation is a separate owner decision (R28).
 
+Capability-specific activation plans (create/edit, task complete/reopen, follow-ups, quotes, proposal links, document associations, post-event), permissions, canary, audit, and rollback gates: `docs/event-editing-release-plan.md`.
+
 ## Purpose
 
 Define a granular, conflict-aware mutation contract for LVPT event records so future editing can proceed without bulk snapshot replacement (`saveAllEvents` / full `events[]` rewrite).
@@ -88,6 +90,21 @@ PRODUCTION_MUTATIONS_ENABLED = false
 
 Completion matrix row **Event writes | DISABLED** remains authoritative for the live UI and release posture. This contract does not change that row.
 
+## Mapping to R28 capabilities
+
+| R28 capability | Contract operation(s) | Isolated status |
+| --- | --- | --- |
+| Event creation | `create_event` | Present + tested |
+| Event editing | `update_event_fields`, `update_event_status` | Present + tested |
+| Task complete/reopen | `complete_task`, `reopen_task` | Present + tested |
+| Follow-up updates | `record_follow_up` | Present + tested |
+| Quote updates | `upsert_quote_line` | Present + tested |
+| Proposal linking | `link_proposal` | Present + tested |
+| Document associations | *(none)* | **Missing** — stay DISABLED until a granular document op and tests exist |
+| Post-event updates | `update_post_event` | Present + tested |
+
+Live Apps Script still exposes legacy `saveAllEvents` (full-sheet rewrite) plus `uploadDocument` / `deleteDocument`. Those are **not** this contract. R28 requires proposed single-id writers and per-capability owner approval before any production write. See `docs/event-editing-release-plan.md`.
+
 ## Out of scope until R28 / owner approval
 
 - Wiring this granular contract into `POST /api/sync/events`
@@ -95,6 +112,8 @@ Completion matrix row **Event writes | DISABLED** remains authoritative for the 
 - Calendar reminder writes (still only `runLVPTSafeTaskSync`)
 - Automatic client Gmail/SMS send
 - Live canary records or Apps Script deployment
+- Enabling CAP-01–CAP-08 without independent approval and rollback gates
+- Implicit sheet schema deployment or bulk Documents/Events rewrite
 
 ## Verification
 

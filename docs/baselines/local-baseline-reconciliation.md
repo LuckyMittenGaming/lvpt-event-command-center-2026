@@ -220,7 +220,7 @@ Status meanings used here:
 | R25 | Current Android SMS collection | BLOCKED_OWNER | Historical metadata ≠ heartbeat | Approved handset `last_success_at` required |
 | R26 | Current RCS collection | BLOCKED_OWNER | Collector code present | Pairing on approved computer required |
 | R27 | Actual Calendar execution | BLOCKED_OWNER (ops) / VERIFY_EXISTING (code) | phase-07m recorded prior live cycles | Fresh owner-confirmed current cycles still required for operational acceptance |
-| R28 | Controlled editing activation prep | BLOCKED_OWNER / depends on R09 | Editing disabled in matrix | Release plan + explicit activation approval |
+| R28 | Controlled editing activation prep | IMPLEMENTED_TESTED (plan) / BLOCKED_OWNER (live) | `docs/event-editing-release-plan.md`; writes DISABLED | Per-CAP owner approval + canary; no bulk saveAllEvents |
 | R29 | Restore scheduled approval checks | BLOCKED_OWNER | Four-times-daily approvals DISABLED | Do not resume until R24 gates pass |
 | R30 | Controlled production release prep | BLOCKED_OWNER | Production HOLD; PR #19 draft referenced in AGENTS | Release/rollback docs absent; no merge/deploy without owner |
 | R31 | Consolidated completion / owner handoff | NOT_STARTED | Matrices + this reconciliation | Final handoff doc absent until earlier gates close |

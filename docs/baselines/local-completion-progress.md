@@ -397,11 +397,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING) |
+| Status | **IMPLEMENTED_TESTED** (T32 **IMPLEMENTED_TESTED** after revision) |
+| Date/time | 2026-11-26 21:00 -05:00 |
 | Dependencies | R17, R18 |
-| Evidence | Shared operating-picture read documented in staging acceptance |
-| Remaining blocker | Re-verify timeout/401 snapshot clearing |
-| Next task | Confirm reuse across views |
+| Files inspected | `public/v2/js/sheet-snapshot.js`, `public/v2/js/authoritative-finance.js`, `public/v2/js/unified-hub.js`, `public/v2/js/lifecycle-command-center.js`, `tests/command-center-browser.test.mjs` |
+| Files changed | `public/v2/js/sheet-snapshot.js`, `tests/command-center-browser.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `node .\tests\command-center-browser.test.mjs`; `npm.cmd run test:staging-safety` |
+| Exit codes | command-center-browser **0**; staging-safety **0** |
+| Evidence (T32) | Synthetic browser counters for `/api/sync/events` and `/api/sync/operating-picture`. In-flight equivalent reads share one GET. Authorized in-memory reuse across overview/finance/communications/health with no extra GETs. Explicit refresh loads new sheet evidence (`evt-refresh-marker` + serverTime). Held `/api/sync/events` bodies are serialized **before** `releaseEvents`, so releasing a genuinely older response preserves the newer marker and `serverTime`. Test-only shortened `AbortSignal.timeout` wrapper proves bounded timeout settlement + cleared in-flight for both sheet and operating-picture, then successful recovery; production timeouts remain 50000. `events-fail` mode: failed sheet read keeps request counts stable until explicit non-force retry, which issues a new GET and recovers. Picture failure eviction + session expiry clearing retained. Sheet snapshot: `AbortSignal.timeout(50000)`, `loadGeneration`, non-force reuse, 401/403 owner-cache invalidation. No `setInterval` / infinite retry. No Redis or persistent private browser cache. Not LIVE_VERIFIED. |
+| Remaining blocker | None for T32 local synthetic verification. Live provider latency/cost remains owner ops. |
+| Next task | T33 — Verify bounded requests across view switching (complete R19) |
 
 ### R20 — Complete operational reports
 
@@ -529,7 +534,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED) |
-| Next authorized task | R19/T32 — Verify shared requests and cache lifecycle |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED); R19/T32 **IMPLEMENTED_TESTED** (shared request + cache lifecycle; synthetic browser) |
+| Next authorized task | T33 — Verify bounded requests across view switching |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

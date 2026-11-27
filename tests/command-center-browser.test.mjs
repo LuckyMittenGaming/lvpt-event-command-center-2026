@@ -836,7 +836,9 @@ delete ledgerIncompleteZerosAbsentFields.report.money.incompleteFields;
 
 let mode = 'unauthorized';
 let pictureGets = 0;
+let eventGets = 0;
 let releaseLedger = null;
+let releaseEvents = null;
 const posts = [];
 const server = createServer((request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
@@ -888,14 +890,41 @@ await page.route('**/api/**', async (route) => {
     return;
   }
   if (pathname === '/api/sync/events') {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, readOnly: true, writesPerformed: false, events: fixture.events, eventCount: fixture.events.length }) });
+    eventGets += 1;
+    if (mode === 'events-fail') {
+      try {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'events_unavailable', readOnly: true }) });
+      } catch {
+        /* client may have aborted */
+      }
+      return;
+    }
+    // Capture the body before any hold so a later fixture mutation cannot rewrite a stale response.
+    const eventsBody = JSON.stringify({
+      ok: true,
+      readOnly: true,
+      writesPerformed: false,
+      events: fixture.events,
+      eventCount: fixture.events.length,
+      serverTime: fixture.serverTime || '2026-11-26T00:00:00.000Z'
+    });
+    if (mode === 'delay-events') await new Promise((resolve) => { releaseEvents = resolve; });
+    try {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: eventsBody });
+    } catch {
+      /* client may have aborted after a synthetic timeout */
+    }
     return;
   }
   if (pathname === '/api/sync/operating-picture') {
     pictureGets += 1;
     if (mode === 'delay-ledger') await new Promise((resolve) => { releaseLedger = resolve; });
     if (mode === 'picture-fail') {
-      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'picture_unavailable', readOnly: true }) });
+      try {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'picture_unavailable', readOnly: true }) });
+      } catch {
+        /* client may have aborted */
+      }
       return;
     }
     if (mode === 'picture-missing-collections') {
@@ -914,7 +943,11 @@ await page.route('**/api/**', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledgerIncompleteZerosAbsentFields) });
       return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledger) });
+    try {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ledger) });
+    } catch {
+      /* client may have aborted after a synthetic timeout */
+    }
     return;
   }
   if (pathname === '/api/sync/action-inbox') {
@@ -1823,6 +1856,258 @@ try {
   assert.match(await page.locator('#snapshotBanner').innerText(), /unavailable/);
   const asset = await page.request.get(`http://127.0.0.1:${port}/v2/js/roster-nium.js`);
   assert.equal(asset.status(), 404);
+
+  // R19 / T32 — shared request + cache lifecycle instrumentation (synthetic only).
+  const snapshotSource = readFileSync(join(root, 'v2/js/sheet-snapshot.js'), 'utf8');
+  const financeSource = readFileSync(join(root, 'v2/js/authoritative-finance.js'), 'utf8');
+  assert.match(snapshotSource, /AbortSignal\.timeout\(50000\)/);
+  assert.match(financeSource, /AbortSignal\.timeout\(50000\)/);
+  assert.match(snapshotSource, /loadGeneration/);
+  assert.match(financeSource, /pictureGeneration/);
+  assert.equal(/setInterval\s*\(/.test(snapshotSource), false);
+  assert.equal(/setInterval\s*\(/.test(financeSource), false);
+  assert.equal(/while\s*\(\s*true\s*\)/.test(snapshotSource), false);
+  assert.equal(/while\s*\(\s*true\s*\)/.test(financeSource), false);
+
+  async function installShortAbortTimeout(ms = 80) {
+    await page.evaluate((deadlineMs) => {
+      if (!window.__lvptOriginalAbortTimeout) {
+        window.__lvptOriginalAbortTimeout = AbortSignal.timeout.bind(AbortSignal);
+      }
+      AbortSignal.timeout = (requested) => window.__lvptOriginalAbortTimeout(Math.min(Number(requested) || deadlineMs, deadlineMs));
+    }, ms);
+  }
+  async function restoreAbortTimeout() {
+    await page.evaluate(() => {
+      if (window.__lvptOriginalAbortTimeout) {
+        AbortSignal.timeout = window.__lvptOriginalAbortTimeout;
+        delete window.__lvptOriginalAbortTimeout;
+      }
+    });
+  }
+
+  mode = 'ready';
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+
+  // Synthetic runtime timeouts (test-only AbortSignal.timeout wrapper; production stays 50s).
+  mode = 'delay-events';
+  releaseEvents = null;
+  await installShortAbortTimeout(80);
+  const timeoutEventsBefore = eventGets;
+  await page.evaluate(() => { window.__lvptTimeoutSnapshot = window.lvptReloadSheetSnapshot(); });
+  for (let attempt = 0; attempt < 50 && !releaseEvents; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseEvents, 'expected timeout sheet request to be held past the synthetic deadline');
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'unavailable', null, { timeout: 5000 });
+  assert.ok(eventGets > timeoutEventsBefore);
+  const timeoutEventsSettled = eventGets;
+  await page.waitForTimeout(250);
+  assert.equal(eventGets, timeoutEventsSettled, 'sheet timeout must settle without an automatic retry loop');
+  if (releaseEvents) {
+    releaseEvents();
+    releaseEvents = null;
+  }
+  mode = 'events-fail';
+  const clearedEventsProbe = eventGets;
+  const timedOutSheetRetry = await page.evaluate(() => window.lvptLoadSheetSnapshot());
+  assert.equal(timedOutSheetRetry, false);
+  assert.ok(eventGets > clearedEventsProbe, 'sheet timeout must clear in-flight so a non-force load issues a new request');
+  await restoreAbortTimeout();
+  mode = 'ready';
+  const afterSheetTimeout = eventGets;
+  await page.evaluate(() => window.lvptLoadSheetSnapshot());
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  assert.ok(eventGets > afterSheetTimeout, 'a later sheet read must succeed after a bounded timeout failure');
+
+  mode = 'delay-ledger';
+  releaseLedger = null;
+  await installShortAbortTimeout(80);
+  const timeoutPictureBefore = pictureGets;
+  await page.evaluate(() => { window.__lvptTimeoutPicture = window.lvptReloadOperatingPicture(); });
+  for (let attempt = 0; attempt < 50 && !releaseLedger; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseLedger, 'expected timeout operating-picture request to be held past the synthetic deadline');
+  await page.waitForFunction(() => {
+    return window.lvptOperatingPictureResult == null
+      && window.lvptOperatingPicturePromise == null
+      && /timed out/i.test(document.querySelector('#metricsGrid')?.innerText || '');
+  }, null, { timeout: 5000 });
+  assert.ok(pictureGets > timeoutPictureBefore);
+  const timeoutPictureSettled = pictureGets;
+  await page.waitForTimeout(250);
+  assert.equal(pictureGets, timeoutPictureSettled, 'operating-picture timeout must settle without an automatic retry loop');
+  if (releaseLedger) {
+    releaseLedger();
+    releaseLedger = null;
+  }
+  mode = 'picture-fail';
+  const clearedPictureProbe = pictureGets;
+  const timedOutPictureRetry = await page.evaluate(() => window.lvptLoadOperatingPicture());
+  assert.equal(Boolean(timedOutPictureRetry && timedOutPictureRetry.ok), false);
+  assert.ok(pictureGets > clearedPictureProbe, 'operating-picture timeout must clear in-flight so a non-force load issues a new request');
+  assert.equal(await page.evaluate(() => window.lvptOperatingPicturePromise), null);
+  await restoreAbortTimeout();
+  mode = 'ready';
+  const afterPictureTimeout = pictureGets;
+  await page.evaluate(() => window.lvptLoadOperatingPicture());
+  await page.waitForFunction(() => window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok);
+  assert.ok(pictureGets > afterPictureTimeout, 'a later operating-picture read must succeed after a bounded timeout failure');
+
+  mode = 'delay-events';
+  releaseEvents = null;
+  const eventsBeforeHold = eventGets;
+  await page.goto(`http://127.0.0.1:${port}/v2/index.html`, { waitUntil: 'domcontentloaded' });
+  for (let attempt = 0; attempt < 50 && !releaseEvents; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseEvents, 'expected the delayed sheet-snapshot request to be held');
+  const heldEventGets = eventGets;
+  assert.equal(heldEventGets, eventsBeforeHold + 1);
+  await page.evaluate(() => {
+    const loader = window.lvptLoadSheetSnapshot;
+    window.__lvptSnapshotBurst = typeof loader === 'function'
+      ? Promise.all([loader(), loader(), loader()])
+      : Promise.resolve(null);
+  });
+  assert.equal(eventGets, heldEventGets, 'equivalent in-flight sheet reads must share one request');
+  mode = 'ready';
+  releaseEvents();
+  releaseEvents = null;
+  const concurrentSnapshot = await page.evaluate(() => window.__lvptSnapshotBurst);
+  assert.ok(Array.isArray(concurrentSnapshot));
+  assert.equal(concurrentSnapshot.every(Boolean), true);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  assert.equal(eventGets, heldEventGets);
+
+  mode = 'delay-ledger';
+  releaseLedger = null;
+  const pictureAtDelayStart = pictureGets;
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  for (let attempt = 0; attempt < 50 && !releaseLedger; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseLedger, 'expected the delayed operating-picture request to be held');
+  const heldPictureGets = pictureGets;
+  assert.equal(heldPictureGets, pictureAtDelayStart + 1);
+  await page.evaluate(() => {
+    window.__lvptPictureBurst = Promise.all([
+      window.lvptLoadOperatingPicture(),
+      window.lvptLoadOperatingPicture(),
+      window.lvptLoadOperatingPicture(),
+      window.lvptLoadOperatingPicture()
+    ]);
+  });
+  assert.equal(pictureGets, heldPictureGets, 'equivalent in-flight operating-picture reads must share one request');
+  mode = 'ready';
+  releaseLedger();
+  releaseLedger = null;
+  const concurrentPicture = await page.evaluate(() => window.__lvptPictureBurst);
+  await page.waitForFunction(() => window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok);
+  assert.equal(concurrentPicture.every((row) => row && row.ok), true);
+  assert.equal(pictureGets, heldPictureGets);
+
+  const reuseBaseline = { events: eventGets, picture: pictureGets };
+  await page.locator('[data-command-view="overview"]').click();
+  await page.locator('[data-command-view="finance"]').click();
+  await page.waitForTimeout(200);
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForTimeout(200);
+  await page.locator('[data-command-view="health"]').click();
+  await page.waitForTimeout(200);
+  await page.evaluate(() => Promise.all([
+    window.lvptLoadOperatingPicture(),
+    window.lvptLoadOperatingPicture(),
+    window.lvptLoadSheetSnapshot()
+  ]));
+  assert.equal(eventGets, reuseBaseline.events, 'authorized sheet snapshot must stay in memory across views');
+  assert.equal(pictureGets, reuseBaseline.picture, 'authorized operating-picture must stay in memory across views');
+
+  const idleEvents = eventGets;
+  const idlePicture = pictureGets;
+  await page.waitForTimeout(600);
+  assert.equal(eventGets, idleEvents, 'no automatic sheet retry loop');
+  assert.equal(pictureGets, idlePicture, 'no automatic operating-picture retry loop');
+
+  mode = 'events-fail';
+  const failEventsBaseline = eventGets;
+  await page.evaluate(() => window.lvptReloadSheetSnapshot());
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'unavailable');
+  assert.ok(eventGets > failEventsBaseline, 'failed sheet read must perform a request');
+  const afterEventsFail = eventGets;
+  await page.waitForTimeout(500);
+  assert.equal(eventGets, afterEventsFail, 'request counts must remain stable after sheet failure until an explicit retry');
+  const failedNonForce = await page.evaluate(() => window.lvptLoadSheetSnapshot());
+  assert.equal(failedNonForce, false);
+  assert.ok(eventGets > afterEventsFail, 'non-force load after sheet failure must start a new request');
+  const afterFailedRetry = eventGets;
+  await page.waitForTimeout(300);
+  assert.equal(eventGets, afterFailedRetry, 'a failed non-force retry must not loop');
+  mode = 'ready';
+  const recoverEventsBaseline = eventGets;
+  await page.evaluate(() => window.lvptLoadSheetSnapshot());
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  assert.ok(eventGets > recoverEventsBaseline, 'failure must not poison a later successful sheet read');
+
+  mode = 'picture-fail';
+  const failPictureBaseline = pictureGets;
+  await page.evaluate(() => window.lvptReloadOperatingPicture());
+  await page.waitForFunction(() => window.lvptOperatingPictureResult == null);
+  assert.ok(pictureGets > failPictureBaseline);
+  assert.equal(await page.evaluate(() => window.lvptOperatingPicturePromise), null);
+  mode = 'ready';
+  const recoverBaseline = pictureGets;
+  await page.evaluate(() => window.lvptLoadOperatingPicture());
+  await page.waitForFunction(() => window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok);
+  assert.ok(pictureGets > recoverBaseline, 'failure must not poison a later successful operating-picture read');
+  assert.match(await page.evaluate(() => document.querySelector('#metricsGrid')?.innerText || ''), /Issued invoices|Ledger-recorded receipts|\$/);
+
+  mode = 'delay-events';
+  releaseEvents = null;
+  const staleEventsBefore = eventGets;
+  await page.evaluate(() => { window.__lvptStaleReload = window.lvptReloadSheetSnapshot(); });
+  for (let attempt = 0; attempt < 50 && !releaseEvents; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseEvents, 'expected stale sheet request to be held');
+  const staleHeld = releaseEvents;
+  releaseEvents = null;
+  const staleEventGets = eventGets;
+  assert.equal(staleEventGets, staleEventsBefore + 1);
+  // Mutate fixture only after the held body was already serialized without the marker.
+  fixture.serverTime = '2026-11-26T12:00:00.000Z';
+  fixture.events = [
+    ...fixture.events.filter((event) => event.id !== 'evt-refresh-marker'),
+    {
+      id: 'evt-refresh-marker',
+      eventName: 'Synthetic Refresh Evidence',
+      company: 'Refresh Client',
+      status: 'New Lead',
+      eventDate: '12/28/2026',
+      tasks: []
+    }
+  ];
+  mode = 'ready';
+  const refreshGetsBefore = eventGets;
+  await page.locator('#refreshSheetBtn').click();
+  await page.waitForFunction(() => {
+    const snap = window.lvptSheetSnapshot;
+    return snap && snap.state === 'ready'
+      && snap.serverTime === '2026-11-26T12:00:00.000Z'
+      && Array.isArray(snap.events)
+      && snap.events.some((event) => event.id === 'evt-refresh-marker');
+  });
+  assert.ok(eventGets > refreshGetsBefore, 'explicit refresh must obtain a new sheet read');
+  assert.equal(await page.evaluate(() => window.lvptSheetSnapshot.serverTime || ''), '2026-11-26T12:00:00.000Z');
+  staleHeld();
+  await page.waitForTimeout(200);
+  assert.equal(
+    await page.evaluate(() => {
+      const snap = window.lvptSheetSnapshot;
+      return snap && snap.state === 'ready'
+        && snap.serverTime === '2026-11-26T12:00:00.000Z'
+        && Array.isArray(snap.events)
+        && snap.events.some((event) => event.id === 'evt-refresh-marker');
+    }),
+    true,
+    'releasing a genuinely older held response must preserve the newer marker and serverTime'
+  );
+  fixture.events = fixture.events.filter((event) => event.id !== 'evt-refresh-marker');
+  delete fixture.serverTime;
+
   mode = 'ready';
   await openHub(1280, 800);
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');

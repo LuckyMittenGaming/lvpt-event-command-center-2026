@@ -1,6 +1,7 @@
 (() => {
   const state = { phase: 'loading', events: [], serverTime: '', message: '' };
   let inflight = null;
+  let loadGeneration = 0;
 
   function banner() {
     let node = document.getElementById('snapshotBanner');
@@ -52,17 +53,29 @@
     if (typeof render === 'function') render();
   }
 
-  function load() {
-    if (inflight) return inflight;
+  function invalidateOwnerCaches() {
+    if (typeof window.lvptClearOwnerReads === 'function') window.lvptClearOwnerReads();
+    else if (typeof window.lvptReloadOperatingPicture === 'function') window.lvptReloadOperatingPicture();
+  }
+
+  function load(force) {
+    if (!force && inflight) return inflight;
+    if (!force && (state.phase === 'ready' || state.phase === 'empty')) {
+      return Promise.resolve(true);
+    }
     state.phase = 'loading';
     paintBanner();
-    inflight = fetch('/api/sync/events', { credentials: 'same-origin', cache: 'no-store' })
+    const generation = loadGeneration;
+    inflight = fetch('/api/sync/events', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(50000) })
       .then(async (response) => {
+        if (generation !== loadGeneration) return false;
         const data = await response.json().catch(() => ({}));
+        if (generation !== loadGeneration) return false;
         if (response.status === 401 || response.status === 403) {
           state.phase = 'auth-required';
           state.message = 'Owner sign-in required.';
           state.events = [];
+          invalidateOwnerCaches();
         } else if (!response.ok || data.ok === false || !Array.isArray(data.events)) {
           state.phase = 'unavailable';
           state.message = 'The sheet did not load.';
@@ -81,21 +94,31 @@
         return state.phase === 'ready' || state.phase === 'empty';
       })
       .catch(() => {
+        if (generation !== loadGeneration) return false;
         state.phase = 'unavailable';
         state.message = 'The sheet did not respond.';
         state.events = [];
         apply();
         return false;
       })
-      .finally(() => { inflight = null; });
+      .finally(() => {
+        if (generation === loadGeneration) inflight = null;
+      });
     return inflight;
   }
 
+  window.lvptLoadSheetSnapshot = function (force) {
+    if (force) {
+      loadGeneration += 1;
+      inflight = null;
+    }
+    return load(Boolean(force));
+  };
   window.lvptReloadSheetSnapshot = function () {
+    loadGeneration += 1;
     inflight = null;
-    if (typeof window.lvptClearOwnerReads === 'function') window.lvptClearOwnerReads();
-    else if (typeof window.lvptReloadOperatingPicture === 'function') window.lvptReloadOperatingPicture();
-    return load();
+    invalidateOwnerCaches();
+    return load(true);
   };
 
   function lockEditor() {
@@ -143,8 +166,9 @@
       sawShow = true;
       return;
     }
+    loadGeneration += 1;
     inflight = null;
-    load();
+    load(true);
   });
-  load();
+  load(true);
 })();

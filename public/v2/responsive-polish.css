@@ -118,13 +118,13 @@ label{font-size:clamp(12px,1.2vw,13px) !important;line-height:1.25}
 textarea.input{min-height:96px}
 
 .metrics-grid{
-  display:grid !important;grid-template-columns:repeat(auto-fit,minmax(min(100%,172px),1fr)) !important;
+  display:grid !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important;
   gap:var(--lvpt-gap) !important;margin:clamp(12px,1.6vw,22px) 0 !important;
 }
-.metric{border-radius:var(--lvpt-radius-lg) !important;padding:clamp(12px,1.8vw,18px) !important}
+.metric{border-radius:var(--lvpt-radius-lg) !important;padding:clamp(10px,1.4vw,14px) !important;min-width:0;overflow-wrap:break-word}
 .metric span,.label{color:rgba(255,241,168,.64) !important;font-size:clamp(9px,.95vw,11px) !important}
-.metric strong{font-size:clamp(19px,3.2vw,34px) !important;line-height:1.02;overflow-wrap:anywhere}
-.metric .sub{font-size:clamp(10px,1vw,12px)}
+.metric strong{font-size:clamp(1.1rem,1.5vw,1.45rem) !important;line-height:1.2;overflow-wrap:break-word;word-break:normal;font-variant-numeric:tabular-nums}
+.metric .sub{font-size:clamp(10px,1vw,12px);line-height:1.35;overflow-wrap:break-word;word-break:normal}
 
 .layout-grid{display:grid !important;grid-template-columns:minmax(300px,.76fr) minmax(0,1.68fr) !important;gap:var(--lvpt-gap) !important}
 .workspace{gap:var(--lvpt-gap) !important}
@@ -193,6 +193,9 @@ textarea.input{min-height:96px}
   .event-list{max-height:none !important;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
   .hero-card{align-items:stretch !important}
 }
+@media(max-width:1120px){
+  .metrics-grid,.lifecycle-summary{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+}
 @media(max-width:860px){
   .hero-actions .btn,.actions .btn{flex:1 1 auto}
   .document-card,.email-card{grid-template-columns:1fr !important}
@@ -214,9 +217,12 @@ textarea.input{min-height:96px}
   .row .btn,.row button{width:100%;justify-content:center}
   .gmail-key-row{grid-template-columns:1fr !important}
 }
+@media(max-width:520px){
+  .metrics-grid,.lifecycle-summary{grid-template-columns:minmax(0,1fr) !important}
+}
 @media(max-width:420px){
-  .metrics-grid{grid-template-columns:1fr 1fr !important;gap:8px !important}
-  .metric{padding:11px !important;border-radius:15px !important}.metric strong{font-size:18px !important}.metric .sub{font-size:10px !important}
+  .metrics-grid{gap:8px !important}
+  .metric{padding:11px !important;border-radius:15px !important}.metric strong{font-size:clamp(1.05rem,5vw,1.25rem) !important}.metric .sub{font-size:10px !important}
   .hero-actions,.panel-head .actions,.editor-actions,.modal-actions{grid-template-columns:1fr !important}
   .btn{width:100%;justify-content:center;min-height:41px}
   .event-list{grid-template-columns:1fr !important}.mini-grid{grid-template-columns:1fr !important}
@@ -228,8 +234,8 @@ textarea.input{min-height:96px}
   .app-shell{padding:6px !important}.hero-card,.panel,.tab-panel{border-radius:14px !important;padding:10px !important}
   .hero-card h1{font-size:28px !important}.hero-copy{font-size:13px !important;line-height:1.5}
   .eyebrow{font-size:9px !important;letter-spacing:.16em !important}
-  .metrics-grid{grid-template-columns:1fr !important}
-  .metric strong{font-size:20px !important}.status-pill,.badge{font-size:10px !important;padding:6px 8px !important}
+  .metrics-grid,.lifecycle-summary{grid-template-columns:minmax(0,1fr) !important}
+  .metric strong{font-size:clamp(1.05rem,6vw,1.25rem) !important}.status-pill,.badge{font-size:10px !important;padding:6px 8px !important}
   .input{border-radius:11px !important;padding:10px !important}.tab{font-size:11px !important;padding:8px 10px !important}
   .wizard-progress{grid-template-columns:1fr !important}
 }

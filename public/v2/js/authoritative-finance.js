@@ -16,8 +16,20 @@
     return (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   }
 
+  function moneyAwareHtml(text) {
+    return esc(String(text ?? '')).replace(/\$[\d,]+(?:\.\d{2})?/g, (token) => `<span class="money-nowrap">${token}</span>`);
+  }
+
+  function paymentLabelHtml(label) {
+    const parts = String(label || '').split(' · ').map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return `<strong class="payment-label-stack">${parts.map((part) => `<span class="payment-label-line">${moneyAwareHtml(part)}</span>`).join('')}</strong>`;
+    }
+    return `<strong class="payment-label-stack"><span class="payment-label-line">${moneyAwareHtml(label || 'Not recorded')}</span></strong>`;
+  }
+
   function card(label, value, note) {
-    return `<div class="metric"><span>${esc(label)}</span><strong>${esc(value)}</strong><div class="sub">${esc(note)}</div></div>`;
+    return `<div class="metric"><span>${esc(label)}</span><strong>${moneyAwareHtml(value)}</strong><div class="sub">${esc(note)}</div></div>`;
   }
 
   function paint() {
@@ -65,11 +77,13 @@
 
     document.querySelectorAll('.portfolio-card').forEach((cardEl) => {
       const button = cardEl.querySelector('[data-open-event]');
-      const slot = cardEl.querySelector('.portfolio-card-grid div:nth-child(2) strong');
-      const labelEl = cardEl.querySelector('.portfolio-card-grid div:nth-child(2) span');
-      if (!button || !slot) return;
+      const paymentBlock = cardEl.querySelector('[data-payment-label-kind]');
+      const slot = paymentBlock && paymentBlock.querySelector('strong');
+      const labelEl = paymentBlock && paymentBlock.querySelector(':scope > span');
+      if (!button || !paymentBlock || !slot) return;
       if (!picture || !picture.report) {
-        slot.textContent = 'Sheet unavailable';
+        paymentBlock.setAttribute('data-payment-label-kind', 'unavailable');
+        slot.outerHTML = paymentLabelHtml('Sheet unavailable');
         return;
       }
       const eventId = button.getAttribute('data-open-event');
@@ -82,11 +96,13 @@
           rollup: row || null
         });
         if (labelEl) labelEl.textContent = 'Payment';
-        slot.textContent = labeled.label || (row ? money(row.collectedCents) : 'No sheet invoice');
+        paymentBlock.setAttribute('data-payment-label-kind', labeled.kind || 'none');
+        slot.outerHTML = paymentLabelHtml(labeled.label || (row ? money(row.collectedCents) : 'No sheet invoice'));
         return;
       }
       if (labelEl) labelEl.textContent = 'Collected (ledger)';
-      slot.textContent = row ? money(row.collectedCents) : 'No sheet invoice';
+      paymentBlock.setAttribute('data-payment-label-kind', 'ledger_fallback');
+      slot.outerHTML = paymentLabelHtml(row ? money(row.collectedCents) : 'No sheet invoice');
     });
 
     const reportGrid = document.querySelector('#generatedReportOutput .generated-report-metrics');

@@ -634,6 +634,20 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     if (cents == null || !Number.isFinite(cents)) return 'Unpriced';
     return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   }
+  /** Wrap only currency tokens in money-nowrap; never nowrap a multi-phrase label. */
+  function moneyAwareHtml(text) {
+    return escapeHtml(String(text ?? '')).replace(/\$[\d,]+(?:\.\d{2})?/g, (token) => `<span class="money-nowrap">${token}</span>`);
+  }
+  function paymentLabelHtml(label) {
+    const parts = String(label || '').split(' · ').map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return `<strong class="payment-label-stack">${parts.map((part) => `<span class="payment-label-line">${moneyAwareHtml(part)}</span>`).join('')}</strong>`;
+    }
+    return `<strong class="payment-label-stack"><span class="payment-label-line">${moneyAwareHtml(label || 'Not recorded')}</span></strong>`;
+  }
+  function kpiValueHtml(text) {
+    return `<strong>${moneyAwareHtml(text)}</strong>`;
+  }
   function buildScopedOperationalReport(options) {
     const api = reportsApi();
     if (!api || typeof api.buildOperationalReport !== 'function') return null;
@@ -658,7 +672,25 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const freshness = report.freshness || {};
     const finance = report.finance || {};
     const quotes = report.quotes || {};
-    return `<section class="hub-callout" data-operational-report="${escapeHtml(report.scope.kind)}" data-report-scope="${escapeHtml(report.scope.eventId || 'portfolio')}"><strong>Operational report</strong><p data-report-scope-label>${escapeHtml(report.scope.label)}</p><p class="muted">${escapeHtml(report.scope.note)}</p><p data-report-freshness>${escapeHtml(freshness.label || 'Source freshness unavailable')}. ${escapeHtml(freshness.note || '')}</p><p data-report-confidence>${escapeHtml((report.financialConfidence && report.financialConfidence.note) || 'Unknown amounts remain unknown. Target quotes are not double-counted.')}</p><div class="lifecycle-summary"><div><span>Pipeline</span><strong>${escapeHtml(String(report.pipeline.pipeline))}</strong></div><div><span>Booked / historical</span><strong>${escapeHtml(`${report.bookedHistorical.bookedCount} / ${report.bookedHistorical.historicalCount}`)}</strong></div><div><span>Priced quotes</span><strong>${escapeHtml(quotes.pricedLineItemCents == null ? 'Unknown' : moneyCents(quotes.pricedLineItemCents))}</strong><p class="muted">Targets separate: ${escapeHtml(quotes.recordedTargetCents == null ? 'None recorded' : moneyCents(quotes.recordedTargetCents))}</p></div><div><span>Receivables</span><strong>${escapeHtml((finance.receivables && finance.receivables.label) || 'Unknown')}</strong><p class="muted">${escapeHtml((finance.receivables && finance.receivables.confidence) || 'unavailable')}</p></div><div><span>Vendor obligations</span><strong>${escapeHtml((finance.vendorObligations && finance.vendorObligations.label) || 'Unknown')}</strong></div><div><span>Open tasks</span><strong>${escapeHtml(String(report.tasks.openCount))}</strong></div><div><span>Exceptions</span><strong>${escapeHtml(report.exceptions.available ? String(report.exceptions.count) : 'Unavailable')}</strong></div><div><span>Conversion</span><strong>${escapeHtml(conversion.rateLabel || 'Conversion rate: Unavailable')}</strong><p class="muted">${escapeHtml(conversion.reason || '')}</p></div></div><p class="muted">${escapeHtml(report.csvExportReason || 'CSV export omitted.')}</p></section>`;
+    const pricedQuotes = quotes.pricedLineItemCents == null ? 'Unknown' : moneyCents(quotes.pricedLineItemCents);
+    const receivables = (finance.receivables && finance.receivables.label) || 'Unknown';
+    const vendor = (finance.vendorObligations && finance.vendorObligations.label) || 'Unknown';
+    const exceptions = report.exceptions.available ? String(report.exceptions.count) : 'Unavailable';
+    const conversionValue = conversion.canComputeRate && conversion.rate != null
+      ? `${(Number(conversion.rate) * 100).toFixed(1)}%`
+      : 'Unavailable';
+    const conversionFootnote = [
+      conversion.canComputeRate
+        ? (conversion.rateLabel || conversion.reason || '')
+        : (conversion.reason || conversion.rateLabel || 'Conversion rate: Unavailable'),
+      quotes.recordedTargetCents == null
+        ? 'Targets separate: None recorded'
+        : `Targets separate: ${moneyCents(quotes.recordedTargetCents)}`,
+      finance.receivables && finance.receivables.confidence
+        ? `Receivables confidence: ${finance.receivables.confidence}`
+        : ''
+    ].filter(Boolean).join(' · ');
+    return `<section class="hub-callout" data-operational-report="${escapeHtml(report.scope.kind)}" data-report-scope="${escapeHtml(report.scope.eventId || 'portfolio')}"><strong>Operational report</strong><p data-report-scope-label>${escapeHtml(report.scope.label)}</p><p class="muted">${escapeHtml(report.scope.note)}</p><p data-report-freshness>${escapeHtml(freshness.label || 'Source freshness unavailable')}. ${escapeHtml(freshness.note || '')}</p><p data-report-confidence>${escapeHtml((report.financialConfidence && report.financialConfidence.note) || 'Unknown amounts remain unknown. Target quotes are not double-counted.')}</p><div class="lifecycle-summary kpi-stat-grid"><div><span>Pipeline</span>${kpiValueHtml(String(report.pipeline.pipeline))}</div><div><span>Booked / historical</span>${kpiValueHtml(`${report.bookedHistorical.bookedCount} / ${report.bookedHistorical.historicalCount}`)}</div><div><span>Priced quotes</span>${kpiValueHtml(pricedQuotes)}</div><div><span>Receivables</span>${kpiValueHtml(receivables)}</div><div><span>Vendor obligations</span>${kpiValueHtml(vendor)}</div><div><span>Open tasks</span>${kpiValueHtml(String(report.tasks.openCount))}</div><div><span>Exceptions</span>${kpiValueHtml(exceptions)}</div><div><span>Conversion</span>${kpiValueHtml(conversionValue)}</div></div><p class="kpi-footnote muted" data-conversion-footnote>${escapeHtml(conversionFootnote)}</p><p class="muted">${escapeHtml(report.csvExportReason || 'CSV export omitted.')}</p></section>`;
   }
   function summarizeQuotes(items) {
     let pricedCents = 0;
@@ -1113,7 +1145,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const next = String(event.nextAction || '').trim().slice(0, 90) || 'No next action recorded';
     const acquired = crmApi() ? crmApi().acquisitionChannelLines(event) : { kind: 'unknown', acquisitionText: 'Acquisition: Unknown (not recorded)' };
-    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(laneOf(event).stage)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate, event)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span class="money-nowrap">${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${sheetLinked ? ' · Proposal linked' : ''}</p></button>`;
+    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(laneOf(event).stage)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate, event)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span>${moneyAwareHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${sheetLinked ? ' · Proposal linked' : ''}</p></button>`;
   }
 
   function renderPortfolio(view, mode) {
@@ -1175,7 +1207,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const sheetUrl = explicitProposalUrl(event);
     const previewId = sheetUrl ? `event-${event.id}` : (historical ? historical.id : '');
-    return `<article class="portfolio-card" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(lane.stage)}" data-lane="${escapeHtml(lane.lane)}" data-proposal-state="${escapeHtml(linkState)}"${historical ? ` data-historical-proposal-id="${escapeHtml(historical.id)}"` : ''}><p class="eyebrow small">${escapeHtml(lane.raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate, event)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}${historicalNote}<div class="portfolio-card-grid"><div><span>Priced quote</span><strong class="money-nowrap">${escapeHtml(value)}</strong></div><div data-payment-label-kind="${escapeHtml(paymentInfo.kind)}"><span>Payment</span><strong class="money-nowrap">${escapeHtml(paymentInfo.label)}</strong><p class="muted">${escapeHtml(paymentInfo.footnote)}</p></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong data-proposal-label>${escapeHtml(proposalLabel)}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${previewId ? `<button class="btn small" data-preview-proposal="${escapeHtml(previewId)}">Preview Proposal</button>` : ''}</div></article>`;
+    return `<article class="portfolio-card" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(lane.stage)}" data-lane="${escapeHtml(lane.lane)}" data-proposal-state="${escapeHtml(linkState)}"${historical ? ` data-historical-proposal-id="${escapeHtml(historical.id)}"` : ''}><div class="portfolio-card-body"><p class="eyebrow small">${escapeHtml(lane.raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate, event)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}${historicalNote}<div class="portfolio-card-grid"><div><span>Priced quote</span>${kpiValueHtml(value)}</div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong data-proposal-label>${escapeHtml(proposalLabel)}</strong></div><div class="portfolio-payment" data-span="full" data-payment-label-kind="${escapeHtml(paymentInfo.kind)}"><span>Payment</span>${paymentLabelHtml(paymentInfo.label)}<p class="muted">${escapeHtml(paymentInfo.footnote)}</p></div></div></div><div class="actions portfolio-card-actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${previewId ? `<button class="btn small" data-preview-proposal="${escapeHtml(previewId)}">Preview Proposal</button>` : ''}</div></article>`;
   }
 
   function renderProposals(view) {

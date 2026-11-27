@@ -333,7 +333,7 @@ function loadGmailStatusHarness() {
         }
       }
     },
-    '../sync/_owner-read': { denyPrivateRead }
+    '../../sync/_owner-read': { denyPrivateRead }
   };
   vm.runInNewContext(js, {
     module: mod,

@@ -354,17 +354,20 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | **IN_PROGRESS** (T30 **IMPLEMENTED_TESTED** after owner-authorized status-route remediation; T31 pending) |
-| Date/time | 2026-11-26 20:45 -05:00 |
+| Status | **IMPLEMENTED_TESTED** (T30 **IMPLEMENTED_TESTED**; T31 **IMPLEMENTED_TESTED** after generated-artifact acceptance revision) |
+| Date/time | 2026-11-26 20:55 -05:00 |
 | Dependencies | R03–R17 where applicable |
 | Files inspected (T30) | `lib/owner-read-guard.mjs`, `lib/sms-review-session.mjs`, `app/api/sync/_owner-read.ts`, `app/api/sms/staging/_review-auth.ts`, `app/api/sms/staging/session/route.ts`, **all 31** `app/api/**/route.ts` files (inventory below), `public/v2/js/sheet-snapshot.js`, `public/v2/js/unified-hub.js`, `public/v2/js/authoritative-finance.js`, `lib/rcs-staging.mjs` (ingest auth) |
+| Files inspected (T31) | `public/**` (43 text assets), `.next/static` (10), `.next/server` (464 text candidates), `archive/public-roster-2026-11-24/**`, private HTML shells, SMS/sheet storage owners, fixture tests, deployment-protection docs only (no dashboard mutation; no historical URL fetch) |
 | Files changed (T30) | `app/api/sync/status/route.ts`, `app/api/gmail/status/route.ts`, `tests/owner-read-guard.test.mjs`, `tests/sms-review-session.test.mjs`, `tests/command-center-browser.test.mjs`, `docs/baselines/local-completion-progress.md` |
-| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/owner-read-guard.test.mjs,tests/sms-review-session.test.mjs,tests/command-center-browser.test.mjs`; `npm.cmd run test:staging-safety` |
-| Exit codes | Targeted verify **0**; staging-safety **0** |
+| Files changed (T31) | `tests/private-asset-exposure.test.mjs`, `docs/command-center-security-acceptance.md`, `docs/baselines/local-completion-progress.md`; build-unblock: `app/api/gmail/status/route.ts` import path `../../sync/_owner-read` + matching harness mock in `tests/owner-read-guard.test.mjs` |
+| Exact test commands | T30 targeted verify + staging-safety. T31 revision: `node .\tests\owner-read-guard.test.mjs`; `npm.cmd run build`; `node .\tests\private-asset-exposure.test.mjs` |
+| Exit codes | owner-read-guard **0**; safe build **0** (prebuild staging-safety + next build); private-asset-exposure **0** |
 | Evidence (T30) | Decision + handler-level coverage for `events` and both status routes. Owner decision authorized `denyPrivateRead` on `sync/status` and `gmail/status`: unauthenticated/forged/expired/Origin-only/foreign-Origin → 401/403 with **zero** Apps Script calls, **zero** `gmailConfigured`/`accountEmail` reads, and no email/`@` leakage in denial bodies. Authorized positive controls still return configured status (sync calls mocked `status` once; gmail returns synthetic email once). Signing primitives unchanged; existing owner-read guard reused (not redesigned). Browser cache-clear assertions retained. |
-| Remaining blocker | T31 — `docs/command-center-security-acceptance.md` and `tests/private-asset-exposure.test.mjs` still absent |
-| Next task | T31 — Audit private assets and document exposure risks |
-| Owner-auth defects | Previously open `sync/status` and `gmail/status` gaps **remediated** under explicit owner authorization (2026-11-26) using existing `denyPrivateRead`. No remaining T30 auth defects open. |
+| Evidence (T31) | Acceptance mode **requires** `.next/static` + `.next/server` from safe build (fails if absent). Scanned public 43 / static 10 / server 464 with **0** credential hits. `SECRET_PATTERNS` cover eq/colon assignments with whitespace + quoted JS/JSON properties; isolated synthetic positive controls prove detection without printing values. Archived roster absent from public+generated trees. Private pages keep `noindex,nofollow,noarchive`. Historical deployments **not** probed / **not** asserted safe. Production hold preserved. Residual: `central-sync.js` fallback event-JSON `localStorage` (documented, non-blocking). |
+| Remaining blocker | None for R18 local audit. Owner ops still required to confirm live Vercel Authentication and whether older deployments still serve archived roster paths |
+| Next task | R19 / T32 — Verify shared requests and cache lifecycle |
+| Owner-auth defects | Previously open `sync/status` and `gmail/status` gaps **remediated** under explicit owner authorization (2026-11-26) using existing `denyPrivateRead`. No remaining T30 auth defects open. Gmail status import path corrected so safe build resolves `denyPrivateRead`. |
 
 #### T30 private-route inventory (read-only)
 
@@ -526,7 +529,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30 **IMPLEMENTED_TESTED** (auth/session invalidation audit; signing primitives unchanged) |
-| Next authorized task | R18/T31 — Audit private assets and document exposure risks |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED) |
+| Next authorized task | R19/T32 — Verify shared requests and cache lifecycle |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

@@ -1,5 +1,5 @@
 import { gmailConfigured, gmailEnvironment } from '../_lib';
-import { denyPrivateRead } from '../sync/_owner-read';
+import { denyPrivateRead } from '../../sync/_owner-read';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

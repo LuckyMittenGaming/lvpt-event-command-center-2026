@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Fail-fast local verification for the LVPT Event Command Center.
 
@@ -125,7 +125,8 @@ $Script:CiRegressionFiles = @(
   'tests/sms-review-session.test.mjs'
 )
 
-# Offline local-phase / calendar fixture suite (synthetic adapters only)
+# Offline local-phase / calendar fixture suite (synthetic adapters only).
+# Includes calendar safe-sync suite plus applicable R00–R20 local-phase additions.
 $Script:LocalPhaseFiles = @(
   'tests/calendar-safe-sync.test.cjs'
   'tests/calendar-safe-review.test.cjs'
@@ -135,6 +136,23 @@ $Script:LocalPhaseFiles = @(
   'tests/calendar-production-candidate.test.cjs'
   'tests/calendar-task-reconcile.test.cjs'
   'tests/command-hub-finance.test.cjs'
+  'tests/event-finance.test.cjs'
+  'tests/event-status.test.mjs'
+  'tests/event-mutation-contract.test.mjs'
+  'tests/action-inbox.test.mjs'
+  'tests/owner-read-guard.test.mjs'
+  'tests/source-reliability.test.mjs'
+  'tests/sms-scan-health.test.mjs'
+  'tests/crm-attribution.test.mjs'
+  'tests/gmail-ingest.test.cjs'
+  'tests/approval-idempotency.test.mjs'
+  'tests/operational-reports.test.mjs'
+  'tests/private-asset-exposure.test.mjs'
+  'tests/local-agent-policy.test.mjs'
+  'tests/verify-command-center.test.mjs'
+  'tests/rcs-collector.test.mjs'
+  'tests/rcs-dedup.test.mjs'
+  'tests/rcs-staging.test.mjs'
   'tests/rcs-live.test.mjs'
 )
 

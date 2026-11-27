@@ -1,5 +1,8 @@
 const assert = require('node:assert/strict');
-const finance = require('../public/v2/js/ledger-finance.js');
+const finance = require('../public/v2/js/event-finance.js');
+
+// Successor coverage for the retired ledger-finance.js hub fixtures.
+// event-finance.js is the authoritative Payments-tab classifier (cents, roles, settlements).
 
 const niumMain = {
   paymentId: 'PAY-evt-nium-2026',
@@ -43,22 +46,40 @@ const mentionedVendor = {
   notes: 'Client paid in full. Vendor expense complete on a separate row.'
 };
 
-const summary = finance.summarize(
-  [niumMain, niumDecks, niumMain, elevated, certapro, mentionedVendor],
-  [{ payoutId: 'S7WXQ', eventId: 'evt-nium-2026', payee: 'Staff', amount: 1500, status: 'Paid' }]
-);
+const ledger = finance.buildLedger({
+  payments: [niumMain, niumDecks, niumMain, elevated, certapro, mentionedVendor],
+  payouts: [{ payoutId: 'S7WXQ', eventId: 'evt-nium-2026', payee: 'Staff', amount: 1500, status: 'Paid' }]
+});
 
-assert.equal(summary.rows.length, 5, 'a repeated payment id is kept once');
-assert.equal(summary.clientInvoiceCount, 4);
-assert.equal(summary.vendorExpenseInPayments, 3740.89);
-assert.equal(summary.clientLedgerReceived, 50578.38 + 1353.39 + 10491.25);
-assert.equal(summary.initiatedNotSettled, 11281.50);
-assert.equal(summary.rows.find(row => row.paymentId === elevated.paymentId).countsAsClientReceived, 0);
-assert.equal(summary.rows.find(row => row.paymentId === certapro.paymentId).settlement, 'initiated_not_settled');
-assert.equal(summary.payoutLedgerTotal, 1500);
-assert.equal(summary.clientLedgerReceived === summary.clientInvoiced, false);
-assert.equal(summary.profitComputed, false);
-assert.equal(summary.bankConfirmed, false);
-assert.equal(finance.party(mentionedVendor), 'client_invoice');
+const countable = ledger.payments.filter((row) => row.includedInTotals !== false);
+assert.equal(countable.length, 5, 'a repeated payment id is kept once');
+assert.equal(ledger.counts.clientInvoices, 4);
+assert.equal(ledger.money.vendorCommittedCents, Math.round(3740.89 * 100));
+assert.equal(
+  ledger.money.verifiedClientReceiptsCents,
+  Math.round((50578.38 + 1353.39 + 10491.25) * 100)
+);
+assert.equal(ledger.money.initiatedNotSettledCents, Math.round(11281.50 * 100));
+
+const elevatedRow = ledger.payments.find((row) => row.paymentId === elevated.paymentId);
+assert.equal(elevatedRow.role, 'vendor_expense');
+assert.equal(elevatedRow.settlement, 'initiated_not_settled');
+assert.notEqual(elevatedRow.role, 'client_receivable', 'Elevated never counts as client receipt');
+
+const certaproRow = ledger.payments.find((row) => row.paymentId === certapro.paymentId);
+assert.equal(certaproRow.settlement, 'initiated_not_settled');
+
+assert.equal(ledger.money.payoutPaidCents, Math.round(1500 * 100));
+assert.notEqual(
+  ledger.money.verifiedClientReceiptsCents,
+  ledger.money.clientInvoiceTotalCents,
+  'receipts and invoiced totals stay distinct when vendor/initiated rows exist'
+);
+assert.equal(ledger.money.forecastMarginCents, null, 'profit stays unavailable without expense completeness');
+assert.equal(ledger.money.bankSettlementVerified, false);
+assert.equal(ledger.payments.every((row) => row.bankVerified === false), true);
+
+const mentionedRole = finance.inferRole(mentionedVendor).role;
+assert.equal(mentionedRole, 'client_receivable', 'vendor mention in notes does not reclassify a client invoice');
 
 console.log('command-hub-finance: ok');

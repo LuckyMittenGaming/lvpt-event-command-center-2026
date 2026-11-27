@@ -1,94 +1,158 @@
 # Command Center staging acceptance
 
-Decision: **Hold production.** Draft PR #19 is the staging candidate. Do not merge it and do not promote the preview until the owner-only checks below pass. This file is source evidence plus locally simulated tests. It is not a deployed browser session and not a live provider read.
+Decision: **Hold production.** Draft PR #19 remains the staging integration target. Do not merge it and do not promote any preview until the owner-only R22 checks below pass. This file prepares authenticated staging acceptance. It is **not** a deployed browser session and **not** a live provider read.
 
-## Capability status
+T37 / R22 preparation date: 2026-11-26. No deployment and no owner sign-in were performed for this update.
 
-| Capability | Status | Evidence in this repo |
+---
+
+## Candidate, preview, and protection evidence
+
+| Item | Status | Verified evidence |
 | --- | --- | --- |
-| V2 navigation | STAGING | Ten views stay in `lifecycle-command-center.js`. Pipeline, Active, Past, Proposals, and Follow-Up read the owner-session sheet snapshot. A failed read is unavailable, not zero. The browser roster scripts are no longer loaded. |
-| Auth entry | STAGING | Private reads call `denyPrivateRead` before Apps Script. `lib/owner-read-guard.mjs` requires the existing HttpOnly review session. A missing cookie is 401. A foreign Origin is 403. The session signer was not changed. |
-| Dashboard overview | STAGING | Overview is a compact global summary. Confirmed upcoming events stay separate from dated inquiries. Ledger receipts and outstanding come from the shared operating-picture read and are labeled ledger-recorded, not bank receipts and not drawable cash. |
-| Action Required / CRM | STAGING | `lib/action-inbox.mjs` keeps stage, acquisition, and channel separate. Duplicate event ids count once. Conflicting ids are excluded. The hub draft is read-only. |
-| Approval handoff | STAGING | The hub links to `/sms-review/index.html#inboxReviewTitle`. Approve, Make Changes, Deny, and Edit Myself are not recorded on the hub. `readyToSend` stays false. |
-| Send | DISABLED | `app/api/gmail/send/route.ts` returns 403. The SMS reply route stays `staging_only_no_production_send`. |
-| Events lifecycle | STAGING | Pipeline, active, and archive views are the existing browser lifecycle. Past dates move into the archive. This is not a new calendar writer. |
-| Sheet finance | STAGING | `public/v2/js/event-finance.js` is read-only. Bank verification stays false. A missing payment or payout id is excluded. A conflicting id makes the affected total Incomplete. A payout is dropped only when it links to an included vendor bill on the same event. |
-| Forecast margin | UNVERIFIED | A ledger estimate of client invoices minus vendor bills and unlinked vendor payouts. Owner draws are not operating expenses. It stays unavailable until expense completeness, overlap, and tax are established. No 3.5% tax is invented. |
-| Drawable cash | UNVERIFIED | Always unavailable from the ledger. Receipts, paid costs, and planned obligations do not verify the cash balance, bank settlement, tax reserve, prior distributions, or overlap. |
-| Ledger contribution | STAGING | Recorded receipts minus recorded paid costs and recorded paid draws. Not bank-verified and not drawable cash. Unavailable while a planned or unpaid obligation remains. |
-| Tasks | STAGING | Open and completed copies of one task id are a conflict. The open copy does not survive alone. A supplied owner is kept. Due today is not overdue. |
-| Calendar sync | UNVERIFIED | Safe TaskSync shows an hourly schedule. That schedule is not proof `runLVPTSafeTaskSync` ran. The writer was not called and was not changed. |
-| Gmail headers | STAGING | A failed or partial header read is unavailable or partial, metadata only, and not a full mailbox. Production Gmail writes stay off. |
-| Android SMS | UNVERIFIED | A stored row is not a heartbeat. This preview has no heartbeat reader. |
-| RCS collector | UNVERIFIED | Stored rows do not make the collector live. Send and mark-read stay off. |
-| Production deploy | DISABLED | This branch is not merged. No manual production deploy is part of this package. |
+| Local workspace branch | RECORDED | `ai-build/command-center-loop` |
+| Exact local candidate revision (HEAD) | RECORDED | `4e53021b1d52527a26cbb332d2124c5e2bd11646` — `test: complete and record full local regression` |
+| Upstream tracking branch | RECORDED | `origin/feature/command-center-completion-20261124` (local branch ahead by 38 commits) |
+| Last independently verified remote candidate | HISTORICAL | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` — ancestor of HEAD; subject `Finish the read-only command center handoff.` |
+| Last verified remote CI (historical) | HISTORICAL | GitHub Actions run `45524866760` — SUCCESS (recorded in `AGENTS.md`; not re-run this session) |
+| Historical candidate deployment URL | HISTORICAL ONLY | `https://lvpt-event-command-center-2026-7v0lytkyn.vercel.app/v2/index.html` — recorded in `AGENTS.md` as last verified candidate deployment. **Not confirmed current for HEAD.** Do not treat as the R22 target by assumption. |
+| Historical branch preview alias | HISTORICAL ONLY | `https://lvpt-event-command-git-8f80fb-matt-carpenters-projects-7f34c5ab.vercel.app` — recorded in `AGENTS.md`. **Not confirmed mapped to HEAD.** |
+| Alias → revision mapping | **UNKNOWN** | No Vercel CLI / dashboard mapping check was available this session. Mapping to `4e53021…` or `292103fc…` is unverified. |
+| Deployment protection (Vercel Authentication / password) | **UNKNOWN** | Not probed. Owner must confirm protection before treating any preview as the acceptance host. |
+| Current staging preview URL for R22 | **UNKNOWN** | Do not invent a URL. Owner supplies or confirms the host that serves the intended candidate after mapping/protection are verified. If a new preview deploy is required to expose local HEAD, that is an owner-authorized Git/deploy step outside this loop. |
+| Production URL | HOLD | `https://lvpt-event-command-center-2026.vercel.app/v2/index.html` — not used for R22. Production release remains HOLD. |
+
+If alias mapping or protection cannot be confirmed, stop before signed-in acceptance and escalate. Do not fall back to a historical URL as if it were current.
+
+---
+
+## Status separation: local tests vs authenticated staging
+
+Use these status words only as defined:
+
+| Status | Meaning |
+| --- | --- |
+| LOCAL_SYNTHETIC_PASS | Deterministic fixture / source / browser harness passed offline. Not live sheet, not owner session. |
+| STAGING_CODE_READY | Code is present on the draft candidate and ready for an owner signed-in preview. |
+| AUTHENTICATED_STAGING | Owner completed the signed-in check on a verified preview host. |
+| LIVE_VERIFIED | Not used in this file for R22. Reserved for later live-source confirmation. |
+| UNKNOWN | Evidence missing this session. |
+| DISABLED / BLOCKED_OWNER | Control off, or next step requires the owner. |
+
+| R22 acceptance item | Local / synthetic | Authenticated staging |
+| --- | --- | --- |
+| Signed-out access reveals no private records | LOCAL_SYNTHETIC_PASS — browser harness asserts Owner sign-in required and refuses empty “no deals” fallbacks | NOT STARTED — owner opens verified preview signed out |
+| Existing authorized sign-in works | STAGING_CODE_READY — HttpOnly review session + `denyPrivateRead` before provider reads | NOT STARTED — owner completes device-token exchange on that host |
+| Overview loads current data | LOCAL_SYNTHETIC_PASS — Overview strip, ledger labeling, delayed/incomplete reads | NOT STARTED — owner confirms live sheet snapshot on Overview |
+| Priority task preserves its list | LOCAL_SYNTHETIC_PASS — task expands in overview list; originating list retained | NOT STARTED |
+| Two event records never mix | LOCAL_SYNTHETIC_PASS — rapid switch, invalid id, finance/action entry, report isolation | NOT STARTED — two real event ids |
+| Browser Back works | LOCAL_SYNTHETIC_PASS — Back returns to originating list/view | NOT STARTED |
+| Pipeline classifications correct | LOCAL_SYNTHETIC_PASS — lead / awaiting / unverified lanes; booked and processing excluded from pipeline | NOT STARTED — live statuses |
+| Active events appear correctly | LOCAL_SYNTHETIC_PASS — booked + payment_processing in active; declined excluded | NOT STARTED |
+| Financial data reconciles to authoritative rows | LOCAL_SYNTHETIC_PASS — invoice/vendor/payout separation; drawable cash null; incomplete totals | NOT STARTED — live Payments / Event Payouts rows |
+| Communications statuses understandable | LOCAL_SYNTHETIC_PASS — session vs audit; stored Gmail vs header queue; void not “no new threads” | NOT STARTED |
+| Mobile navigation works | LOCAL_SYNTHETIC_PASS — 1280 / 375 / 320 / 280 viewport checks in browser harness | NOT STARTED — owner phone or narrow viewport on verified preview |
+
+Local prerequisite command for this package:
+
+```powershell
+node .\tests\command-center-browser.test.mjs
+```
+
+A passing local browser test is **not** authenticated staging acceptance.
+
+---
+
+## Capability status (draft code)
+
+| Capability | Local / staging code | Authenticated / live | Evidence in this repo |
+| --- | --- | --- | --- |
+| V2 navigation | STAGING_CODE_READY | NOT STARTED | Ten views in `lifecycle-command-center.js`. Pipeline, Active, Past, Proposals, and Follow-Up read the owner-session sheet snapshot. A failed read is unavailable, not zero. |
+| Auth entry | STAGING_CODE_READY | NOT STARTED | Private reads call `denyPrivateRead` before Apps Script. `lib/owner-read-guard.mjs` requires the existing HttpOnly review session. Missing cookie → 401. Foreign Origin → 403. |
+| Dashboard overview | STAGING_CODE_READY | NOT STARTED | Compact global summary. Confirmed upcoming stays separate from dated inquiries. Ledger receipts/outstanding are ledger-recorded, not bank receipts, not drawable cash. |
+| Action Required / CRM | STAGING_CODE_READY | NOT STARTED | `lib/action-inbox.mjs` keeps stage, acquisition, and channel separate. Duplicate event ids count once. Conflicting ids excluded. Hub draft is read-only. |
+| Approval handoff | STAGING_CODE_READY | NOT STARTED | Hub links to `/sms-review/index.html#inboxReviewTitle`. Approve / Make Changes / Deny / Edit Myself are not recorded on the hub. `readyToSend` stays false. |
+| Send | DISABLED | DISABLED | `app/api/gmail/send/route.ts` returns 403. SMS reply route stays `staging_only_no_production_send`. |
+| Events lifecycle | STAGING_CODE_READY | NOT STARTED | Pipeline, active, and archive views. Past dates move into the archive. Not a new calendar writer. |
+| Sheet finance | STAGING_CODE_READY | NOT STARTED | `public/v2/js/event-finance.js` is read-only. Bank verification stays false. Missing/conflicting payment ids make affected totals Incomplete. |
+| Forecast margin | UNVERIFIED | UNVERIFIED | Unavailable until expense completeness, overlap, and tax are established. |
+| Drawable cash | UNVERIFIED | UNVERIFIED | Always unavailable from the ledger alone. |
+| Tasks | STAGING_CODE_READY | NOT STARTED | Open + completed copies of one task id conflict. Due today is not overdue. |
+| Calendar sync | UNVERIFIED | BLOCKED_OWNER | Hourly schedule is not proof `runLVPTSafeTaskSync` ran. Writer not called from this loop. |
+| Gmail headers | STAGING_CODE_READY | NOT STARTED | Failed/partial header read is unavailable or partial. Production Gmail writes stay off. |
+| Android SMS | UNVERIFIED | BLOCKED_OWNER | Stored row is not a heartbeat. |
+| RCS collector | UNVERIFIED | BLOCKED_OWNER | Stored rows do not make the collector live. Send and mark-read stay off. |
+| Production deploy | DISABLED | DISABLED | Branch not merged. No production deploy in this package. |
+
+---
 
 ## What the local regression covers
 
-`tests/command-center-acceptance.test.mjs` simulates one synthetic path: referral lead, one stable event id, an identical duplicate counted once, a conflicting event excluded, an owned task counted once, an open/completed task conflict, a protected draft that does not send, two client invoices, one vendor bill, one unlinked vendor payout, and one owner draw. Forecast margin includes the unpaid vendor bill and the planned vendor payout. Drawable cash stays null, including when the ledger shows $1,000 of receipts beside $200, $80, and $300 still unpaid or planned. A second ledger with a missing id, a conflicting id, and a payout linked to a client invoice leaves the affected totals incomplete. The test also simulates a failed Gmail header read and a stored SMS row with no heartbeat.
+`tests/command-center-acceptance.test.mjs` simulates one synthetic path: referral lead, one stable event id, an identical duplicate counted once, a conflicting event excluded, an owned task counted once, an open/completed task conflict, a protected draft that does not send, two client invoices, one vendor bill, one unlinked vendor payout, and one owner draw. Forecast margin includes the unpaid vendor bill and the planned vendor payout. Drawable cash stays null. Failed Gmail header read and stored SMS without heartbeat stay unavailable / not verified.
 
-The same test checks the navigation labels and the CSS breakpoints already in the repo (`280`, `320`, `720`, `1120`, plus horizontal overflow hidden). That is a source check. No browser was opened and no new browser service was added.
+`tests/command-center-browser.test.mjs` exercises synthetic signed-out privacy, Overview, pipeline/active classification, task-list preservation, event isolation, Back navigation, finance entry, communications labeling, and mobile widths against a local fixture and system Chrome. It is not a live sheet and not a deployed preview.
 
-## Owner-only checks
+Full local gate evidence (R21 / T36): `docs/baselines/t36-full-local-regression.md` — LOCAL_SYNTHETIC_PASS only.
 
-These are not done by the local tests:
+---
 
-- Open the review workspace and complete the existing device-token exchange. Without the HttpOnly cookie, command-center reads stay closed.
-- On the approved handset, run the LVPT SMS bridge and confirm a current `last_success_at`. This preview cannot read that report.
-- Pair the read-only RCS collector on the approved computer.
-- Sign in to the business mailbox and confirm whether the unattended staging Apps Script header job completed. A header read is still not a full thread.
-- Confirm a current run of `runLVPTSafeTaskSync` in the approved Apps Script project.
-- Confirm the live Apps Script response includes one row per payment and one row per payout before treating sheet totals as complete.
-- Decide whether expense completeness, overlap, and tax are established before using forecast margin. Drawable cash is not available from this ledger.
-- A positive `setup.targetQuote` is a recorded target quote, shown apart from line items. A blank target and an explicit zero both arrive as 0 from `listEvents`, so 0 is not shown as a recorded target. A budget range is not a quote. Quote profit appears only when every priced line has a cost. Missing cost is not zero.
+## R22 — One owner checklist
+
+Do these in order on a **verified** staging host. Stop at the first failed expected result. None of these steps is a production deploy. None may be marked AUTHENTICATED_STAGING from local tests alone.
+
+### Preconditions (owner)
+
+0. Confirm the preview host maps to the intended candidate revision and that deployment protection is active. If mapping or protection is **UNKNOWN**, do not continue with historical URLs by assumption. Record the exact URL and revision used.
+
+### Acceptance steps
+
+1. **Signed-out privacy.** Open `/v2/index.html` on that host while signed out. Expected: Owner sign-in required; no event names, task titles, message bodies, or invoice amounts.
+2. **Authorized sign-in.** Open `/sms-review/index.html` on the same host and finish the existing device-token exchange. Expected: HttpOnly review cookie set. Command-center private reads before that cookie stay 401.
+3. **Overview current data.** Return to `/v2/index.html` signed in. Expected: sheet-backed Overview loads; global summary stays global; ledger lines stay ledger-recorded (not bank / not drawable cash); priority tasks appear without inventing zero totals on failed reads.
+4. **Task-list preservation.** Expand or open a priority task from the overview / action list. Expected: the originating task list remains; the task does not destroy navigation context.
+5. **Event isolation.** Choose View associated event, then open a second distinct event from Pipeline or Finance. Expected: heading, client, tasks, staff, invoices, and documents belong only to the event just opened. No fallback to the first event.
+6. **Browser Back.** Use Browser Back after opening a record. Expected: return to the list/view you came from (Pipeline, Finance, or Overview), with search/filter context preserved where applicable.
+7. **Pipeline classifications.** Open Pipeline. Expected: open / inquiry / awaiting-style rows appear; booked and payment-processing rows do not masquerade as pipeline deals; declined/closed stay out.
+8. **Active events.** Open Active. Expected: booked and payment-processing appear under Active with correct labels; payment-processing is not treated as paid-in-full receipt; pipeline-only leads do not appear as active bookings.
+9. **Financial reconciliation.** Open Event Finance (and a sample event record). Expected: client invoices, vendor bills, and payouts stay in separate rows with stable payment/payout ids; same amounts are not merged across ids; Payment Initiated / refund are not labeled bank receipt; drawable cash stays unavailable; Incomplete when ids conflict or are missing.
+10. **Communications statuses.** Open Communications. Expected: session line separate from audit line; stored Gmail Activity rows and unique thread ids separate from the bounded header queue; a void/failed read is not “no new threads”; SMS metadata is not a heartbeat.
+11. **Mobile navigation.** At a phone-width viewport (or approved handset), cycle the command nav. Expected: selected view remains visible and usable; no horizontal page overflow that hides primary controls; record open/close still works.
+
+### Related owner ops (not R22 pass criteria, still blocked)
+
+These remain separate from the R22 AUTHENTICATED_STAGING mark:
+
+- Approved handset: current Android `last_success_at` (R25).
+- Approved computer: read-only RCS pairing (R26).
+- Apps Script: one confirmed `runLVPTSafeTaskSync` run plus two later scheduled cycles (R27). Do not run `runLVPTTaskSync`.
+- Do not resume the four-times-daily Gmail approval job (R24 / R29).
+
+---
 
 ## Release and rollback
 
-Release, if the owner accepts it later: merge this draft only after the owner-only checks, then let the existing preview promotion path update the staging alias. Do not deploy Apps Script, change SQL, or enable send as part of that merge.
+Release, if the owner accepts it later: merge the staging draft only after R22 and dependent owner checks, then let the existing preview promotion path update the staging alias. Do not deploy Apps Script, change SQL, or enable send as part of that merge.
 
-Rollback: do not merge. Production stays on its current release. Revert this branch if the preview is wrong. There is no Apps Script or database migration in this package to undo. The existing calendar writer is unchanged.
+Rollback: do not merge. Production stays on its current release. Revert the staging branch if the preview is wrong. There is no Apps Script or database migration in this package to undo. The existing calendar writer is unchanged.
+
+---
 
 ## Remaining blockers
 
-- No deployed browser pass was run for this package. Responsive evidence is the CSS and navigation source.
-- No live Apps Script, Gmail, SMS, RCS, or calendar call was made.
-- Forecast margin stays unavailable on the current sheet read. Drawable cash stays unavailable even after a ledger looks settled.
-- The pipeline quote estimate is not the sheet forecast.
+- Authenticated staging browser acceptance (**R22**) is **BLOCKED_OWNER**.
+- Current preview URL, alias→revision mapping, and deployment protection are **UNKNOWN** this session.
+- No live Apps Script, Gmail, SMS, RCS, or calendar call was made for T37.
+- Forecast margin and drawable cash stay unavailable from ledger-only evidence.
 - The hub still cannot record an approval or prove exactly-once delivery.
-- Android heartbeat, RCS pairing, Gmail full threads, and a confirmed TaskSync run are still owner prerequisites.
 
-Legacy roster scripts now live in `archive/public-roster-2026-11-24/` and are not part of the public site output for this draft. Git history still contains them. This check did not request the deployed or older production URLs, so it does not say whether those older deployments still serve the files.
-
-Local browser evidence is `tests/command-center-browser.test.mjs` against a synthetic fixture and system Chrome. It is not a live sheet or a deployed preview.
+Local browser evidence remains synthetic. Completion matrix: `docs/command-center-completion-matrix.md`.
 
 COMMAND_CENTER_BROWSER_REGRESSION_READY
 
-Operating read on this draft: one in-memory operating-picture snapshot is shared across finance, communications, and health. It uses the 50 second read. A timeout is timed out, not disconnected. A 401 or refresh drops that snapshot. Audit health is not the owner session. SMS metadata, the Android heartbeat, stored Gmail, the bounded header read, and RCS pairing stay separate. Action Required is a short list with source status on demand. The hub still does not approve or send.
-
 COMMAND_CENTER_OPERATIONS_RETEST_READY
-
-Record navigation on this draft: a task opens in the overview list. View associated event and the existing record buttons open one read-only record for a validated event id. There is no fallback to the first event. Browser Back stays inside the app view that was open. A 401 or refresh clears the open record. Stored Gmail activity rows and unique thread ids stay separate from the bounded header queue.
 
 COMMAND_CENTER_RECORD_NAVIGATION_READY
 
-The completion matrix is `docs/command-center-completion-matrix.md`. Safe read-only work on this draft is in that matrix. Live verification is not claimed.
-
-## One owner checklist
-
-Do these in order. Stop at the first failed expected result. None of these steps is a production deploy.
-
-1. Open the staging preview for this branch while signed out. Expected: Owner sign-in required, and no event, task, or message body.
-2. Open `/sms-review/index.html` on that same host and finish the existing device-token exchange. Expected: the HttpOnly review cookie exists. Command-center reads before that cookie stay 401.
-3. Return to `/v2/index.html`. Expected: the sheet list loads, Overview stays global, and a priority task expands in the list.
-4. Choose View associated event, then open a second event from Pipeline or Finance. Expected: headings, tasks, staff, and invoice rows belong to the event just opened. Browser Back returns to the list you came from.
-5. Open Event Finance. Expected: client invoices, vendor bills, and payouts stay in separate rows. Drawable cash stays unavailable. A refund or Payment Initiated row is not labeled as a bank receipt.
-6. Open Communications. Expected: the session line and the audit line are separate. Stored Gmail Activity rows and unique thread ids are separate from the header queue. A queue row is not described as no new threads.
-7. Open Source Health. Expected: a missing heartbeat stays not verified. A blocked read is not labeled as a disconnected provider.
-8. On the approved handset, run the LVPT SMS bridge and record `last_success_at`. Expected: a timestamp from that run. This preview cannot read it. A stored SMS count is not that timestamp.
-9. On the approved computer, pair the read-only RCS collector. Expected: the collector reports paired. Send and mark-read stay off.
-10. In the approved Apps Script project, run `runLVPTSafeTaskSync` once and note the execution time. Expected: one execution record. The hourly trigger is not that record. Do not run `runLVPTTaskSync`.
-11. After that run, watch two later scheduled cycles of the hourly trigger. Expected: two more execution records that do not delete cancelled reminders or mark internal reminders Busy.
-12. Do not resume the four-times-daily Gmail approval job. Expected: it stays disabled until a later approval that names a test recipient, a full thread, and an idempotent send. Sending stays off in this draft.
-
 COMMAND_CENTER_FULL_COMPLETION_HANDOFF_READY
+
+COMMAND_CENTER_R22_ACCEPTANCE_CHECKLIST_READY

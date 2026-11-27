@@ -18,10 +18,12 @@ Rules:
 | Field | Value |
 | --- | --- |
 | Branch | `ai-build/command-center-loop` |
-| HEAD | includes `1c9b1ec` (pinned playwright-core 1.65.1) |
+| HEAD | `4e53021b1d52527a26cbb332d2124c5e2bd11646` (T36 Full gate recorded; ahead of upstream by 38) |
 | Upstream | `origin/feature/command-center-completion-20261124` |
 | Candidate included | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` (ancestor of HEAD) |
-| Working tree | Browser harness + verify runner + local-test-environment docs; untracked `.orchestrator/` + `scripts/verify-command-center.ps1` + `tests/verify-command-center.test.mjs` |
+| Preview alias mapping | **UNKNOWN** this session (historical URLs in `AGENTS.md` only) |
+| Deployment protection | **UNKNOWN** this session |
+| Working tree | T37 R22 acceptance docs; untracked `.orchestrator/` |
 | Node | PATH `v24.22.1` (**owner-approved** for all local verification); Program Files `v24.19.0`; CI remains Node 22 |
 | npm | 11.17.0 |
 | Chrome | Program Files Chrome 158 resolved by harness; `LVPT_CHROME_PATH` supported |
@@ -447,11 +449,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | BLOCKED_OWNER |
+| Status | **T37 checklist IMPLEMENTED_TESTED**; authenticated staging itself **BLOCKED_OWNER** |
+| Date/time | 2026-11-26 21:34 -05:00 |
 | Dependencies | R21 |
-| Evidence | staging acceptance checklist exists |
-| Remaining blocker | Owner signed-in preview session |
-| Next task | Prepare checklist; do not fake LIVE_VERIFIED |
+| Files inspected | `remaining-spec.md` R22, `docs/command-center-staging-acceptance.md`, `docs/command-center-completion-matrix.md`, `AGENTS.md` candidate/URL notes, `docs/baselines/t36-full-local-regression.md`, `docs/baselines/local-baseline-reconciliation.md`, `tests/command-center-browser.test.mjs`, git HEAD / merge-base / ahead-38 |
+| Files changed | `docs/command-center-staging-acceptance.md`, `docs/command-center-completion-matrix.md`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `node .\tests\command-center-browser.test.mjs` |
+| Exit codes | browser regression **0** (`Command Center browser regression passed.`) |
+| Evidence | One consolidated R22 owner checklist covers signed-out privacy, authorized sign-in, Overview, task-list preservation, event isolation, Back, pipeline, active, finance reconciliation, communications statuses, and mobile. Local/synthetic vs authenticated staging statuses separated. Exact local candidate `4e53021b1d52527a26cbb332d2124c5e2bd11646`; historical verified remote `292103fc…` retained as ancestor. Historical preview/alias URLs labeled HISTORICAL ONLY. Alias mapping and deployment protection **UNKNOWN**. No deploy, no owner sign-in, no LIVE_VERIFIED claim. |
+| Remaining blocker | Owner must confirm preview host mapping + protection, then perform signed-in R22 checklist. If a new preview deploy is required for HEAD, that is owner-authorized outside this loop. |
+| Next task | R23 after R22 owner pass — or escalate if preview deploy required |
 
 ### R23 — Verify authoritative live data completeness
 
@@ -549,7 +556,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED); R19/T32+T33 **IMPLEMENTED_TESTED** (shared request + cache lifecycle + bounded ten-view switching; synthetic browser); R20/T34 **IMPLEMENTED_TESTED** (scoped operational reports; CSV omitted); R21/T35+T36 **IMPLEMENTED_TESTED** (T35 baseline `final-local-regression.md` preserved; T36 Full gate in `t36-full-local-regression.md`; local synthetic development ready; not LIVE_VERIFIED) |
-| Next authorized task | R22 — Authenticated staging browser acceptance (BLOCKED_OWNER) |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED); R19/T32+T33 **IMPLEMENTED_TESTED** (shared request + cache lifecycle + bounded ten-view switching; synthetic browser); R20/T34 **IMPLEMENTED_TESTED** (scoped operational reports; CSV omitted); R21/T35+T36 **IMPLEMENTED_TESTED** (T35 baseline `final-local-regression.md` preserved; T36 Full gate in `t36-full-local-regression.md`; local synthetic development ready; not LIVE_VERIFIED); R22/T37 checklist **IMPLEMENTED_TESTED** (authenticated staging remains BLOCKED_OWNER) |
+| Next authorized task | Owner R22 signed-in preview (BLOCKED_OWNER); then R23 — or escalate if preview deploy required for HEAD |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

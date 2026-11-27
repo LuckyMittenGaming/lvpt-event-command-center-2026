@@ -1,26 +1,46 @@
 # Command Center completion matrix
 
-Issue #7. Draft PR #19. Branch `feature/command-center-completion-20261124`. Decision: **hold production.** This file is the handoff. A passing test is not a live source.
+Issue #7. Draft PR #19. Staging integration branch `feature/command-center-completion-20261124`. Local development branch `ai-build/command-center-loop` @ `4e53021b1d52527a26cbb332d2124c5e2bd11646`. Decision: **hold production.**
 
-Status words: IMPLEMENTED+TESTED means a local synthetic or source test passed. STAGING means the code is on this draft and still needs an owner session or a live read. LIVE VERIFIED is not used below. DISABLED means the control stays off. BLOCKED means the next step needs the owner or a permission this draft does not have.
+A passing local test is not a live source. Authenticated staging is not claimed from synthetic fixtures.
 
-| Module | Status | Evidence | Remaining prerequisite |
-| --- | --- | --- | --- |
-| Record navigation | IMPLEMENTED+TESTED | `public/v2/js/lifecycle-command-center.js` opens one validated event id. `tests/command-center-browser.test.mjs` covers task list, Back, Forward, rapid switch, invalid id, 401 clear, finance and action entry, 1280 and 375. | Owner opens the signed-in preview and confirms two real events do not mix. |
-| Daily overview | STAGING | Overview shows ledger receipts, outstanding, new open leads, overdue, due today, undated tasks, open client balances, open vendor bills, and source freshness from the shared operating picture. | The signed-in sheet read is the proof. Counts are not copied into source. |
-| Ten views and review link | STAGING | The command nav has the ten existing views. Approvals open `/sms-review/index.html#inboxReviewTitle`. | The HttpOnly review session has to exist on that host. |
-| CRM and conversion | STAGING | `lib/action-inbox.mjs` keeps acquisition apart from channel. `conversion.rate` stays null. Booked share is not a conversion rate. | No cohort period is defined. Do not invent one from the current sheet. |
-| Proposals | STAGING | An https `proposalUrl` on the event is the only live link. The older six cards stay labeled historical. | Missing links stay missing. |
-| Event workspace | STAGING | The read-only record shows setup, quote lines, tasks, staff, compliance, document count, stored mail count, venue, and post-event from that event id. | Sheet writes, task completion, and document changes stay off. |
-| Event writes | DISABLED | No save control is rendered. `saveEvents` does not write the sheet. Authenticated `POST /api/sync/events` returns 403 `bulk_event_mutation_disabled` with `writesPerformed: false` and does not call Apps Script. | Granular activation needs owner approval (R28). Isolated contract exists; not wired to this route. |
-| Finance | STAGING | `public/v2/js/event-finance.js` keeps client, vendor, fee, tax, refund, and owner rows apart. Drawable cash stays null. Same-amount rows are not merged. A finance row opens that event only. | A complete live payment-row read is still an owner check. NIUM, NEO, and OWS rows were not edited. |
-| Gmail headers | STAGING | Bounded header read, stored activity count, and unique thread count stay separate. A nonempty queue is not described as no new threads. | Full threads stay on the authorized thread route. Production writes stay off. |
-| Approval send | DISABLED | `app/api/gmail/send/route.ts` returns 403. The hub does not record Approve, Make Changes, Deny, or Edit Myself. The four-times-daily approval job stays disabled. | Owner approval after an exact test recipient, full thread, and idempotent send proof. Do not resume the schedule before that. |
-| SMS | BLOCKED | Historical metadata is not a heartbeat. This preview has no `last_success_at` reader. | On the approved handset, run the LVPT SMS bridge and confirm a current `last_success_at`. |
-| RCS | BLOCKED | Stored rows do not make the collector live. Send and mark-read stay off. | Pair the read-only collector on the approved computer. |
-| Tasks and calendar | STAGING | Open and completed copies of one task id conflict. Due today is not overdue. `runLVPTSafeTaskSync` is still the only reminder writer and was not called. | Confirm one current run in the approved Apps Script project. The hourly schedule is not that run. Two later scheduled cycles are the operational check. |
-| Security | STAGING | Private reads use the existing HttpOnly review session. The snapshot is not stored in localStorage. Legacy roster scripts are in `archive/public-roster-2026-11-24/` and are not served by this draft. | Older deployments were not probed. Do not treat them as cleaned. |
-| Release | DISABLED | This branch is not merged. No production deploy is part of this package. | Use the ordered checklist in `docs/command-center-staging-acceptance.md`. |
+Status words:
+
+| Word | Meaning |
+| --- | --- |
+| IMPLEMENTED+TESTED | Local synthetic or source test passed. |
+| STAGING | Code is on the draft and still needs an owner session or live read. |
+| AUTHENTICATED_STAGING | Owner completed the signed-in preview check on a verified host. Not used below until R22 owner evidence exists. |
+| LIVE VERIFIED | Not used below. |
+| DISABLED | Control stays off. |
+| BLOCKED | Next step needs the owner or a permission this draft does not have. |
+| UNKNOWN | Mapping, protection, or preview host not verified this session. |
+
+T37 (2026-11-26): R22 owner checklist prepared in `docs/command-center-staging-acceptance.md`. Candidate revision recorded. Alias mapping and deployment protection left **UNKNOWN**. No deploy and no owner sign-in performed.
+
+| Module | Local / code status | Authenticated staging | Evidence | Remaining prerequisite |
+| --- | --- | --- | --- | --- |
+| Record navigation | IMPLEMENTED+TESTED | NOT STARTED | `public/v2/js/lifecycle-command-center.js` opens one validated event id. `tests/command-center-browser.test.mjs` covers task list, Back, Forward, rapid switch, invalid id, 401 clear, finance and action entry, 1280 and 375. | Owner opens a verified signed-in preview and confirms two real events do not mix (R22). |
+| Daily overview | STAGING | NOT STARTED | Overview shows ledger receipts, outstanding, new open leads, overdue, due today, undated tasks, open client balances, open vendor bills, and source freshness from the shared operating picture. Local synthetic Overview assertions pass. | Signed-in sheet read on verified preview is the proof. |
+| Ten views and review link | STAGING | NOT STARTED | Command nav has the ten existing views. Approvals open `/sms-review/index.html#inboxReviewTitle`. | HttpOnly review session must exist on that host. |
+| CRM and conversion | STAGING | NOT STARTED | `lib/action-inbox.mjs` keeps acquisition apart from channel. `conversion.rate` stays null. Booked share is not a conversion rate. | No cohort period is defined. Do not invent one from the current sheet. |
+| Proposals | STAGING | NOT STARTED | An https `proposalUrl` on the event is the only live link. Older six cards stay labeled historical. | Missing links stay missing. |
+| Event workspace | STAGING | NOT STARTED | Read-only record shows setup, quote lines, tasks, staff, compliance, document count, stored mail count, venue, and post-event from that event id. | Sheet writes, task completion, and document changes stay off. |
+| Event writes | DISABLED | DISABLED | No save control is rendered. Authenticated `POST /api/sync/events` returns 403 `bulk_event_mutation_disabled` with `writesPerformed: false`. | Granular activation needs owner approval (R28). |
+| Finance | STAGING | NOT STARTED | `public/v2/js/event-finance.js` keeps client, vendor, fee, tax, refund, and owner rows apart. Drawable cash stays null. Same-amount rows are not merged. | Complete live payment-row read remains an owner check (R22/R23). |
+| Gmail headers | STAGING | NOT STARTED | Bounded header read, stored activity count, and unique thread count stay separate. | Full threads stay on the authorized thread route. Production writes stay off. |
+| Approval send | DISABLED | DISABLED | `app/api/gmail/send/route.ts` returns 403. Hub does not record Approve / Make Changes / Deny / Edit Myself. Four-times-daily approval job stays disabled. | Owner approval after exact test recipient, full thread, and idempotent send proof (R24). |
+| SMS | BLOCKED | BLOCKED | Historical metadata is not a heartbeat. Preview has no `last_success_at` reader. | Approved handset current `last_success_at` (R25). |
+| RCS | BLOCKED | BLOCKED | Stored rows do not make the collector live. Send and mark-read stay off. | Pair read-only collector on approved computer (R26). |
+| Tasks and calendar | STAGING | BLOCKED | Open and completed copies of one task id conflict. Due today is not overdue. `runLVPTSafeTaskSync` is the only reminder writer and was not called. | Confirm one current run plus two later scheduled cycles (R27). |
+| Security / signed-out privacy | IMPLEMENTED+TESTED (local) | NOT STARTED | Private reads use HttpOnly review session. Synthetic signed-out browser path asserts Owner sign-in required. Snapshot not stored in localStorage. | Owner signed-out check on verified preview (R22). Older deployments NOT VERIFIED. |
+| Pipeline / Active classifications | IMPLEMENTED+TESTED (local) | NOT STARTED | Browser harness separates pipeline leads from booked / payment_processing active rows. | Owner confirms live classifications (R22). |
+| Mobile navigation | IMPLEMENTED+TESTED (local) | NOT STARTED | Browser harness covers 1280 / 375 / 320 / 280. | Owner phone-width check on verified preview (R22). |
+| R22 staging acceptance package | IMPLEMENTED+TESTED (checklist prep) | BLOCKED_OWNER | Consolidated checklist in `docs/command-center-staging-acceptance.md`. Local vs authenticated columns explicit. | Owner signed-in preview after candidate/alias/protection confirmation. |
+| Candidate revision | RECORDED | n/a | Local HEAD `4e53021b1d52527a26cbb332d2124c5e2bd11646`. Historical verified remote candidate `292103fc14480adbe84ae9c2404e4fed54ac1bf9` (ancestor). | Owner confirms which revision the acceptance host serves. |
+| Preview alias mapping | UNKNOWN | UNKNOWN | Historical alias recorded in `AGENTS.md` only. Not mapped to HEAD this session. | Owner verifies alias → revision before R22. |
+| Deployment protection | UNKNOWN | UNKNOWN | Not probed this session. | Owner confirms Vercel Authentication / protection on the acceptance host. |
+| Release | DISABLED | DISABLED | Branch not merged. No production deploy in this package. | Use ordered checklist in `docs/command-center-staging-acceptance.md` after R22+. |
 
 ## Selective integration
 

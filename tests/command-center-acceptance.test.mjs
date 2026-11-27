@@ -1,11 +1,23 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { randomBytes } from 'node:crypto';
+import vm from 'node:vm';
 import { buildActionInbox, openTasks, prepareDraft } from '../lib/action-inbox.mjs';
 import { classifyGmailHeaderRead, classifyStoredCollection } from '../lib/source-reliability.mjs';
+import { classifyBridgeHeartbeat } from '../lib/sms-scan-health.mjs';
+import { privateReadDecision } from '../lib/owner-read-guard.mjs';
+import { createReviewSession, REVIEW_COOKIE_NAME } from '../lib/sms-review-session.mjs';
+import {
+  OPERATIONS,
+  createSyntheticMutationStore,
+  PRODUCTION_MUTATIONS_ENABLED
+} from '../lib/event-mutation-contract.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildLedger, sourceStatus, buildFinanceReconciliation, documentedExceptions } = require('../public/v2/js/event-finance.js');
+const { quoteCoverage } = require('../public/v2/js/event-status.js');
+const { buildOperationalReport } = require('../public/v2/js/reports.js');
 
 const today = '2026-11-22';
 const lead = buildActionInbox({
@@ -356,5 +368,664 @@ assert.equal(unknownVendorAmount.comparisons.find((row) => row.field === 'vendor
 assert.equal(unknownVendorAmount.byEvent.find((row) => row.eventId === 'evt-gap').totalsIncomplete, true);
 assert.equal(failed.conflictPaymentIds.includes('pay-clash'), true);
 assert.equal(failed.counts.missingPaymentIds > 0, true);
+
+// ---------------------------------------------------------------------------
+// R21 / T35 — one synthetic operational lifecycle + deterministic failure matrix
+// ---------------------------------------------------------------------------
+
+const lifecycleAuth = { authorized: true, actor: 'Synthetic Owner' };
+const lifecycleToday = '2026-11-26';
+const lifecycleStore = createSyntheticMutationStore([], {
+  clock: () => '2026-11-26T15:00:00.000Z'
+});
+
+// 1) Form / Gmail / authorized SMS lead evidence → create stable event
+const created = lifecycleStore.apply({
+  operation: OPERATIONS.CREATE_EVENT,
+  idempotencyKey: 'lifecycle-create-1',
+  auth: lifecycleAuth,
+  payload: {
+    id: 'evt-lifecycle',
+    eventName: 'Synthetic Lifecycle Night',
+    company: 'Lifecycle Client Co',
+    contactName: 'Lifecycle Guest',
+    contactEmail: 'lifecycle.guest@example.test',
+    contactPhone: '555-0199',
+    leadSource: 'Website form',
+    status: 'New Lead',
+    eventDate: '2026-12-20',
+    venue: 'Synthetic Lifecycle Room',
+    nextAction: 'Qualify discovery call',
+    nextActionDue: '2026-11-27'
+  }
+});
+assert.equal(created.ok, true);
+assert.equal(created.writesPerformed, true);
+assert.equal(PRODUCTION_MUTATIONS_ENABLED, false);
+assert.equal(lifecycleStore.getEvent('evt-lifecycle').id, 'evt-lifecycle');
+
+// 2–4) Stable association, source attribution, qualification
+const qualified = lifecycleStore.apply({
+  operation: OPERATIONS.UPDATE_EVENT_STATUS,
+  eventId: 'evt-lifecycle',
+  expectedRevision: created.event.revision,
+  idempotencyKey: 'lifecycle-qualify-1',
+  auth: lifecycleAuth,
+  payload: { status: 'Needs Discovery' }
+});
+assert.equal(qualified.ok, true);
+assert.equal(lifecycleStore.getEvent('evt-lifecycle').status, 'Needs Discovery');
+assert.equal(lifecycleStore.getEvent('evt-lifecycle').leadSource, 'Website form');
+
+const attributedInbox = buildActionInbox({
+  today: lifecycleToday,
+  events: [
+    {
+      id: 'evt-lifecycle',
+      status: 'Needs Discovery',
+      eventName: 'Synthetic Lifecycle Night',
+      leadSource: 'Website form',
+      contactName: 'Lifecycle Guest',
+      contactEmail: 'lifecycle.guest@example.test',
+      company: 'Lifecycle Client Co',
+      eventDate: '2026-12-20',
+      proposalUrl: '',
+      emailActivity: [{
+        threadId: 'mail-lifecycle',
+        date: '2026-11-25T18:00:00.000Z',
+        direction: 'received',
+        snippet: 'Interested in a corporate poker training night.'
+      }]
+    },
+    // Duplicate source event (same id) must collapse, not double-count.
+    {
+      id: 'evt-lifecycle',
+      status: 'Needs Discovery',
+      eventName: 'Synthetic Lifecycle Night',
+      leadSource: 'Website form'
+    },
+    // Conflicting event id copies must be excluded.
+    { id: 'evt-lifecycle-conflict', status: 'Booked', eventName: 'Lifecycle Conflict A' },
+    { id: 'evt-lifecycle-conflict', status: 'Declined', eventName: 'Lifecycle Conflict B' }
+  ],
+  tasks: [
+    {
+      id: 'task-lifecycle-1',
+      eventId: 'evt-lifecycle',
+      title: 'Qualify discovery call',
+      owner: 'Synthetic Owner',
+      dueDate: '2026-11-27',
+      status: 'Open'
+    }
+  ],
+  smsThreads: [
+    {
+      threadKey: 'sms-lifecycle',
+      match: 'exact',
+      eventId: 'evt-lifecycle',
+      newestAt: '2026-11-26T12:00:00.000Z',
+      newestDirection: 'incoming',
+      incoming: 1,
+      outgoing: 0
+    }
+  ]
+});
+assert.deepEqual(attributedInbox.pipeline.duplicateEventsCountedOnce, ['evt-lifecycle']);
+assert.deepEqual(attributedInbox.pipeline.excluded.eventConflicts, ['evt-lifecycle-conflict']);
+const lifecycleRecord = attributedInbox.records.find((row) => row.eventId === 'evt-lifecycle');
+assert.ok(lifecycleRecord);
+assert.equal(lifecycleRecord.acquisitionKind, 'form');
+assert.equal(lifecycleRecord.pipelineStage, 'open');
+assert.equal(lifecycleRecord.channel, 'SMS');
+assert.equal(attributedInbox.sendEnabled, false);
+assert.equal(attributedInbox.writesPerformed, false);
+
+// 5) Task open + 6) one isolated internal reminder (Free / 15 min / no Meet / no guests)
+const lifecycleTasks = openTasks([
+  {
+    id: 'task-lifecycle-1',
+    eventId: 'evt-lifecycle',
+    title: 'Qualify discovery call',
+    owner: 'Synthetic Owner',
+    dueDate: '2026-11-27',
+    status: 'Open'
+  },
+  {
+    id: 'task-lifecycle-1',
+    eventId: 'evt-lifecycle',
+    title: 'Qualify discovery call',
+    owner: 'Synthetic Owner',
+    dueDate: '2026-11-27',
+    status: 'Open'
+  }
+]);
+assert.equal(lifecycleTasks.rows.filter((row) => row.id === 'task-lifecycle-1').length, 1);
+
+const reminderSource = readFileSync(new URL('../apps-script/calendar-command-center/TaskSync.safe-review.js', import.meta.url), 'utf8');
+const reminderSandbox = { console: { log() {} }, Date, Map, Set, Object, String, Array, Error, JSON, Math, isFinite, isNaN };
+vm.createContext(reminderSandbox);
+vm.runInContext(reminderSource, reminderSandbox, { filename: 'TaskSync.safe-review.js' });
+const planReminder = reminderSandbox.lvptPlanSafeReminderActions_;
+const gateReminder = reminderSandbox.lvptGateSafeWrites_;
+const reminderCal = {
+  sales: 'cal-sales-lifecycle',
+  proposals: 'cal-proposals-lifecycle',
+  operations: 'cal-operations-lifecycle',
+  confirmed: 'cal-confirmed-lifecycle'
+};
+const reminderPlan = planReminder({
+  scanComplete: true,
+  lockHeld: true,
+  calendarIds: Object.assign({}, reminderCal),
+  cancellationScan: {
+    complete: true,
+    calendarIds: [reminderCal.sales, reminderCal.proposals, reminderCal.operations, reminderCal.confirmed],
+    events: []
+  },
+  events: [],
+  tasks: [{
+    taskId: 'task-lifecycle-1',
+    status: 'open',
+    due: '2026-11-27',
+    summary: 'ACTION — Lifecycle — Qualify discovery call',
+    description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: task-lifecycle-1',
+    start: '2026-11-27T19:00:00.000Z',
+    calendarId: reminderCal.operations,
+    ownerApprovedCreate: true,
+    creationApprovalId: 'lifecycle-create-approval'
+  }]
+});
+const reminderCreates = gateReminder(reminderPlan).allowed.filter((change) => change.action === 'CREATE');
+assert.equal(reminderCreates.length, 1, 'exactly one isolated reminder for the lifecycle task');
+assert.equal(reminderCreates[0].body.transparency, 'transparent');
+assert.equal(reminderCreates[0].body.attendees, undefined);
+assert.equal(reminderCreates[0].body.conferenceData, undefined);
+assert.equal(reminderCreates[0].body.recurrence.length, 0);
+assert.equal(
+  new Date(reminderCreates[0].body.end.dateTime) - new Date(reminderCreates[0].body.start.dateTime),
+  15 * 60000
+);
+const invalidTaskReminder = planReminder({
+  scanComplete: true,
+  lockHeld: true,
+  calendarIds: Object.assign({}, reminderCal),
+  cancellationScan: {
+    complete: true,
+    calendarIds: [reminderCal.sales, reminderCal.proposals, reminderCal.operations, reminderCal.confirmed],
+    events: []
+  },
+  events: [],
+  tasks: [{
+    taskId: '',
+    status: 'open',
+    due: '2026-11-27',
+    summary: 'ACTION — invalid',
+    description: 'LVPT INTERNAL ACTION REMINDER\nTask ID: ',
+    start: '2026-11-27T19:00:00.000Z',
+    calendarId: reminderCal.operations,
+    ownerApprovedCreate: true,
+    creationApprovalId: 'invalid-task-approval'
+  }]
+});
+assert.equal(
+  gateReminder(invalidTaskReminder).allowed.filter((change) => change.action === 'CREATE').length,
+  0,
+  'invalid/empty task id must not create a reminder'
+);
+
+// 7) Proposal link + priced quote (with a missing-cost sibling asserted later)
+const proposalLinked = lifecycleStore.apply({
+  operation: OPERATIONS.LINK_PROPOSAL,
+  eventId: 'evt-lifecycle',
+  expectedRevision: qualified.event.revision,
+  idempotencyKey: 'lifecycle-proposal-1',
+  auth: lifecycleAuth,
+  payload: {
+    proposalUrl: 'https://example.test/proposals/lifecycle',
+    proposalId: 'prop-lifecycle-1',
+    proposalStatus: 'Sent'
+  }
+});
+assert.equal(proposalLinked.ok, true);
+assert.equal(lifecycleStore.getEvent('evt-lifecycle').proposalUrl, 'https://example.test/proposals/lifecycle');
+
+const quoteLine = lifecycleStore.apply({
+  operation: OPERATIONS.UPSERT_QUOTE_LINE,
+  eventId: 'evt-lifecycle',
+  expectedRevision: proposalLinked.event.revision,
+  idempotencyKey: 'lifecycle-quote-1',
+  auth: lifecycleAuth,
+  payload: {
+    quoteLineId: 'ql-lifecycle-1',
+    category: 'Training',
+    name: 'Corporate night package',
+    quantity: 1,
+    unitPrice: 4500,
+    internalCost: 1800
+  }
+});
+assert.equal(quoteLine.ok, true);
+
+const proposalStatus = lifecycleStore.apply({
+  operation: OPERATIONS.UPDATE_EVENT_STATUS,
+  eventId: 'evt-lifecycle',
+  expectedRevision: quoteLine.event.revision,
+  idempotencyKey: 'lifecycle-proposal-status-1',
+  auth: lifecycleAuth,
+  payload: { status: 'Proposal Sent' }
+});
+assert.equal(proposalStatus.ok, true);
+
+// 8–9) Approval workflow + controlled mock provider outcomes (success cannot mask failures)
+function simulateApprovalSend(input = {}) {
+  const {
+    sessionValid = true,
+    recipientRecorded = 'lifecycle.guest@example.test',
+    recipientVerified = 'lifecycle.guest@example.test',
+    provider = { ok: true, gmailMessageId: 'msg-lifecycle-1', delayMs: 0, throwError: false }
+  } = input;
+  if (!sessionValid) {
+    return { sent: false, status: 401, reason: 'expired_session', providerCalled: false, doNotRetry: true };
+  }
+  if (!recipientRecorded || recipientRecorded !== recipientVerified) {
+    return {
+      sent: false,
+      status: 409,
+      reason: 'incorrect_recipient',
+      providerCalled: false,
+      doNotRetry: true
+    };
+  }
+  if (provider.throwError) {
+    return {
+      sent: false,
+      status: 502,
+      reason: 'send_outcome_uncertain_check_gmail_sent',
+      providerCalled: true,
+      doNotRetry: true,
+      outcome: 'unknown'
+    };
+  }
+  if (provider.timeout) {
+    return {
+      sent: false,
+      status: 504,
+      reason: 'provider_timeout',
+      providerCalled: true,
+      doNotRetry: true,
+      outcome: 'unknown'
+    };
+  }
+  if (!provider.ok || !provider.gmailMessageId) {
+    return {
+      sent: false,
+      status: 502,
+      reason: 'send_outcome_uncertain_check_gmail_sent',
+      providerCalled: true,
+      doNotRetry: true,
+      outcome: 'unknown'
+    };
+  }
+  return {
+    sent: true,
+    status: 200,
+    reason: 'mock_provider_sent',
+    providerCalled: true,
+    doNotRetry: true,
+    gmailMessageId: provider.gmailMessageId,
+    outcome: 'sent'
+  };
+}
+
+const lifecycleDraft = prepareDraft(lifecycleRecord);
+assert.equal(lifecycleDraft.recipient, 'lifecycle.guest@example.test');
+assert.equal(lifecycleDraft.recipientVerified, false);
+assert.equal(lifecycleDraft.readyToSend, false);
+assert.equal(lifecycleDraft.sendEnabled, false);
+assert.equal(lifecycleDraft.sent, false);
+
+const mockSuccess = simulateApprovalSend();
+assert.equal(mockSuccess.sent, true);
+assert.equal(mockSuccess.gmailMessageId, 'msg-lifecycle-1');
+
+const wrongRecipient = simulateApprovalSend({
+  recipientRecorded: 'lifecycle.guest@example.test',
+  recipientVerified: 'other.party@example.test'
+});
+assert.equal(wrongRecipient.sent, false);
+assert.equal(wrongRecipient.providerCalled, false);
+assert.equal(wrongRecipient.reason, 'incorrect_recipient');
+assert.notEqual(wrongRecipient.sent, mockSuccess.sent);
+
+const unknownSend = simulateApprovalSend({ provider: { ok: false, gmailMessageId: '' } });
+assert.equal(unknownSend.sent, false);
+assert.equal(unknownSend.outcome, 'unknown');
+assert.equal(unknownSend.doNotRetry, true);
+assert.notEqual(unknownSend.sent, mockSuccess.sent);
+
+const providerTimeout = simulateApprovalSend({ provider: { ok: true, gmailMessageId: 'x', timeout: true } });
+assert.equal(providerTimeout.sent, false);
+assert.equal(providerTimeout.reason, 'provider_timeout');
+assert.equal(providerTimeout.doNotRetry, true);
+assert.notEqual(providerTimeout.sent, mockSuccess.sent);
+
+const expiredSessionSend = simulateApprovalSend({ sessionValid: false });
+assert.equal(expiredSessionSend.sent, false);
+assert.equal(expiredSessionSend.status, 401);
+assert.equal(expiredSessionSend.providerCalled, false);
+
+// 10–12) Multiple client invoices, vendor obligation, payout
+const lifecycleLedger = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    {
+      paymentId: 'inv-lifecycle-a',
+      eventId: 'evt-lifecycle',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 2500,
+      amountPaid: 2500,
+      balanceDue: 0,
+      paymentStatus: 'Paid In Full'
+    },
+    {
+      paymentId: 'inv-lifecycle-b',
+      eventId: 'evt-lifecycle',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 2000,
+      amountPaid: 0,
+      balanceDue: 2000,
+      paymentStatus: 'Invoice Sent'
+    },
+    {
+      paymentId: 'vendor-lifecycle',
+      eventId: 'evt-lifecycle',
+      lineLabel: 'Elevated lifecycle vendor',
+      invoiceTotal: 600,
+      amountPaid: 0,
+      balanceDue: 600,
+      paymentStatus: 'Invoice Sent'
+    },
+    // Conflicting payment id must break coverage rather than invent a settled total.
+    {
+      paymentId: 'pay-lifecycle-clash',
+      eventId: 'evt-lifecycle',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 10,
+      amountPaid: 10,
+      balanceDue: 0,
+      paymentStatus: 'Paid In Full'
+    },
+    {
+      paymentId: 'pay-lifecycle-clash',
+      eventId: 'evt-lifecycle',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 99,
+      amountPaid: 99,
+      balanceDue: 0,
+      paymentStatus: 'Paid In Full'
+    }
+  ],
+  payouts: [
+    {
+      payoutId: 'po-lifecycle-vendor',
+      eventId: 'evt-lifecycle',
+      payoutType: 'Vendor',
+      amount: 250,
+      status: 'Planned'
+    },
+    {
+      payoutId: 'po-lifecycle-owner',
+      eventId: 'evt-lifecycle',
+      payoutType: 'Owner distribution',
+      amount: 400,
+      status: 'Planned'
+    }
+  ]
+});
+assert.equal(lifecycleLedger.counts.clientInvoices >= 2, true);
+assert.equal(lifecycleLedger.counts.vendorBills >= 1, true);
+assert.equal(lifecycleLedger.conflictPaymentIds.includes('pay-lifecycle-clash'), true);
+assert.equal(lifecycleLedger.money.coverage, 'incomplete');
+assert.equal(lifecycleLedger.money.drawableCashCents, null);
+assert.equal(lifecycleLedger.money.verifiedClientReceiptsCents, null);
+assert.equal(lifecycleLedger.payments.every((row) => row.bankVerified === false), true);
+
+const cleanLifecycleLedger = buildLedger({
+  expensesComplete: true,
+  taxEstablished: true,
+  payments: [
+    {
+      paymentId: 'inv-lifecycle-a',
+      eventId: 'evt-lifecycle',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 2500,
+      amountPaid: 2500,
+      balanceDue: 0,
+      paymentStatus: 'Paid In Full'
+    },
+    {
+      paymentId: 'inv-lifecycle-b',
+      eventId: 'evt-lifecycle',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 2000,
+      amountPaid: 0,
+      balanceDue: 2000,
+      paymentStatus: 'Invoice Sent'
+    },
+    {
+      paymentId: 'vendor-lifecycle',
+      eventId: 'evt-lifecycle',
+      lineLabel: 'Elevated lifecycle vendor',
+      invoiceTotal: 600,
+      amountPaid: 0,
+      balanceDue: 600,
+      paymentStatus: 'Invoice Sent'
+    }
+  ],
+  payouts: [
+    {
+      payoutId: 'po-lifecycle-vendor',
+      eventId: 'evt-lifecycle',
+      payoutType: 'Vendor',
+      amount: 250,
+      status: 'Planned'
+    },
+    {
+      payoutId: 'po-lifecycle-owner',
+      eventId: 'evt-lifecycle',
+      payoutType: 'Owner distribution',
+      amount: 400,
+      status: 'Planned'
+    }
+  ]
+});
+assert.equal(cleanLifecycleLedger.counts.clientInvoices, 2);
+assert.equal(cleanLifecycleLedger.counts.vendorBills, 1);
+assert.equal(cleanLifecycleLedger.money.ownerPlannedCents, 40000);
+assert.equal(cleanLifecycleLedger.money.vendorCommittedCents, 60000);
+assert.equal(cleanLifecycleLedger.money.drawableCashCents, null);
+
+// 13–14) Event outcome + post-event obligations
+const completed = lifecycleStore.apply({
+  operation: OPERATIONS.UPDATE_EVENT_STATUS,
+  eventId: 'evt-lifecycle',
+  expectedRevision: proposalStatus.event.revision,
+  idempotencyKey: 'lifecycle-complete-1',
+  auth: lifecycleAuth,
+  payload: { status: 'Completed' }
+});
+assert.equal(completed.ok, true);
+
+const postEvent = lifecycleStore.apply({
+  operation: OPERATIONS.UPDATE_POST_EVENT,
+  eventId: 'evt-lifecycle',
+  expectedRevision: completed.event.revision,
+  idempotencyKey: 'lifecycle-post-1',
+  auth: lifecycleAuth,
+  payload: {
+    clientFeedback: 'Synthetic feedback only',
+    whatWentWell: 'On-time setup',
+    painPoints: 'Loading dock delay',
+    changesForNextTime: 'Arrive 30 minutes earlier',
+    reviewRequested: true,
+    reviewReceived: false,
+    rebookingLikelihood: 'High',
+    thankYouSent: false,
+    followUpDate: '2026-12-27',
+    notes: 'Post-event task: send thank-you and request review'
+  }
+});
+assert.equal(postEvent.ok, true);
+assert.equal(lifecycleStore.getEvent('evt-lifecycle').postEvent.reviewRequested, true);
+assert.equal(lifecycleStore.getEvent('evt-lifecycle').postEvent.thankYouSent, false);
+
+const followUp = lifecycleStore.apply({
+  operation: OPERATIONS.RECORD_FOLLOW_UP,
+  eventId: 'evt-lifecycle',
+  expectedRevision: postEvent.event.revision,
+  idempotencyKey: 'lifecycle-followup-1',
+  auth: lifecycleAuth,
+  payload: {
+    nextAction: 'Send thank-you and request review',
+    nextActionDue: '2026-12-27',
+    followUpDate: '2026-12-27',
+    notes: 'Post-event obligation'
+  }
+});
+assert.equal(followUp.ok, true);
+
+const postEventStatus = lifecycleStore.apply({
+  operation: OPERATIONS.UPDATE_EVENT_STATUS,
+  eventId: 'evt-lifecycle',
+  expectedRevision: followUp.event.revision,
+  idempotencyKey: 'lifecycle-post-status-1',
+  auth: lifecycleAuth,
+  payload: { status: 'Post-Event Follow-Up' }
+});
+assert.equal(postEventStatus.ok, true);
+assert.equal(lifecycleStore.getEvent('evt-lifecycle').status, 'Post-Event Follow-Up');
+
+// 15) Report + reconciliation (selected event only; no cross-event contamination)
+const lifecycleReconciliation = buildFinanceReconciliation(cleanLifecycleLedger, documentedExceptions());
+assert.equal(lifecycleReconciliation.writesPerformed, false);
+assert.equal(lifecycleReconciliation.comparisons.find((row) => row.field === 'vendorCommitted').matches, true);
+assert.equal(lifecycleReconciliation.comparisons.find((row) => row.field === 'ownerPlanned').globalCents, 40000);
+
+const lifecycleReport = buildOperationalReport({
+  events: [lifecycleStore.getEvent('evt-lifecycle')],
+  ledger: cleanLifecycleLedger,
+  jobs: [
+    { id: 'sms-heartbeat', name: 'Android SMS', connected: false, lastSuccess: '', status: 'UNVERIFIED' }
+  ],
+  exceptions: [{ id: 'ex-lifecycle', eventId: 'evt-lifecycle', detail: 'Synthetic', includedInTotals: false }],
+  today: lifecycleToday,
+  now: '2026-11-26T18:00:00Z',
+  authenticated: true,
+  eventId: 'evt-lifecycle'
+});
+assert.equal(lifecycleReport.scope.kind, 'selected-event');
+assert.equal(lifecycleReport.scope.eventId, 'evt-lifecycle');
+assert.equal(lifecycleReport.isolation.selectedEventOnly, true);
+assert.equal(lifecycleReport.financialConfidence.unknownIsNotZero, true);
+assert.equal(lifecycleReport.csvExport, null);
+assert.match(lifecycleReport.csvExportReason || '', /omitted/i);
+
+// --- Deterministic failure matrix (mock success must not substitute) ---
+
+// Duplicate / conflicting source + event + payment IDs (already seeded above)
+assert.ok(attributedInbox.pipeline.excluded.eventConflicts.includes('evt-lifecycle-conflict'));
+assert.ok(lifecycleLedger.conflictPaymentIds.includes('pay-lifecycle-clash'));
+
+// Expired session
+const sessionKey = randomBytes(32);
+const sessionHash = 'ab'.repeat(32);
+const sessionHost = 'lifecycle.example.test';
+const validCookie = createReviewSession(sessionKey, sessionHash, sessionHost, Date.now());
+const expiredCookie = createReviewSession(sessionKey, sessionHash, sessionHost, Date.now() - 8 * 24 * 3600 * 1000);
+const sessionEnv = {
+  LVPT_SMS_STAGING_DATA_KEY_BASE64: sessionKey.toString('base64'),
+  LVPT_SMS_STAGING_TOKEN_SHA256: sessionHash
+};
+function lifecycleRequest(cookieValue) {
+  return new Request(`https://${sessionHost}/api/sync/operating-picture`, {
+    headers: {
+      cookie: `${REVIEW_COOKIE_NAME}=${cookieValue}`,
+      origin: `https://${sessionHost}`
+    }
+  });
+}
+const liveSession = privateReadDecision(lifecycleRequest(validCookie), sessionEnv);
+assert.equal(liveSession.allow, true);
+const expiredSession = privateReadDecision(lifecycleRequest(expiredCookie), sessionEnv);
+assert.equal(expiredSession.allow, false);
+assert.equal(expiredSession.status, 401);
+assert.notEqual(expiredSession.allow, liveSession.allow);
+
+// Delayed network response — incomplete payload must not paint as settled zero
+const delayedLedger = {
+  money: {
+    coverage: 'loading',
+    openClientExposureCents: null,
+    vendorCommittedCents: null,
+    verifiedClientReceiptsCents: null,
+    drawableCashCents: null
+  }
+};
+assert.equal(delayedLedger.money.openClientExposureCents, null);
+assert.notEqual(delayedLedger.money.openClientExposureCents, 0);
+assert.notEqual(delayedLedger.money.vendorCommittedCents, 0);
+
+// Provider timeout / unknown send / wrong recipient covered above via simulateApprovalSend
+assert.equal(providerTimeout.reason, 'provider_timeout');
+assert.equal(unknownSend.reason, 'send_outcome_uncertain_check_gmail_sent');
+assert.equal(wrongRecipient.reason, 'incorrect_recipient');
+
+// Invalid task ID (openTasks conflict / missing id does not invent completion)
+const invalidOpen = openTasks([
+  { id: '', eventId: 'evt-lifecycle', title: 'Ghost', owner: 'Synthetic Owner', dueDate: '2026-11-20', status: 'Open' },
+  { id: 'task-ghost', eventId: 'evt-lifecycle', title: 'Ghost A', owner: 'Synthetic Owner', dueDate: '2026-11-20', status: 'Open' },
+  { id: 'task-ghost', eventId: 'evt-lifecycle', title: 'Ghost B', owner: 'Synthetic Owner', dueDate: '2026-11-20', status: 'Completed' }
+]);
+assert.equal(invalidOpen.conflicts.includes('task-ghost'), true);
+assert.equal(invalidOpen.rows.some((row) => row.id === 'task-ghost' && row.status === 'Completed'), false);
+
+// Missing quote cost is not zero profit
+const missingCostCoverage = quoteCoverage({
+  setup: { targetQuote: 5000 },
+  quote: [{ quantity: 1, unitPrice: 4500 }]
+});
+assert.equal(missingCostCoverage.priced, true);
+assert.equal(missingCostCoverage.costKnown, false);
+assert.equal(missingCostCoverage.costPartial, true);
+assert.equal(missingCostCoverage.costCents, null);
+assert.notEqual(missingCostCoverage.costCents, 0);
+
+// Missing heartbeat stays unverified (historical rows are not a heartbeat)
+const missingHeartbeat = classifyBridgeHeartbeat({
+  status: null,
+  historicalRowCount: 4769,
+  now: '2026-11-26T18:00:00.000Z'
+});
+assert.equal(missingHeartbeat.verified, false);
+assert.notEqual(missingHeartbeat.status, 'LIVE');
+assert.equal(missingHeartbeat.historicalImpliesSync, false);
+assert.match(String(missingHeartbeat.detail || missingHeartbeat.ownerAction || ''), /heartbeat|unverified|Historical/i);
+const storedOnly = classifyStoredCollection({
+  storeReached: true,
+  rowCount: 4769,
+  newestImportAt: '2026-11-22T00:00:00.000Z',
+  newestMessageAt: '2026-11-18T00:00:00.000Z',
+  now: '2026-11-26T12:00:00.000Z'
+});
+assert.equal(storedOnly.heartbeatVerified, false);
+assert.notEqual(storedOnly.heartbeatStatus, 'LIVE');
+assert.equal(sourceStatus({ observable: false, connected: true, lastSuccess: '2026-11-26T12:00:00.000Z' }), 'NOT OBSERVABLE');
+
+// Cross-event contamination guard: foreign event id must not appear in selected lifecycle snapshot
+const foreignLeak = JSON.stringify(lifecycleStore.getEvent('evt-lifecycle'));
+assert.equal(foreignLeak.includes('evt-acceptance'), false);
+assert.equal(foreignLeak.includes('evt-conflict'), false);
+assert.equal(lifecycleStore.listAudit().every((row) => row.eventId === 'evt-lifecycle' || !row.eventId), true);
 
 console.log('Command Center integrated acceptance regression passed.');

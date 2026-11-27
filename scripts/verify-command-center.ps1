@@ -12,6 +12,12 @@
   local-phase offline tests, staging-safety, acceptance, browser
   (desktop+mobile coverage inside the browser harness), TypeScript, and build.
 
+  R21 / T35 synthetic operational lifecycle coverage lives in
+  tests/command-center-acceptance.test.mjs and
+  tests/command-center-browser.test.mjs (lead through reconciliation,
+  plus deterministic failure contracts). Evidence record:
+  docs/baselines/final-local-regression.md.
+
   Never deploys, never mutates Git, never loads production credentials,
   and never invokes live provider dry-runs (for example clasp/Calendar).
 

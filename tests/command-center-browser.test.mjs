@@ -2384,6 +2384,181 @@ try {
   assert.match(privateReportBeforeAuthLoss, /Send proposal/);
   assert.equal(privateReportBeforeAuthLoss.includes('Synthetic Booked'), false);
   assert.equal(privateReportBeforeAuthLoss.includes('Active-Only Floor Diagram'), false);
+
+  // R21 / T35 — consolidated synthetic operational lifecycle on desktop + mobile.
+  // Covers lead → association → finance/proposal evidence → post-event report,
+  // all ten views, selected-record flow, and the listed failure contracts.
+  mode = 'ready';
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-record-event]'));
+
+  const lifecycleViews = [
+    ['overview', /Confirmed upcoming|Priority open tasks|Synthetic Lead/i],
+    ['action', /One inbox|Synthetic Lead|Action required/i],
+    ['pipeline', /Synthetic Lead|Cost not recorded|Pipeline/i],
+    ['active', /Synthetic Booked|Active/i],
+    ['archive', /Synthetic Past|Past/i],
+    ['proposals', /Proposal Library|Recorded on the sheet|Synthetic Lead/i],
+    ['followup', /Send proposal|Follow-Up|follow/i],
+    ['finance', /Invoice by invoice|pay-lead|bill-vendor|Event finance/i],
+    ['communications', /Gmail|Owner session|Communications/i],
+    ['health', /Source health|SMS heartbeat|NOT VERIFIED|What ran/i]
+  ];
+
+  async function assertLifecycleViewsAndRecord(width) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const [viewId, marker] of lifecycleViews) {
+      await page.locator(`[data-command-view="${viewId}"]`).click();
+      await page.waitForFunction((id) => Boolean(document.querySelector(`#commandNav [data-command-view="${id}"].active`)), viewId);
+      assert.match(await page.locator('#commandView').innerText(), marker);
+      assert.equal(await overflow(), true, `lifecycle overflow at ${width}px on ${viewId}`);
+      assert.equal(await page.locator('#commandNav').isVisible(), true);
+      assert.equal(page.url().includes('sms-review'), false);
+    }
+
+    await page.locator('[data-command-view="overview"]').click();
+    await page.evaluate(() => window.lvptOpenRecord('evt-lead'));
+    await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+    const leadRecord = await page.locator('[data-record-event="evt-lead"]').innerText();
+    assert.match(leadRecord, /Synthetic Lead/);
+    assert.match(leadRecord, /Lead Client Co/);
+    assert.match(leadRecord, /Send proposal/);
+    assert.match(leadRecord, /\$111/);
+    assert.equal(leadRecord.includes('Synthetic Booked'), false);
+    assert.equal(leadRecord.includes('$222'), false);
+    assert.equal(leadRecord.includes('Floor Lead'), false);
+    assert.equal(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="client-contact"]').getAttribute('data-event-id'), 'evt-lead');
+    await page.locator('[data-back-list]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-record-event]'));
+
+    await page.evaluate(() => window.lvptOpenRecord('evt-active'));
+    await page.waitForFunction(() => document.querySelector('[data-record-event="evt-active"]'));
+    const activeRecord = await page.locator('[data-record-event="evt-active"]').innerText();
+    assert.match(activeRecord, /Synthetic Booked/);
+    assert.match(activeRecord, /\$222/);
+    assert.equal(activeRecord.includes('Lead Client Co'), false);
+    assert.equal(activeRecord.includes('$111'), false);
+    await page.locator('[data-back-list]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-record-event]'));
+  }
+
+  await assertLifecycleViewsAndRecord(1280);
+  await assertLifecycleViewsAndRecord(375);
+
+  // Failure matrix — each contract must fail for the real reason (not mock success).
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // Conflicting source / event / payment IDs remain visible as conflicts, never silently merged.
+  await page.locator('[data-command-view="action"]').click();
+  await page.waitForFunction(() => /conflict/i.test(document.querySelector('#commandView')?.innerText || ''));
+  assert.match(await page.locator('#commandView').innerText(), /conflict/i);
+  assert.equal(await page.locator('.action-card[data-record-id="event:evt-twin-recipient"]').count(), 0);
+  assert.equal(await page.locator('[data-conflict-id="event:evt-twin-recipient"]').count(), 1);
+
+  // Missing quote cost is labeled, not coerced to zero profit.
+  await page.locator('[data-command-view="pipeline"]').click();
+  await page.waitForFunction(() => /Cost not recorded/i.test(document.querySelector('#commandView')?.innerText || ''));
+  assert.match(await page.locator('#commandView').innerText(), /Cost not recorded/);
+  assert.equal(/Quote profit/i.test(await page.locator('#commandView').innerText()), false);
+
+  // Missing heartbeat stays NOT VERIFIED (historical SMS rows are not a heartbeat).
+  await page.locator('[data-command-view="health"]').click();
+  await page.waitForFunction(() => /Source health|What ran/i.test(document.querySelector('#commandView')?.innerText || ''));
+  const lifecycleHealth = await page.locator('#commandView').innerText();
+  assert.match(lifecycleHealth, /Android SMS collector heartbeat|SMS heartbeat/i);
+  assert.match(lifecycleHealth, /NOT VERIFIED|Not verified|UNVERIFIED/i);
+  assert.equal(/badge[^>]*>\s*LIVE\s*</i.test(lifecycleHealth), false);
+  const lifecycleHeartbeat = await page.evaluate(() => {
+    const node = document.querySelector('[data-job-id="sms-heartbeat"] .badge, [data-source-health="sms-heartbeat"] .badge');
+    return node ? node.textContent : '';
+  });
+  assert.notEqual(lifecycleHeartbeat, 'LIVE');
+
+  // Invalid task ID does not open another event or invent a panel.
+  await page.locator('[data-command-view="overview"]').click();
+  await page.evaluate(() => window.lvptOpenTask('evt-lead', 'not-a-real-task'));
+  assert.match(await page.locator('#commandView').innerText(), /That task is not in the signed-in snapshot/);
+  assert.equal(await page.locator('[data-open-task-panel="not-a-real-task"]').count(), 0);
+  assert.equal(await page.locator('[data-record-event]').count(), 0);
+
+  // Wrong / unverified recipient cannot be treated as approved to send.
+  await page.locator('[data-command-view="action"]').click();
+  await page.waitForFunction(() => document.querySelector('.action-card[data-record-id="event:evt-lead"]'));
+  await page.locator('.action-card[data-record-id="event:evt-lead"] .action-evidence summary').click();
+  await page.waitForFunction(() => {
+    const details = document.querySelector('.action-card[data-record-id="event:evt-lead"] .action-evidence');
+    return details && details.open === true;
+  });
+  const lifecycleRecipientEvidence = await page.locator('.action-card[data-record-id="event:evt-lead"] .action-evidence').innerText();
+  assert.match(lifecycleRecipientEvidence, /Stored addresses are not verified recipients/i);
+  assert.equal(await page.locator('[data-decision="approve"]').count(), 0);
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForFunction(() => /Owner session|Communications|Gmail/i.test(document.querySelector('#commandView')?.innerText || ''));
+  assert.equal(await page.locator('[data-decision="approve"]').count(), 0);
+
+  // Delayed network response must not invent settled zeros.
+  mode = 'delay-ledger';
+  releaseLedger = null;
+  await openHub(1280, 800);
+  await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready');
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => {
+    const ledger = document.querySelector('#overviewLedger')?.innerText || '';
+    const operating = document.querySelector('#overviewOperating')?.innerText || '';
+    return /still loading/i.test(ledger) && /waiting on the shared operating-picture/i.test(operating);
+  });
+  const lifecycleDelayed = await page.locator('#commandView').innerText();
+  assert.match(lifecycleDelayed, /still loading/i);
+  assert.equal(lifecycleDelayed.includes('$500.00'), false);
+  assert.equal(lifecycleDelayed.includes('$200.00'), false);
+  assert.equal(/No open client balance was returned on the complete ledger read/i.test(lifecycleDelayed), false);
+  mode = 'ready';
+  assert.ok(releaseLedger, 'expected delayed lifecycle operating-picture hold');
+  releaseLedger();
+  releaseLedger = null;
+  await page.waitForFunction(() => /\$500\.00/.test(document.querySelector('#overviewLedger')?.innerText || ''));
+
+  // Provider timeout settles without an automatic retry loop or fabricated success.
+  await page.evaluate(() => {
+    if (!window.__lvptOriginalAbortTimeout) {
+      window.__lvptOriginalAbortTimeout = AbortSignal.timeout.bind(AbortSignal);
+    }
+    AbortSignal.timeout = (requested) => window.__lvptOriginalAbortTimeout(Math.min(Number(requested) || 250, 250));
+  });
+  mode = 'delay-ledger';
+  releaseLedger = null;
+  const lifecycleTimeoutBefore = pictureGets;
+  await page.evaluate(() => {
+    window.lvptOperatingPictureResult = null;
+    window.lvptOperatingPicturePromise = null;
+    window.__lvptLifecycleTimeout = window.lvptReloadOperatingPicture();
+  });
+  for (let attempt = 0; attempt < 50 && !releaseLedger; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseLedger, 'expected lifecycle timeout hold on operating-picture');
+  await page.waitForFunction(() => {
+    return window.lvptOperatingPicturePromise == null
+      && /timed out|Unavailable|did not/i.test(document.querySelector('#metricsGrid')?.innerText || document.querySelector('#overviewLedger')?.innerText || '');
+  }, null, { timeout: 5000 }).catch(() => null);
+  await page.waitForTimeout(350);
+  const lifecycleTimeoutSettled = pictureGets;
+  assert.ok(lifecycleTimeoutSettled > lifecycleTimeoutBefore);
+  assert.equal(pictureGets, lifecycleTimeoutSettled, 'provider timeout must not auto-retry');
+  mode = 'ready';
+  releaseLedger();
+  releaseLedger = null;
+  await page.evaluate(() => {
+    if (window.__lvptOriginalAbortTimeout) AbortSignal.timeout = window.__lvptOriginalAbortTimeout;
+  });
+  await page.evaluate(() => window.lvptLoadOperatingPicture());
+  await page.waitForFunction(() => window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok);
+
+  // Unknown send result / disabled send path: overview must not claim approvals waiting as success.
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => /Approvals waiting: Unavailable on Overview/i.test(document.querySelector('#commandView')?.innerText || ''));
+  assert.match(await page.locator('#commandView').innerText(), /Approvals waiting: Unavailable on Overview/i);
+  assert.equal(posts.includes('/api/gmail/send'), false);
+  assert.equal(posts.includes('/api/sms/staging/reply-send'), false);
+
   // Seed private in-memory caches, then expire/unauthorized the session and prove they clear.
   const cacheBeforeAuthLoss = await page.evaluate(() => ({
     picture: Boolean(window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok),

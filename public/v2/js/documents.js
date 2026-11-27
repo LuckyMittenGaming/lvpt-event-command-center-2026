@@ -68,13 +68,20 @@ function formatDocumentAssociationHtml(event){
   if(!rows.length){
     return '<p data-document-count="0">0 document rows on this event. File bytes are not opened here. Document writes stay off.</p>';
   }
+  const types=[];
+  rows.forEach((row)=>{
+    const category=row.category||'Category unavailable';
+    if(!types.includes(category)) types.push(category);
+  });
+  const typePills=types.map((type)=>`<button type="button" class="doc-type-pill" data-doc-type="${escapeHtml(type)}">${escapeHtml(type)}</button>`).join('');
   const items=rows.map((row)=>{
     const link=row.linkState==='linked'
-      ? `<a href="${escapeHtml(row.source.url)}" target="_blank" rel="noopener" data-document-link="linked">Open source link</a>`
+      ? `<a class="mail-pill" href="${escapeHtml(row.source.url)}" target="_blank" rel="noopener" data-document-link="linked">Open source link</a>`
       : `<span data-document-link="${escapeHtml(row.linkState)}">${escapeHtml(row.linkLabel)}</span>`;
-    return `<li data-document-id="${escapeHtml(row.id)}" data-document-link-state="${escapeHtml(row.linkState)}">${escapeHtml(row.name)} · ${escapeHtml(row.category)} · ${link}</li>`;
+    return `<tr data-document-id="${escapeHtml(row.id)}" data-document-link-state="${escapeHtml(row.linkState)}" data-doc-category="${escapeHtml(row.category||'')}"><td>${escapeHtml(row.name)}</td><td><span class="doc-type-pill">${escapeHtml(row.category)}</span></td><td>${link}</td></tr>`;
   }).join('');
-  return `<p data-document-count="${rows.length}">${rows.length} document row${rows.length===1?'':'s'} on this event. File bytes are not opened here. Document writes stay off.</p><ul data-document-associations>${items}</ul>`;
+  const eventId=event&&event.id?String(event.id):'';
+  return `<div data-doc-workspace data-event-id="${escapeHtml(eventId)}"><p data-document-count="${rows.length}">${rows.length} document row${rows.length===1?'':'s'} on this event. File bytes are not opened here. Document writes stay off.</p><div class="doc-filter-bar"><input class="input" type="search" data-doc-search placeholder="Filter documents…" aria-label="Filter documents"><button type="button" class="doc-type-pill is-active" data-doc-type="all">All</button>${typePills}</div><div class="table-scroll"><table class="doc-table" data-document-associations><thead><tr><th>Name</th><th>Type</th><th>Source</th></tr></thead><tbody>${items}</tbody></table></div></div>`;
 }
 
 function formatDocumentAssociationText(event){

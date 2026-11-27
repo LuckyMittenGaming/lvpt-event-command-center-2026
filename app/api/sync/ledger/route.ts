@@ -1,4 +1,5 @@
 import { appsScriptRequest, authorizeAppRequest, unauthorizedResponse } from '../_lib';
+import { buildBusinessOverhead, normalizeBusinessExpense } from '../../../../lib/business-expenses.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,6 +57,18 @@ export async function GET(request: Request) {
     const payouts = Array.isArray(data.payouts)
       ? data.payouts.slice(0, 500).map((row) => payout(row as RawRecord)).filter((row) => row.payoutId && row.eventId)
       : [];
+    const rawBusinessExpenses = Object.prototype.hasOwnProperty.call(data, 'businessExpenses')
+      ? data.businessExpenses
+      : (Object.prototype.hasOwnProperty.call(data, 'business_expenses') ? data.business_expenses : null);
+    const businessExpenseRows = Array.isArray(rawBusinessExpenses)
+      ? rawBusinessExpenses
+        .slice(0, 500)
+        .map((row) => normalizeBusinessExpense(row as RawRecord))
+        .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      : [];
+    const businessOverhead = buildBusinessOverhead(
+      rawBusinessExpenses == null ? null : businessExpenseRows
+    );
     return Response.json({
       ok: true,
       readOnly: true,
@@ -67,6 +80,8 @@ export async function GET(request: Request) {
       payoutCount: payouts.length,
       paymentRecords,
       payouts,
+      businessExpenses: businessExpenseRows,
+      businessOverhead,
       serverTime: typeof data.serverTime === 'string' ? data.serverTime : '',
       sourceVerifiedAs: 'Command Center ledger only — not bank settlement evidence'
     });
@@ -80,6 +95,8 @@ export async function GET(request: Request) {
       payoutSourceStatus: 'not_connected',
       paymentRecords: [],
       payouts: [],
+      businessExpenses: [],
+      businessOverhead: buildBusinessOverhead(null),
       message
     }, { status: 502 });
   }

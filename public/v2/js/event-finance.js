@@ -17,9 +17,101 @@
     if (/^paid[\s-]*in[\s-]*full$/i.test(raw)) return 'ledger_settled';
     if (/refund/i.test(raw)) return 'refunded';
     if (/payment\s+initiated|processing|in\s+progress/i.test(raw)) return 'initiated_not_settled';
+    // Explicit partial-payment statuses before the generic "partial"/"open" matcher.
+    if (
+      /^deposit\s+paid$/i.test(raw) ||
+      /^partial(?:ly)?\s+paid$/i.test(raw) ||
+      /^partial\s+payment$/i.test(raw)
+    ) {
+      return 'partial_settled';
+    }
     if (/invoice\s+sent|awaiting\s+(?:deposit|payment)|balance\s+due|partial/i.test(raw)) return 'open';
     if (/^not invoiced$/i.test(raw)) return 'not_invoiced';
     return 'unknown';
+  }
+
+  function isLedgerReceiptSettlement(settlement) {
+    return settlement === 'ledger_settled' || settlement === 'partial_settled';
+  }
+
+  function formatCentsPlain(centsValue) {
+    if (centsValue === null || centsValue === undefined || !Number.isFinite(Number(centsValue))) return 'Unavailable';
+    return (Number(centsValue) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  }
+
+  /**
+   * Plain-English payment label from client payment rows / event rollup.
+   * Ledger-only wording; never implies bank verification.
+   */
+  function plainEnglishPaymentLabel(input) {
+    const rows = Array.isArray(input && input.payments) ? input.payments : [];
+    const eventId = input && input.eventId ? String(input.eventId) : '';
+    const clients = rows.filter((row) => (
+      row &&
+      row.role === 'client_receivable' &&
+      row.includedInTotals !== false &&
+      (!eventId || row.eventId === eventId) &&
+      row.settlement !== 'refunded' &&
+      row.settlement !== 'not_invoiced'
+    ));
+    const rollup = input && input.rollup && typeof input.rollup === 'object' ? input.rollup : null;
+    const collected = rollup && rollup.collectedCents != null
+      ? rollup.collectedCents
+      : clients.reduce((sum, row) => (
+        isLedgerReceiptSettlement(row.settlement) && row.amountPaidCents != null
+          ? sum + row.amountPaidCents
+          : sum
+      ), 0);
+    const outstanding = rollup && rollup.outstandingCents != null
+      ? rollup.outstandingCents
+      : clients.reduce((sum, row) => (
+        (row.settlement === 'open' ||
+          row.settlement === 'initiated_not_settled' ||
+          row.settlement === 'unknown' ||
+          row.settlement === 'partial_settled') &&
+        row.balanceDueCents != null
+          ? sum + row.balanceDueCents
+          : sum
+      ), 0);
+    const paidRows = clients.filter((row) => isLedgerReceiptSettlement(row.settlement) && row.amountPaidCents > 0);
+    const issuedRows = clients.filter((row) => row.settlement !== 'unknown');
+    if (collected > 0 && (!outstanding || outstanding <= 0)) {
+      return {
+        label: `Paid in Full (${formatCentsPlain(collected)})`,
+        kind: 'paid_in_full',
+        footnote: 'Ledger only · not bank-verified'
+      };
+    }
+    if (collected > 0 && outstanding > 0) {
+      const multi = issuedRows.length > 1 || paidRows.length > 1;
+      const head = multi
+        ? `${paidRows.length || 1} of ${Math.max(issuedRows.length, paidRows.length, 2)} Payments (${formatCentsPlain(collected)})`
+        : `Deposit Paid (${formatCentsPlain(collected)})`;
+      return {
+        label: `${head} · Balance Remaining (${formatCentsPlain(outstanding)})`,
+        kind: 'partial',
+        footnote: 'Ledger only · not bank-verified'
+      };
+    }
+    if (outstanding > 0) {
+      return {
+        label: `Balance Remaining (${formatCentsPlain(outstanding)})`,
+        kind: 'open',
+        footnote: 'Ledger only · not bank-verified'
+      };
+    }
+    if (clients.some((row) => row.settlement === 'initiated_not_settled')) {
+      return {
+        label: 'Payment Initiated (not settled)',
+        kind: 'initiated',
+        footnote: 'Payment Initiated is not money received · ledger only'
+      };
+    }
+    return {
+      label: 'Not recorded',
+      kind: 'none',
+      footnote: 'Ledger only · not bank-verified'
+    };
   }
 
   function explicitRole(value) {
@@ -199,10 +291,10 @@
     const owners = countablePayments.filter((row) => row.role === 'owner_distribution');
     const feeTaxRows = countablePayments.filter((row) => row.role === 'fee' || row.role === 'tax');
     const unclassified = countablePayments.filter((row) => row.role === 'unclassified');
-    const settledClients = clients.filter((row) => row.settlement === 'ledger_settled');
+    const settledClients = clients.filter((row) => isLedgerReceiptSettlement(row.settlement));
     const refundedClients = clients.filter((row) => row.settlement === 'refunded');
     const refundedVendors = vendors.filter((row) => row.settlement === 'refunded');
-    const openClients = clients.filter((row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown');
+    const openClients = clients.filter((row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown' || row.settlement === 'partial_settled');
     const countedPayouts = payouts.filter((row) => !row.duplicatesPayment && row.includedInTotals !== false);
     // Include every refund settlement (client, vendor, fee, tax, owner, unclassified, etc.).
     const refundCandidates = countablePayments.filter((row) => row.settlement === 'refunded');
@@ -224,9 +316,9 @@
     const refundedClient = sum(refundedClients, (row) => (row.amountPaidCents !== null ? row.amountPaidCents : row.invoiceTotalCents));
     const refundedVendor = sum(refundedVendors, (row) => (row.amountPaidCents !== null ? row.amountPaidCents : row.invoiceTotalCents));
     const vendorCommitted = sum(vendors.filter((row) => row.settlement !== 'not_invoiced' && row.settlement !== 'refunded'), (row) => row.invoiceTotalCents);
-    const vendorLedgerPaid = sum(vendors.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
+    const vendorLedgerPaid = sum(vendors.filter((row) => isLedgerReceiptSettlement(row.settlement)), (row) => row.amountPaidCents);
     const feeTaxCommitted = sum(feeTaxRows.filter((row) => row.settlement !== 'not_invoiced' && row.settlement !== 'refunded'), (row) => row.invoiceTotalCents);
-    const feeTaxPaid = sum(feeTaxRows.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
+    const feeTaxPaid = sum(feeTaxRows.filter((row) => isLedgerReceiptSettlement(row.settlement)), (row) => row.amountPaidCents);
     const ownerCommitted = sum(owners, (row) => row.invoiceTotalCents);
     function payoutPaid(row) { return /^paid\b/i.test(String(row.status || '').trim()); }
     const ownerPayouts = countedPayouts.filter((row) => row.role === 'owner_distribution');
@@ -265,8 +357,8 @@
     const forecastMarginCents = marginAvailable
       ? clientInvoiced.cents - vendorCommitted.cents - unlinkedVendorCommitted.cents - feeTaxCommitted.cents
       : null;
-    const unpaidFeeTax = feeTaxRows.some((row) => !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement));
-    const unpaidObligations = vendors.some((row) => !['ledger_settled', 'not_invoiced', 'refunded'].includes(row.settlement))
+    const unpaidFeeTax = feeTaxRows.some((row) => !['ledger_settled', 'partial_settled', 'not_invoiced', 'refunded'].includes(row.settlement));
+    const unpaidObligations = vendors.some((row) => !['ledger_settled', 'partial_settled', 'not_invoiced', 'refunded'].includes(row.settlement))
       || unlinkedVendorPayouts.some((row) => !payoutPaid(row))
       || ownerPayouts.some((row) => !payoutPaid(row))
       || unpaidFeeTax;
@@ -291,10 +383,10 @@
       incompleteFields.push('verifiedContribution');
     }
     const clientUncertain = (row) => row.role === 'client_receivable';
-    const openSettlement = (row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown';
+    const openSettlement = (row) => row.settlement === 'open' || row.settlement === 'initiated_not_settled' || row.settlement === 'unknown' || row.settlement === 'partial_settled';
     const issuedSettlement = (row) => row.settlement !== 'not_invoiced' && row.settlement !== 'unknown' && row.settlement !== 'refunded';
     const money = {
-      verifiedClientReceiptsCents: qualify('verifiedClientReceipts', verified, paymentUncertain((row) => clientUncertain(row) && row.settlement === 'ledger_settled')),
+      verifiedClientReceiptsCents: qualify('verifiedClientReceipts', verified, paymentUncertain((row) => clientUncertain(row) && isLedgerReceiptSettlement(row.settlement))),
       verifiedClientReceiptGaps: verified.gaps,
       clientInvoiceTotalCents: qualify('clientInvoiceTotal', clientInvoiced, paymentUncertain((row) => clientUncertain(row) && issuedSettlement(row))),
       openClientExposureCents: qualify('openClientExposure', openExposure, paymentUncertain((row) => clientUncertain(row) && openSettlement(row))),
@@ -303,9 +395,9 @@
       refundedClientCents: qualify('refundedClient', refundedClient, refundBlocksProfit || paymentUncertain((row) => clientUncertain(row) && row.settlement === 'refunded')),
       refundedVendorCents: qualify('refundedVendor', refundedVendor, refundBlocksProfit || paymentUncertain((row) => row.role === 'vendor_expense' && row.settlement === 'refunded')),
       vendorCommittedCents: qualify('vendorCommitted', vendorCommitted, paymentUncertain((row) => row.role === 'vendor_expense' && row.settlement !== 'not_invoiced' && row.settlement !== 'refunded')),
-      vendorLedgerPaidCents: qualify('vendorLedgerPaid', vendorLedgerPaid, paymentUncertain((row) => row.role === 'vendor_expense' && row.settlement === 'ledger_settled')),
+      vendorLedgerPaidCents: qualify('vendorLedgerPaid', vendorLedgerPaid, paymentUncertain((row) => row.role === 'vendor_expense' && isLedgerReceiptSettlement(row.settlement))),
       feeTaxCommittedCents: qualify('feeTaxCommitted', feeTaxCommitted, paymentUncertain((row) => (row.role === 'fee' || row.role === 'tax') && row.settlement !== 'not_invoiced' && row.settlement !== 'refunded')),
-      feeTaxPaidCents: qualify('feeTaxPaid', feeTaxPaid, paymentUncertain((row) => (row.role === 'fee' || row.role === 'tax') && row.settlement === 'ledger_settled')),
+      feeTaxPaidCents: qualify('feeTaxPaid', feeTaxPaid, paymentUncertain((row) => (row.role === 'fee' || row.role === 'tax') && isLedgerReceiptSettlement(row.settlement))),
       ownerDistributionCents: qualify('ownerDistribution', ownerCommitted, paymentUncertain((row) => row.role === 'owner_distribution')),
       ownerPaidCents: qualify('ownerPaid', ownerPaid, payoutUncertain((row) => row.role === 'owner_distribution' && payoutPaid(row))),
       ownerPlannedCents: qualify('ownerPlanned', ownerPlanned, payoutUncertain((row) => row.role === 'owner_distribution' && !payoutPaid(row))),
@@ -347,7 +439,7 @@
       const eventVendors = vendors.filter((row) => row.eventId === eventId && row.settlement !== 'not_invoiced' && row.settlement !== 'refunded');
       const vendorCommittedTotal = sum(eventVendors, (row) => row.invoiceTotalCents);
       const invoiced = sum(eventClients.filter((row) => issuedSettlement(row)), (row) => row.invoiceTotalCents);
-      const collected = sum(eventClients.filter((row) => row.settlement === 'ledger_settled'), (row) => row.amountPaidCents);
+      const collected = sum(eventClients.filter((row) => isLedgerReceiptSettlement(row.settlement)), (row) => row.amountPaidCents);
       const outstanding = sum(eventClients.filter((row) => openSettlement(row)), (row) => row.balanceDueCents);
       const eventOwner = ownerPayouts.filter((row) => row.eventId === eventId);
       const ownerPaidTotal = sum(eventOwner.filter(payoutPaid), (row) => row.amountCents);
@@ -572,5 +664,15 @@
     };
   }
 
-  return { buildLedger, sourceStatus, settlementKind, inferRole, cents, documentedExceptions, buildFinanceReconciliation };
+  return {
+    buildLedger,
+    sourceStatus,
+    settlementKind,
+    isLedgerReceiptSettlement,
+    plainEnglishPaymentLabel,
+    inferRole,
+    cents,
+    documentedExceptions,
+    buildFinanceReconciliation
+  };
 });

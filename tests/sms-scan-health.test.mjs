@@ -437,9 +437,10 @@ assert.match(healthHtml, /Financial source sync/);
 assert.match(healthHtml, /Read 3 payment rows/);
 assert.match(healthHtml, /SMS metadata scan/);
 assert.match(healthHtml, /PARTIAL/);
-assert.match(healthHtml, /Coverage: Partial/);
+assert.match(healthHtml, /Coverage: Partial scan/);
+assert.match(healthHtml, /1 row checked/);
 assert.match(healthHtml, /UNVERIFIED/);
-assert.equal(healthHtml.indexOf('Coverage: Partial') < healthHtml.indexOf('>LIVE<'), true);
+assert.equal(healthHtml.indexOf('Coverage: Partial scan') < healthHtml.indexOf('>LIVE<'), true);
 
 const actionHtml = await rendered('action');
 assert.match(actionHtml, /No records are listed/);
@@ -464,7 +465,7 @@ responses.set('/api/sync/action-inbox', {
 });
 const liveHtml = await rendered('action');
 assert.match(liveHtml, />LIVE</);
-assert.match(liveHtml, /Coverage: Read complete/);
+assert.match(liveHtml, /Coverage: Scan finished \(1 row checked\)/);
 assert.match(liveHtml, /Connected\./);
 assert.match(liveHtml, new RegExp(live.newestIngestAt));
 assert.match(liveHtml, new RegExp(live.newestMessageAt));

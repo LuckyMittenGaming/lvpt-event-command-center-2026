@@ -1,5 +1,5 @@
 (() => {
-  const state = { phase: 'loading', events: [], serverTime: '', message: '' };
+  const state = { phase: 'loading', events: [], serverTime: '', message: '', businessExpenses: [], businessOverhead: null };
   let inflight = null;
   let loadGeneration = 0;
 
@@ -31,7 +31,15 @@
   }
 
   function apply() {
-    window.lvptSheetSnapshot = { state: state.phase, events: state.events, serverTime: state.serverTime, message: state.message };
+    window.lvptSheetSnapshot = {
+    state: state.phase,
+    events: state.events,
+    serverTime: state.serverTime,
+    message: state.message,
+    // Business Expenses are optional; missing tab must never break the snapshot.
+    businessExpenses: Array.isArray(state.businessExpenses) ? state.businessExpenses : [],
+    businessOverhead: state.businessOverhead || null
+  };
     if (state.phase === 'ready') {
       events = state.events.map((event) => {
         const date = window.LVPTEventStatus.normalizeEventDate(event.eventDate);
@@ -39,7 +47,9 @@
         const shaped = ensureEventShape({ ...event, eventDate: date.iso || '' });
         shaped.targetQuoteSupplied = supplied;
         shaped.eventDateRaw = event.eventDate || '';
-        shaped.eventDateTimeZone = 'America/Los_Angeles';
+        shaped.eventDateTimeZone = window.LVPTEventDateTime
+          ? window.LVPTEventDateTime.resolveEventTimeZone(shaped)
+          : 'America/Los_Angeles';
         shaped.statusRaw = event.status || '';
         return shaped;
       });

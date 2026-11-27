@@ -256,6 +256,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   const statusApi = () => window.LVPTEventStatus;
   const crmApi = () => window.LVPTCrmAttribution;
   const reportsApi = () => window.LVPTOperationalReports;
+  const dateTimeApi = () => window.LVPTEventDateTime;
+  const financeApi = () => window.LVPTEventFinance;
+  const cadenceApi = () => window.LVPTFollowUpCadence;
   const HISTORICAL_PROPOSAL_STATUS = 'Historical reference, not verified';
   const proposals = [
     { id:'proposal-nium', client:'NIUM', title:'NIUM VIP Casino Lounge', project:'lvpt-nium-proposal', url:'https://lvpt-nium-proposal.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-07-16', eventId:'evt-nium-2026', tags:['Palms Place','Casino Night','Custom Assets','Transportation'], notes:'Enterprise proposal with venue comparisons, custom chips/cards/felts, premium catering, open bar and transportation.' },
@@ -294,7 +297,28 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   function isActive(event) { return laneOf(event).lane === 'active'; }
   function isArchive(event) { return laneOf(event).lane === 'past'; }
   function openTaskCount(event) { return (event.tasks || []).filter(task => !taskIsComplete(task)).length; }
-  function dateLabel(value) { if(!value) return 'Date TBD'; const date=new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime())?value:date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+  function eventTz(event) {
+    return dateTimeApi() ? dateTimeApi().resolveEventTimeZone(event) : 'America/Los_Angeles';
+  }
+  function dateLabel(value, event) {
+    if (!value) return 'Date TBD';
+    if (dateTimeApi()) return dateTimeApi().formatEventDate(value, event || {}) || value;
+    const date = new Date(`${value}T12:00:00`);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function formatCommWhen(value, event) {
+    if (!value) return 'Date unavailable';
+    if (dateTimeApi() && dateTimeApi().formatEventDateTime) {
+      const stamped = dateTimeApi().formatEventDateTime(value, event);
+      if (stamped) return stamped;
+    }
+    return String(value);
+  }
+  function runOfShowTime(value, event) {
+    if (value == null || value === '') return '';
+    if (dateTimeApi()) return dateTimeApi().formatEventTime(value, event) || String(value);
+    return typeof humanTime === 'function' ? humanTime(value) : String(value);
+  }
   function ageInDays(value) { if(!value) return Infinity; return Math.floor((Date.now()-new Date(value).getTime())/86400000); }
   function historicalProposalForEvent(event) {
     if (!event || !event.id) return null;
@@ -723,48 +747,174 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const newLeads = events.filter((event) => laneOf(event).lane === 'pipeline' && laneOf(event).stage === 'open').length;
     return `<div class="lifecycle-summary"><div><span>New and open leads</span><strong>${newLeads}</strong><p class="muted">Scope: sheet snapshot stage open in Pipeline. Unanswered mail is not guessed from the event list.</p></div><div><span>Overdue tasks</span><strong>${overdue}</strong><p class="muted">Scope: open Tasks on the sheet snapshot with due date before today. Due today is not overdue.</p></div><div><span>Due today</span><strong>${dueToday}</strong><p class="muted">Scope: open Tasks on the sheet snapshot due today.</p></div><div><span>Undated open tasks</span><strong>${undated}</strong><p class="muted">Scope: open Tasks without a due date. They stay open and are not completed.</p></div></div><div id="overviewOperating">${overviewOperatingInner()}</div>`;
   }
-  function recordedLine(label, value) {
-    const missing = value == null || value === '';
-    const text = missing ? 'Unavailable' : value;
-    return `<div data-field-state="${missing ? 'unavailable' : 'recorded'}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong></div>`;
+  function countMissingFields(values) {
+    return (values || []).filter((value) => value == null || value === '').length;
   }
-  function workspaceSection(eventId, sectionId, title, body) {
-    return `<section class="workspace-section" data-workspace-section="${escapeHtml(sectionId)}" data-event-id="${escapeHtml(eventId)}"><h3>${escapeHtml(title)}</h3>${body}</section>`;
+  function recordedLine(label, value, options) {
+    options = options || {};
+    const missing = value == null || value === '';
+    const spanAttr = options.full ? ' data-span="full"' : '';
+    let valueHtml;
+    if (missing) {
+      valueHtml = '<span class="status-pill status-pill--missing">Unavailable</span>';
+    } else if (options.html) {
+      valueHtml = `<strong>${value}</strong>`;
+    } else if (options.money) {
+      valueHtml = `<strong class="money-nowrap">${escapeHtml(String(value))}</strong>`;
+    } else {
+      valueHtml = `<strong>${escapeHtml(String(value))}</strong>`;
+    }
+    return `<div data-field-state="${missing ? 'unavailable' : 'recorded'}"${spanAttr}><span>${escapeHtml(label)}</span>${valueHtml}</div>`;
+  }
+  function workspaceSection(eventId, sectionId, title, body, options) {
+    options = options || {};
+    const openAttr = options.open ? ' open' : '';
+    const count = options.count;
+    const missing = Number(options.missing) || 0;
+    const countHtml = count != null && count !== ''
+      ? `<span class="workspace-count">${escapeHtml(String(count))}</span>`
+      : '';
+    const missingHtml = missing > 0
+      ? `<span class="missing-badge">Missing: ${missing}</span>`
+      : '';
+    return `<details class="workspace-section workspace-accordion"${openAttr} data-workspace-section="${escapeHtml(sectionId)}" data-event-id="${escapeHtml(eventId)}"><summary><span class="workspace-summary-title">${escapeHtml(title)}</span>${countHtml}${missingHtml}</summary><div class="workspace-accordion-body">${body}</div></details>`;
+  }
+  function linkifyCommunicationNotes(value) {
+    if (value == null || value === '') return '';
+    const raw = String(value);
+    const re = /https:\/\/mail\.google\.com\/mail\/#all\/[A-Za-z0-9_-]+/g;
+    const parts = [];
+    let last = 0;
+    let match;
+    while ((match = re.exec(raw))) {
+      if (match.index > last) parts.push(escapeHtml(raw.slice(last, match.index)));
+      parts.push(`<a class="mail-pill" href="${escapeHtml(match[0])}" target="_blank" rel="noopener">Open email ↗</a>`);
+      last = match.index + match[0].length;
+    }
+    if (last < raw.length) parts.push(escapeHtml(raw.slice(last)));
+    return parts.join('');
   }
   function documentRows(event) {
     if (typeof formatDocumentAssociationHtml === 'function') {
       return formatDocumentAssociationHtml(event);
     }
-    const docs = Array.isArray(event.documents) ? event.documents : [];
-    if (!docs.length) return '<p data-document-count="0">0 document rows on this event. File bytes are not opened here. Document writes stay off.</p>';
-    const items = docs.map((doc) => {
-      const name = doc && (doc.name || doc.title) ? String(doc.name || doc.title) : 'Untitled document';
-      const category = doc && doc.category ? String(doc.category) : 'Category unavailable';
-      const source = typeof resolveDocumentSourceUrl === 'function'
-        ? resolveDocumentSourceUrl(doc)
-        : { ok: false, reason: 'missing' };
-      let link = '<span data-document-link="unavailable">Source link unavailable</span>';
-      if (source.ok) {
-        link = `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener" data-document-link="linked">Open source link</a>`;
-      } else if (source.reason === 'invalid') {
-        link = '<span data-document-link="unsupported">Unsupported or invalid source link</span>';
-      }
-      return `<li data-document-id="${escapeHtml(doc && doc.id ? doc.id : '')}" data-document-link-state="${source.ok ? 'linked' : source.reason === 'invalid' ? 'unsupported' : 'unavailable'}">${escapeHtml(name)} · ${escapeHtml(category)} · ${link}</li>`;
+    const rows = typeof documentAssociationRows === 'function'
+      ? documentAssociationRows(event)
+      : (Array.isArray(event.documents) ? event.documents : []).map((doc) => {
+        const source = typeof resolveDocumentSourceUrl === 'function'
+          ? resolveDocumentSourceUrl(doc)
+          : { ok: false, reason: 'missing' };
+        return {
+          id: doc && doc.id ? String(doc.id) : '',
+          name: doc && (doc.name || doc.title) ? String(doc.name || doc.title) : 'Untitled document',
+          category: doc && doc.category ? String(doc.category) : 'Category unavailable',
+          linkState: source.ok ? 'linked' : source.reason === 'invalid' ? 'unsupported' : 'unavailable',
+          linkLabel: source.ok ? 'Open source link' : source.reason === 'invalid' ? 'Unsupported or invalid source link' : 'Source link unavailable',
+          source
+        };
+      });
+    if (!rows.length) {
+      return '<p data-document-count="0">0 document rows on this event. File bytes are not opened here. Document writes stay off.</p>';
+    }
+    const types = [];
+    rows.forEach((row) => {
+      const category = row.category || 'Category unavailable';
+      if (!types.includes(category)) types.push(category);
+    });
+    const typePills = types.map((type) => `<button type="button" class="doc-type-pill" data-doc-type="${escapeHtml(type)}">${escapeHtml(type)}</button>`).join('');
+    const items = rows.map((row) => {
+      const link = row.linkState === 'linked'
+        ? `<a class="mail-pill" href="${escapeHtml(row.source.url)}" target="_blank" rel="noopener" data-document-link="linked">Open source link</a>`
+        : `<span data-document-link="${escapeHtml(row.linkState)}">${escapeHtml(row.linkLabel)}</span>`;
+      return `<tr data-document-id="${escapeHtml(row.id)}" data-document-link-state="${escapeHtml(row.linkState)}" data-doc-category="${escapeHtml(row.category || '')}"><td>${escapeHtml(row.name)}</td><td><span class="doc-type-pill">${escapeHtml(row.category)}</span></td><td>${link}</td></tr>`;
     }).join('');
-    return `<p data-document-count="${docs.length}">${docs.length} document row${docs.length === 1 ? '' : 's'} on this event. File bytes are not opened here. Document writes stay off.</p><ul data-document-associations>${items}</ul>`;
+    return `<div data-doc-workspace data-event-id="${escapeHtml(event.id || '')}"><p data-document-count="${rows.length}">${rows.length} document row${rows.length === 1 ? '' : 's'} on this event. File bytes are not opened here. Document writes stay off.</p><div class="doc-filter-bar"><input class="input" type="search" data-doc-search placeholder="Filter documents…" aria-label="Filter documents"><button type="button" class="doc-type-pill is-active" data-doc-type="all">All</button>${typePills}</div><div class="table-scroll"><table class="doc-table" data-document-associations><thead><tr><th>Name</th><th>Type</th><th>Source</th></tr></thead><tbody>${items}</tbody></table></div></div>`;
   }
   function communicationRows(event) {
-    const rows = Array.isArray(event.emailActivity) ? event.emailActivity : [];
+    const rows = Array.isArray(event.emailActivity) ? event.emailActivity.slice() : [];
     if (!rows.length) {
       return '<p>0 stored mail rows on this event. A stored row is not a full thread. SMS/RCS content is unavailable on this record.</p>';
     }
+    rows.sort((a, b) => String(b && b.date || '').localeCompare(String(a && a.date || '')));
     const items = rows.map((row, index) => {
       const subject = row && (row.subject || row.snippet) ? String(row.subject || row.snippet).slice(0, 120) : 'Subject unavailable';
-      const when = row && row.date ? String(row.date) : 'Date unavailable';
+      const when = formatCommWhen(row && row.date, event);
       const direction = row && row.direction ? String(row.direction) : 'Direction unavailable';
-      return `<li data-mail-index="${index}">${escapeHtml(subject)} · ${escapeHtml(direction)} · ${escapeHtml(when)}</li>`;
+      const hiddenAttr = index >= 8 ? ' hidden' : '';
+      return `<li data-mail-index="${index}" data-comm-item data-comm-direction="${escapeHtml(direction)}"${hiddenAttr}>${escapeHtml(subject)} · ${escapeHtml(direction)} · ${escapeHtml(when)}</li>`;
     }).join('');
-    return `<p>${rows.length} stored mail row${rows.length === 1 ? '' : 's'} on this event. A stored row is not a full thread. SMS/RCS content is unavailable on this record.</p><ul>${items}</ul>`;
+    const showAll = rows.length > 8
+      ? `<button type="button" class="btn small" data-comm-show-all>Show all (${rows.length})</button>`
+      : '';
+    return `<div data-comm-workspace data-event-id="${escapeHtml(event.id || '')}"><div class="comm-filter-bar"><button type="button" class="doc-type-pill is-active" data-comm-filter="all">All</button><button type="button" class="doc-type-pill" data-comm-filter="inbound">Inbound</button><button type="button" class="doc-type-pill" data-comm-filter="outbound">Outbound</button><input class="input" type="search" data-comm-search placeholder="Search communications…" aria-label="Search communications"></div><p>${rows.length} stored mail row${rows.length === 1 ? '' : 's'} on this event. A stored row is not a full thread. SMS/RCS content is unavailable on this record.</p><ul data-comm-list>${items}</ul>${showAll}</div>`;
+  }
+  function bindWorkspaceFilters(scope) {
+    const root = scope || document;
+    root.querySelectorAll('[data-comm-workspace]').forEach((workspace) => {
+      const list = workspace.querySelector('[data-comm-list]');
+      if (!list) return;
+      const search = workspace.querySelector('[data-comm-search]');
+      const showAllBtn = workspace.querySelector('[data-comm-show-all]');
+      let filter = 'all';
+      let expanded = false;
+      const apply = () => {
+        const query = String(search && search.value || '').trim().toLowerCase();
+        const items = Array.from(list.querySelectorAll('[data-comm-item]'));
+        let matched = 0;
+        items.forEach((item) => {
+          const direction = String(item.dataset.commDirection || '').toLowerCase();
+          const text = String(item.textContent || '').toLowerCase();
+          const inbound = /in|received|inbound/.test(direction);
+          const outbound = /out|sent|outbound/.test(direction);
+          const dirOk = filter === 'all' || (filter === 'inbound' && inbound) || (filter === 'outbound' && outbound);
+          const queryOk = !query || text.includes(query);
+          const match = dirOk && queryOk;
+          if (match) matched += 1;
+          const withinLimit = expanded || matched <= 8;
+          item.hidden = !match || !withinLimit;
+        });
+        if (showAllBtn) {
+          showAllBtn.hidden = expanded || matched <= 8;
+          showAllBtn.textContent = `Show all (${matched})`;
+        }
+      };
+      workspace.querySelectorAll('[data-comm-filter]').forEach((button) => {
+        button.addEventListener('click', () => {
+          filter = button.getAttribute('data-comm-filter') || 'all';
+          workspace.querySelectorAll('[data-comm-filter]').forEach((node) => node.classList.toggle('is-active', node === button));
+          apply();
+        });
+      });
+      search?.addEventListener('input', apply);
+      showAllBtn?.addEventListener('click', () => {
+        expanded = true;
+        apply();
+      });
+      apply();
+    });
+    root.querySelectorAll('[data-doc-workspace]').forEach((workspace) => {
+      const search = workspace.querySelector('[data-doc-search]');
+      let type = 'all';
+      const apply = () => {
+        const query = String(search && search.value || '').trim().toLowerCase();
+        workspace.querySelectorAll('[data-document-id]').forEach((row) => {
+          const category = String(row.dataset.docCategory || '').toLowerCase();
+          const text = String(row.textContent || '').toLowerCase();
+          const typeOk = type === 'all' || category === String(type).toLowerCase();
+          const queryOk = !query || text.includes(query);
+          row.hidden = !(typeOk && queryOk);
+        });
+      };
+      workspace.querySelectorAll('[data-doc-type]').forEach((button) => {
+        button.addEventListener('click', () => {
+          type = button.getAttribute('data-doc-type') || 'all';
+          workspace.querySelectorAll('[data-doc-type]').forEach((node) => node.classList.toggle('is-active', node === button));
+          apply();
+        });
+      });
+      search?.addEventListener('input', apply);
+      apply();
+    });
   }
   function recordSections(event) {
     const eventId = event.id;
@@ -776,46 +926,68 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const quoteLines = (event.quote || []).map((line) => `<li>${escapeHtml(line.name || line.category || 'Line')} · qty ${line.quantity == null || line.quantity === '' ? 'unavailable' : escapeHtml(line.quantity)} · price ${line.unitPrice == null || line.unitPrice === '' ? 'unavailable' : escapeHtml(line.unitPrice)} · cost ${line.internalCost == null || line.internalCost === '' ? 'unavailable' : escapeHtml(line.internalCost)}</li>`).join('') || '<li>No quote lines on this event.</li>';
     const targetLabel = quote.targetState === 'recorded'
       ? moneyCents(quote.recordedTargetCents)
-      : 'Unavailable';
+      : '';
     const pricedLabel = quote.priced
       ? (quote.linePartial ? `Partial ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents))
-      : (quote.recordedZero ? 'Recorded zero' : 'Unavailable');
-    const compliance = (event.compliance || []).map((item) => `<li>${escapeHtml(item.name || 'Requirement')} · ${escapeHtml(item.status || 'Unavailable')} · ${escapeHtml(item.dueDate || 'Due date unavailable')}</li>`).join('') || '<li>No compliance row on this event.</li>';
+      : (quote.recordedZero ? 'Recorded zero' : '');
+    const complianceRows = Array.isArray(event.compliance) ? event.compliance : [];
+    const compliance = complianceRows.map((item) => `<li>${escapeHtml(item.name || 'Requirement')} · ${escapeHtml(item.status || 'Unavailable')} · ${escapeHtml(item.dueDate || 'Due date unavailable')}</li>`).join('') || '<li>No compliance row on this event.</li>';
     const post = event.postEvent || {};
     const reviewRequested = Object.prototype.hasOwnProperty.call(post, 'reviewRequested')
       ? (post.reviewRequested ? 'Yes' : 'No')
-      : 'Unavailable';
+      : '';
     const reviewReceived = Object.prototype.hasOwnProperty.call(post, 'reviewReceived')
       ? (post.reviewReceived ? 'Yes' : 'No')
-      : 'Unavailable';
+      : '';
     const acquired = crmApi() ? crmApi().acquisitionOf(event) : { kind: 'unknown', label: '', leadSource: '', utmSource: '', utmCampaign: '' };
     const acquisitionLabel = acquired.kind === 'unknown'
       ? 'Unknown (not recorded)'
       : `${acquired.label || acquired.kind} (${acquired.kind})`;
-    const timeLabel = (value) => {
-      if (value == null || value === '') return '';
-      return typeof humanTime === 'function' ? humanTime(value) : value;
-    };
     const paymentAmount = Object.prototype.hasOwnProperty.call(payment, 'amountPaid') && payment.amountPaid !== '' && payment.amountPaid != null
       ? payment.amountPaid
       : '';
     const depositAmount = Object.prototype.hasOwnProperty.call(payment, 'depositRequired') && payment.depositRequired !== '' && payment.depositRequired != null
       ? payment.depositRequired
       : '';
+    const startLabel = runOfShowTime(event.startTime, event);
+    const endLabel = runOfShowTime(event.endTime, event);
+    const setupAccess = runOfShowTime(setup.setupTime, event);
+    const strikeLabel = runOfShowTime(setup.strikeTime, event);
+    const guestCount = event.guestCount == null || event.guestCount === '' ? '' : event.guestCount;
+    const mailRows = Array.isArray(event.emailActivity) ? event.emailActivity.length : 0;
+    const docRows = Array.isArray(event.documents) ? event.documents.length : 0;
+    const quoteLineCount = Array.isArray(event.quote) ? event.quote.length : 0;
+    const notesHtml = linkifyCommunicationNotes(setup.communicationNotes);
+    const clientMissing = countMissingFields([event.company, event.contactName, event.contactEmail, event.contactPhone, event.eventType]);
+    const discoveryMissing = countMissingFields([setup.planningStage, setup.budgetRange, setup.venueStatus, setup.internalOwner, setup.stakeholders, event.nextAction]);
+    const dateMissing = countMissingFields([event.eventDate, event.venue, event.city, event.state, setup.timeZone || eventTz(event), setup.venueContact]);
+    const goalsMissing = countMissingFields([setup.primaryGoal, event.eventGoal, event.eventFormat, event.clientExpectations, event.knownRisks, guestCount]);
+    const quoteMissing = countMissingFields([
+      quote.targetState === 'recorded' ? 'ok' : '',
+      quote.priced || quote.recordedZero ? 'ok' : '',
+      payment.status,
+      paymentAmount,
+      depositAmount,
+      payment.balanceDueDate
+    ]);
+    const runMissing = countMissingFields([startLabel, endLabel, setupAccess, strikeLabel, setup.experienceDuration, setup.trainingFormat, setup.gameFormat]);
+    const logisticsMissing = countMissingFields([setup.parkingInstructions, setup.travelNeeds, setup.powerInternet, setup.accessibilityNeeds, setup.layoutNotes, setup.productionNotes, setup.equipmentSource, setup.avNeeded]);
+    const postMissing = countMissingFields([post.clientFeedback, post.whatWentWell, post.painPoints, post.changesForNextTime, reviewRequested, reviewReceived, post.rebookingLikelihood]);
+    const kpi = (inner) => `<div class="kpi-autofit prop-rows">${inner}</div>`;
     return [
-      workspaceSection(eventId, 'client-contact', 'Client and contact', `<div class="lifecycle-summary">${recordedLine('Company / client', event.company)}${recordedLine('Contact name', event.contactName)}${recordedLine('Contact email', event.contactEmail)}${recordedLine('Contact phone', event.contactPhone)}${recordedLine('Event type', event.eventType)}</div>`),
-      workspaceSection(eventId, 'discovery', 'Discovery and setup', `<div class="lifecycle-summary">${recordedLine('Planning', setup.planningStage)}${recordedLine('Budget range', setup.budgetRange)}${recordedLine('Venue status', setup.venueStatus)}${recordedLine('Owner', setup.internalOwner)}${recordedLine('Stakeholders', setup.stakeholders)}${recordedLine('Next action', event.nextAction)}</div>`),
-      workspaceSection(eventId, 'date-venue', 'Event date and venue', `<div class="lifecycle-summary">${recordedLine('Event date', event.eventDate)}${recordedLine('Venue', event.venue)}${recordedLine('City', event.city)}${recordedLine('State', event.state)}${recordedLine('Time zone', setup.timeZone)}${recordedLine('Venue contact', setup.venueContact)}</div>`),
-      workspaceSection(eventId, 'goals', 'Event goals', `<div class="lifecycle-summary">${recordedLine('Primary goal', setup.primaryGoal)}${recordedLine('Event goal', event.eventGoal)}${recordedLine('Event format', event.eventFormat)}${recordedLine('Client expectations', event.clientExpectations)}${recordedLine('Known risks', event.knownRisks)}${recordedLine('Guest count', event.guestCount == null || event.guestCount === '' ? '' : event.guestCount)}</div>`),
-      workspaceSection(eventId, 'quote-payment', 'Quote and payment', `<div class="lifecycle-summary">${recordedLine('Recorded target quote', targetLabel)}${recordedLine('Priced line items', pricedLabel)}${recordedLine('Payment status', payment.status)}${recordedLine('Amount paid (event payment field)', paymentAmount)}${recordedLine('Deposit required', depositAmount)}${recordedLine('Balance due date', payment.balanceDueDate)}</div><p class="muted">A budget is not a quote. Payment initiated is not owner-confirmed receipt. Ledger invoices for this event are listed above.</p><ul>${quoteLines}</ul>`),
-      workspaceSection(eventId, 'compliance', 'Compliance', `<ul>${compliance}</ul>`),
-      workspaceSection(eventId, 'documents', 'Documents', documentRows(event)),
-      workspaceSection(eventId, 'run-of-show', 'Run of show', `<div class="lifecycle-summary">${recordedLine('Start', timeLabel(event.startTime))}${recordedLine('End', timeLabel(event.endTime))}${recordedLine('Setup access', timeLabel(setup.setupTime))}${recordedLine('Strike', timeLabel(setup.strikeTime))}${recordedLine('Experience duration', setup.experienceDuration)}${recordedLine('Training format', setup.trainingFormat)}${recordedLine('Game format', setup.gameFormat)}</div>`),
-      workspaceSection(eventId, 'logistics', 'Logistics', `<div class="lifecycle-summary">${recordedLine('Parking / loading', setup.parkingInstructions)}${recordedLine('Travel / lodging', setup.travelNeeds)}${recordedLine('Power / internet', setup.powerInternet)}${recordedLine('Accessibility', setup.accessibilityNeeds)}${recordedLine('Layout / floor plan', setup.layoutNotes)}${recordedLine('Production notes', setup.productionNotes)}${recordedLine('Equipment source', setup.equipmentSource)}${recordedLine('AV needed', setup.avNeeded)}</div>`),
-      workspaceSection(eventId, 'communications', 'Communications', `${communicationRows(event)}<div class="lifecycle-summary top-gap">${recordedLine('Gmail keywords', setup.gmailKeywords)}${recordedLine('Communication notes', setup.communicationNotes)}</div>`),
-      workspaceSection(eventId, 'crm-attribution', 'CRM attribution', `<div class="lifecycle-summary" data-crm-record-attribution>${recordedLine('Acquisition source', acquisitionLabel)}${recordedLine('Recorded lead source', acquired.leadSource || '')}${recordedLine('UTM source', acquired.utmSource || '')}${recordedLine('UTM campaign', acquired.utmCampaign || '')}<div><span>Communication channel</span><strong>Not inferred from acquisition. Channel evidence stays on Communications / Action Required.</strong></div></div>`),
-      workspaceSection(eventId, 'post-event', 'Post-event obligations', `<div class="lifecycle-summary">${recordedLine('Client feedback', post.clientFeedback)}${recordedLine('What went well', post.whatWentWell)}${recordedLine('Pain points', post.painPoints)}${recordedLine('Changes next time', post.changesForNextTime)}${recordedLine('Review requested', reviewRequested)}${recordedLine('Review received', reviewReceived)}${recordedLine('Rebooking likelihood', post.rebookingLikelihood)}</div><p class="muted">A past event date does not close open tasks, vendor bills, or payouts by itself.</p>`),
-      workspaceSection(eventId, 'reports', 'Reports', `${operationalReportPanel(buildScopedOperationalReport({ eventId }))}<p class="muted">Print/report output is limited to this validated event id (${escapeHtml(eventId)}). Overall portfolio reports stay off this record. Unknown amounts remain unknown. Target quotes are not added to priced totals. CSV export is omitted.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`),
+      workspaceSection(eventId, 'client-contact', 'Client and contact', kpi(`${recordedLine('Company / client', event.company)}${recordedLine('Contact name', event.contactName)}${recordedLine('Contact email', event.contactEmail)}${recordedLine('Contact phone', event.contactPhone)}${recordedLine('Event type', event.eventType)}`), { open: true, missing: clientMissing }),
+      workspaceSection(eventId, 'discovery', 'Discovery and setup', kpi(`${recordedLine('Planning', setup.planningStage)}${recordedLine('Budget range', setup.budgetRange)}${recordedLine('Venue status', setup.venueStatus)}${recordedLine('Owner', setup.internalOwner)}${recordedLine('Stakeholders', setup.stakeholders, { full: true })}${recordedLine('Next action', event.nextAction, { full: true })}`), { open: true, missing: discoveryMissing }),
+      workspaceSection(eventId, 'date-venue', 'Event date and venue', kpi(`${recordedLine('Event date', event.eventDate ? dateLabel(event.eventDate, event) : '')}${recordedLine('Venue', event.venue)}${recordedLine('City', event.city)}${recordedLine('State', event.state)}${recordedLine('Time zone', setup.timeZone || eventTz(event))}${recordedLine('Venue contact', setup.venueContact)}`), { open: true, missing: dateMissing }),
+      workspaceSection(eventId, 'goals', 'Event goals', kpi(`${recordedLine('Primary goal', setup.primaryGoal)}${recordedLine('Event goal', event.eventGoal, { full: true })}${recordedLine('Event format', event.eventFormat)}${recordedLine('Client expectations', event.clientExpectations, { full: true })}${recordedLine('Known risks', event.knownRisks, { full: true })}${recordedLine('Guest count', guestCount)}`), { open: true, missing: goalsMissing }),
+      workspaceSection(eventId, 'quote-payment', 'Quote / Line Items', `${kpi(`${recordedLine('Recorded target quote', targetLabel, { money: Boolean(targetLabel) })}${recordedLine('Priced line items', pricedLabel, { money: Boolean(pricedLabel) && pricedLabel !== 'Recorded zero' })}${recordedLine('Payment status', payment.status)}${recordedLine('Amount paid (event payment field)', paymentAmount, { money: Boolean(paymentAmount) })}${recordedLine('Deposit required', depositAmount, { money: Boolean(depositAmount) })}${recordedLine('Balance due date', payment.balanceDueDate)}`)}<p class="muted">A budget is not a quote. Payment initiated is not owner-confirmed receipt. Ledger invoices for this event are listed above.</p><ul>${quoteLines}</ul>`, { open: false, count: quoteLineCount, missing: quoteMissing }),
+      workspaceSection(eventId, 'compliance', 'Compliance', `<ul>${compliance}</ul>`, { open: false, count: complianceRows.length }),
+      workspaceSection(eventId, 'documents', 'Documents', documentRows(event), { open: false, count: docRows }),
+      workspaceSection(eventId, 'run-of-show', 'Run of show', kpi(`${recordedLine('Start', startLabel)}${recordedLine('End', endLabel)}${recordedLine('Setup access', setupAccess)}${recordedLine('Strike', strikeLabel)}${recordedLine('Experience duration', setup.experienceDuration)}${recordedLine('Training format', setup.trainingFormat)}${recordedLine('Game format', setup.gameFormat)}`), { open: true, missing: runMissing }),
+      workspaceSection(eventId, 'logistics', 'Logistics', kpi(`${recordedLine('Parking / loading', setup.parkingInstructions, { full: true })}${recordedLine('Travel / lodging', setup.travelNeeds, { full: true })}${recordedLine('Power / internet', setup.powerInternet)}${recordedLine('Accessibility', setup.accessibilityNeeds, { full: true })}${recordedLine('Layout / floor plan', setup.layoutNotes, { full: true })}${recordedLine('Production notes', setup.productionNotes, { full: true })}${recordedLine('Equipment source', setup.equipmentSource)}${recordedLine('AV needed', setup.avNeeded)}`), { open: true, missing: logisticsMissing }),
+      workspaceSection(eventId, 'communications', 'Communications', `${communicationRows(event)}<div class="kpi-autofit prop-rows top-gap">${recordedLine('Gmail keywords', setup.gmailKeywords)}${recordedLine('Communication notes', notesHtml ? notesHtml : '', notesHtml ? { html: true, full: true } : { full: true })}</div>`, { open: false, count: mailRows }),
+      workspaceSection(eventId, 'crm-attribution', 'CRM attribution', `<div class="kpi-autofit prop-rows" data-crm-record-attribution>${recordedLine('Acquisition source', acquisitionLabel)}${recordedLine('Recorded lead source', acquired.leadSource || '')}${recordedLine('UTM source', acquired.utmSource || '')}${recordedLine('UTM campaign', acquired.utmCampaign || '')}<div data-span="full"><span>Communication channel</span><strong>Not inferred from acquisition. Channel evidence stays on Communications / Action Required.</strong></div></div>`, { open: false }),
+      workspaceSection(eventId, 'post-event', 'Post-event obligations', `${kpi(`${recordedLine('Client feedback', post.clientFeedback, { full: true })}${recordedLine('What went well', post.whatWentWell, { full: true })}${recordedLine('Pain points', post.painPoints, { full: true })}${recordedLine('Changes next time', post.changesForNextTime, { full: true })}${recordedLine('Review requested', reviewRequested)}${recordedLine('Review received', reviewReceived)}${recordedLine('Rebooking likelihood', post.rebookingLikelihood)}`)}<p class="muted">A past event date does not close open tasks, vendor bills, or payouts by itself.</p>`, { open: false, missing: postMissing }),
+      workspaceSection(eventId, 'reports', 'Financial Summary & Operational Report', `${operationalReportPanel(buildScopedOperationalReport({ eventId }))}<p class="muted">Print/report output is limited to this validated event id (${escapeHtml(eventId)}). Overall portfolio reports stay off this record. Unknown amounts remain unknown. Target quotes are not added to priced totals. CSV export is omitted.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`, { open: true }),
       `<p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record. No delete control is on this record.</p>`
     ].join('');
   }
@@ -833,8 +1005,17 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     }
     selectedId = event.id;
     const staff = (event.staff || []).map((person) => `${escapeHtml(person.name || 'Unnamed')} · ${escapeHtml(person.role || 'Staff')}`).join(', ') || 'No staffing row on this event.';
-    const taskItems = (event.tasks || []).map((task) => `<li data-task-id="${escapeHtml(task.id)}">${escapeHtml(task.title || 'Untitled task')} · ${escapeHtml(task.dueDate || 'No due date')} · ${escapeHtml(task.status || 'Open')}</li>`).join('') || '<li>No task on this event.</li>';
-    const html = `<div class="command-view-shell">${viewHeader('Read-only record', event.eventName || 'Untitled event', 'One event. The sheet is not changed from this page.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status unavailable')} · ${escapeHtml(event.eventDate || 'Date unavailable')} · ${escapeHtml(event.venue || 'Venue unavailable')}</p>${workspaceSection(event.id, 'tasks', 'Tasks', `<ul>${taskItems}</ul>`)}${workspaceSection(event.id, 'staffing', 'Staffing', `<p data-record-staff>${staff}</p>`)}${workspaceSection(event.id, 'invoices', 'Invoices', `<div data-record-ledger>${recordLedgerInner(event.id)}</div>`)}${recordSections(event)}</article></div></div>`;
+    const allTasks = Array.isArray(event.tasks) ? event.tasks : [];
+    const openTasks = allTasks.filter((task) => taskOpen(task));
+    const completedTasks = allTasks.filter((task) => !taskOpen(task));
+    const taskItem = (task) => `<li data-task-id="${escapeHtml(task.id)}">${escapeHtml(task.title || 'Untitled task')} · ${escapeHtml(task.dueDate || 'No due date')} · ${escapeHtml(task.status || 'Open')}</li>`;
+    const openTaskHtml = openTasks.map(taskItem).join('') || '<li>No open task on this event.</li>';
+    const completedTaskHtml = completedTasks.length
+      ? `<details class="workspace-completed-tasks"><summary>Completed Tasks <span class="workspace-count">${completedTasks.length}</span></summary><ul>${completedTasks.map(taskItem).join('')}</ul></details>`
+      : '<p class="muted">No completed tasks on this event.</p>';
+    const tasksBody = `<ul data-open-tasks>${openTaskHtml}</ul>${completedTaskHtml}`;
+    const headerDate = event.eventDate ? dateLabel(event.eventDate, event) : 'Date unavailable';
+    const html = `<div class="command-view-shell">${viewHeader('Read-only record', event.eventName || 'Untitled event', 'One event. The sheet is not changed from this page.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status unavailable')} · ${escapeHtml(headerDate)} · ${escapeHtml(event.venue || 'Venue unavailable')}</p>${workspaceSection(event.id, 'tasks', 'Open Tasks', tasksBody, { open: true, count: openTasks.length })}${workspaceSection(event.id, 'staffing', 'Staffing', `<p data-record-staff>${staff}</p>`, { open: true, count: Array.isArray(event.staff) ? event.staff.length : 0 })}${workspaceSection(event.id, 'invoices', 'Invoices', `<div data-record-ledger>${recordLedgerInner(event.id)}</div>`, { open: true })}${recordSections(event)}</article></div></div>`;
     if (window.lvptRecordGeneration !== generation) return;
     view.innerHTML = html;
     if (typeof renderEditor === 'function') renderEditor();
@@ -852,6 +1033,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     });
     bindEventOpeners(view);
     bindLedgerRetry(view);
+    bindWorkspaceFilters(view);
     view.querySelector('[data-print-record]')?.addEventListener('click', () => {
       const recordEvent = eventById(event.id);
       if (!recordEvent) {
@@ -875,6 +1057,32 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     });
   }
 
+  function followUpDueItems(scopeEvents) {
+    const api = cadenceApi();
+    if (!api || typeof api.buildFollowUpDueLane !== 'function') return [];
+    return api.buildFollowUpDueLane(scopeEvents || events, { now: new Date(), allEvents: events }) || [];
+  }
+  function followUpDueCard(item) {
+    const title = item.ruleName || 'Follow-up';
+    const company = item.company || item.eventId || 'Event';
+    return `<article class="followup-item" data-follow-up-rule="${escapeHtml(item.ruleId || '')}" data-event-id="${escapeHtml(item.eventId || '')}"><div class="followup-icon">!</div><div><h3>${escapeHtml(title)}</h3><p><strong>${escapeHtml(company)}</strong> · ${escapeHtml(item.reasonForContact || '')}</p><p class="muted">${escapeHtml(item.suggestedAngle || '')}</p></div><div class="followup-item-meta"><strong>Follow-Up Due</strong>${item.dueDate ? dateLabel(item.dueDate) : 'Review'}${item.eventId ? `<div class="review-actions"><button type="button" class="btn small" data-open-event="${escapeHtml(item.eventId)}">Open Record</button></div>` : ''}</div></article>`;
+  }
+  function followUpDueSection(items) {
+    if (!items.length) return '';
+    return `<section class="followup-due-lane" data-follow-up-due><h3>Follow-Up Due</h3><p class="muted">Read-only cadence suggestions. No send controls.</p><div class="followup-grid">${items.map(followUpDueCard).join('')}</div></section>`;
+  }
+  function followUpDuePipelineColumn(items) {
+    if (!items.length) return '';
+    const cards = items.map((item) => {
+      const title = item.ruleName || 'Follow-up';
+      const next = item.suggestedAngle || item.reasonForContact || 'Review cadence';
+      const openAttr = item.eventId
+        ? ` data-open-event="${escapeHtml(item.eventId)}" data-event-id="${escapeHtml(item.eventId)}"`
+        : '';
+      return `<button type="button" class="pipeline-card"${openAttr} data-follow-up-rule="${escapeHtml(item.ruleId || '')}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(item.reasonForContact || 'Follow-up due')}</p><p class="muted">${escapeHtml(item.company || item.eventId || '')}</p><div class="pipeline-card-meta"><span>${item.dueDate ? escapeHtml(dateLabel(item.dueDate)) : 'Review'}</span></div><p class="pipeline-card-next">Angle: ${escapeHtml(next)}</p></button>`;
+    }).join('');
+    return `<section class="pipeline-column" data-follow-up-due-column><div class="pipeline-column-head"><h3>Follow-Up Due</h3><span class="pipeline-column-count">${items.length}</span></div><div class="pipeline-cards">${cards}</div></section>`;
+  }
   function renderPipeline(view) {
     if (snapshotBlocks(view, 'Sales Pipeline', 'Present & Future Opportunities')) return;
     const items = events.filter((event) => isPipeline(event) || laneOf(event).lane === 'review');
@@ -888,10 +1096,12 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
       const matches = items.filter(group.match);
       return `<section class="pipeline-column"><div class="pipeline-column-head"><h3>${escapeHtml(group.label)}</h3><span class="pipeline-column-count">${matches.length}</span></div><div class="pipeline-cards">${matches.map(pipelineCard).join('') || '<div class="command-empty">None</div>'}</div></section>`;
     }).join('');
+    const dueItems = followUpDueItems(items);
     const attribution = crmApi()
       ? crmApi().formatAttributionPanel(crmApi().summarizeEventAcquisition(events), escapeHtml)
-      : '';
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Booked events are listed in Active, not in a handoff column. Dates use America/Los_Angeles.')}<div class="command-view-body">${attribution}${summarizeQuotes(items)}<p><a class="btn small" href="#" data-command-jump="active">Open Active events</a></p><div class="pipeline-board top-gap">${columns}</div></div></div>`;
+      : '<p class="muted">CRM attribution model unavailable.</p>';
+    const attributionDrawer = `<details class="crm-attribution-drawer" data-crm-attribution-drawer><summary>CRM attribution</summary><div class="workspace-accordion-body">${attribution}</div></details>`;
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Booked events are listed in Active, not in a handoff column. Dates use America/Los_Angeles.')}<div class="command-view-body">${summarizeQuotes(items)}<p><a class="btn small" href="#" data-command-jump="active">Open Active events</a></p>${followUpDueSection(dueItems)}<div class="pipeline-board top-gap">${columns}${followUpDuePipelineColumn(dueItems)}</div>${attributionDrawer}</div></div>`;
     view.querySelector('[data-command-jump="active"]')?.addEventListener('click', (clickEvent) => { clickEvent.preventDefault(); setCommandView('active'); });
     bindEventOpeners(view);
   }
@@ -903,7 +1113,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const next = String(event.nextAction || '').trim().slice(0, 90) || 'No next action recorded';
     const acquired = crmApi() ? crmApi().acquisitionChannelLines(event) : { kind: 'unknown', acquisitionText: 'Acquisition: Unknown (not recorded)' };
-    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(laneOf(event).stage)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span>${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${sheetLinked ? ' · Proposal linked' : ''}</p></button>`;
+    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(laneOf(event).stage)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate, event)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span class="money-nowrap">${escapeHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${sheetLinked ? ' · Proposal linked' : ''}</p></button>`;
   }
 
   function renderPortfolio(view, mode) {
@@ -915,6 +1125,36 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     bindEventOpeners(view);
   }
 
+  function portfolioPaymentLabel(event) {
+    const api = financeApi();
+    const picture = overviewPictureState();
+    const report = picture.ready && picture.data && picture.data.report ? picture.data.report : null;
+    const payments = report && Array.isArray(report.payments) ? report.payments : null;
+    const byEvent = report && Array.isArray(report.byEvent) ? report.byEvent : null;
+    const rollupRow = byEvent ? byEvent.find((row) => row && String(row.eventId) === String(event.id)) : null;
+    if (api && typeof api.plainEnglishPaymentLabel === 'function' && payments) {
+      const result = api.plainEnglishPaymentLabel({
+        payments,
+        eventId: event.id,
+        rollup: rollupRow
+          ? { collectedCents: rollupRow.collectedCents, outstandingCents: rollupRow.outstandingCents }
+          : null
+      });
+      return {
+        label: result && result.label ? result.label : 'Not recorded',
+        footnote: result && result.footnote ? result.footnote : 'Ledger only · not bank-verified',
+        kind: result && result.kind ? result.kind : 'none'
+      };
+    }
+    if (event.paymentRecorded) {
+      return {
+        label: money(event.payment && event.payment.amountPaid),
+        footnote: 'Ledger only · not bank-verified',
+        kind: 'ledger_fallback'
+      };
+    }
+    return { label: 'Not recorded', footnote: 'Ledger only · not bank-verified', kind: 'none' };
+  }
   function portfolioCard(event) {
     const historical = historicalProposalForEvent(event);
     const lane = laneOf(event);
@@ -931,11 +1171,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const pastNote = `${lane.past && !lane.completed ? '<p>Past date. The recorded status was not changed to completed.</p>' : ''}${lane.needsOutcomeReview ? '<p>Outcome needs review.</p>' : ''}${paymentNote}`;
     const quote = statusApi().quoteCoverage(event);
     const value = quote.priced ? (quote.linePartial ? `Partial lines ${moneyCents(quote.pricedCents)}` : moneyCents(quote.pricedCents)) : quote.recordedZero ? 'Recorded zero' : quote.targetState === 'recorded' ? `Recorded target ${moneyCents(quote.recordedTargetCents)}` : 'Unpriced';
-    const collected = event.paymentRecorded ? money(event.payment.amountPaid) : 'Not recorded';
+    const paymentInfo = portfolioPaymentLabel(event);
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const sheetUrl = explicitProposalUrl(event);
     const previewId = sheetUrl ? `event-${event.id}` : (historical ? historical.id : '');
-    return `<article class="portfolio-card" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(lane.stage)}" data-lane="${escapeHtml(lane.lane)}" data-proposal-state="${escapeHtml(linkState)}"${historical ? ` data-historical-proposal-id="${escapeHtml(historical.id)}"` : ''}><p class="eyebrow small">${escapeHtml(lane.raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}${historicalNote}<div class="portfolio-card-grid"><div><span>Priced quote</span><strong>${escapeHtml(value)}</strong></div><div><span>Ledger collected</span><strong>${escapeHtml(collected)}</strong></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong data-proposal-label>${escapeHtml(proposalLabel)}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${previewId ? `<button class="btn small" data-preview-proposal="${escapeHtml(previewId)}">Preview Proposal</button>` : ''}</div></article>`;
+    return `<article class="portfolio-card" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(lane.stage)}" data-lane="${escapeHtml(lane.lane)}" data-proposal-state="${escapeHtml(linkState)}"${historical ? ` data-historical-proposal-id="${escapeHtml(historical.id)}"` : ''}><p class="eyebrow small">${escapeHtml(lane.raw || event.status || 'Status not recorded')}</p><h3>${escapeHtml(title)}</h3><p>${dateLabel(event.eventDate, event)}<br>${escapeHtml(event.venue || 'Venue TBD')}</p>${pastNote}${historicalNote}<div class="portfolio-card-grid"><div><span>Priced quote</span><strong class="money-nowrap">${escapeHtml(value)}</strong></div><div data-payment-label-kind="${escapeHtml(paymentInfo.kind)}"><span>Payment</span><strong class="money-nowrap">${escapeHtml(paymentInfo.label)}</strong><p class="muted">${escapeHtml(paymentInfo.footnote)}</p></div><div><span>Open Items</span><strong>${openTaskCount(event)}</strong></div><div><span>Proposal</span><strong data-proposal-label>${escapeHtml(proposalLabel)}</strong></div></div><div class="actions"><button class="btn small primary" data-open-event="${escapeHtml(event.id)}">Open Record</button>${previewId ? `<button class="btn small" data-preview-proposal="${escapeHtml(previewId)}">Preview Proposal</button>` : ''}</div></article>`;
   }
 
   function renderProposals(view) {
@@ -1039,9 +1279,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   function renderFollowUp(view) {
     if (snapshotBlocks(view, 'Email Intelligence', 'Client Follow-Up')) return;
     const items=deriveFollowUps();
+    const dueItems = followUpDueItems(events);
     const action='';
-    const stats=automationState.stats||{};
-    view.innerHTML=`<div class="command-view-shell">${viewHeader('Email Intelligence','Client Follow-Up','Open tasks recorded on the sheet. A past event date does not complete a task. Schedule review is off in this preview.',action)}<div class="command-view-body"><p class="muted">Needs attention: ${items.length}. These are recorded tasks, not a generated follow-up list.</p><div class="followup-grid">${items.map(followUpCard).join('')||'<div class="command-empty">No open sheet task is due within seven days.</div>'}</div></div></div>`;
+    view.innerHTML=`<div class="command-view-shell">${viewHeader('Email Intelligence','Client Follow-Up','Open tasks recorded on the sheet. A past event date does not complete a task. Schedule review is off in this preview.',action)}<div class="command-view-body">${followUpDueSection(dueItems)}<p class="muted">Needs attention: ${items.length}. These are recorded tasks, not a generated follow-up list.</p><div class="followup-grid">${items.map(followUpCard).join('')||'<div class="command-empty">No open sheet task is due within seven days.</div>'}</div></div></div>`;
     bindEventOpeners(view);
     all('[data-review-item]').forEach(button=>button.addEventListener('click',()=>reviewAutomationItem(button.dataset.reviewItem,button.dataset.reviewStatus)));
   }

@@ -1,9 +1,25 @@
 # Local completion progress
 
 Persistent automation resume record for `remaining-spec.md` tasks R00–R31.
-Updated: 2026-11-26 23:15 -05:00 (America/New_York; T47 / R31 handoff supervisor revision).
+Updated: 2026-11-27 (America/New_York; browser-test accordion expand sweep for Stage 2 collapsed sections).
 Companion reconciliation: `docs/baselines/local-baseline-reconciliation.md`.
 Final handoff: `docs/COMMAND_CENTER_FINAL_HANDOFF.md`.
+
+## Stage 2 polish (2026-11-27)
+
+| Task ID | Status | Evidence |
+| --- | --- | --- |
+| Item 0 Sheet cleanup | BLOCKED_ENVIRONMENT | No Google Sheets write MCP/API client in this Cursor session. Skipped; CertaPro untouched; bulk-write guards intact. |
+| Item 1 Deposit Paid rollup | IMPLEMENTED_TESTED (unit pending Shell) | `event-finance.js` `partial_settled` + rollup; tests in `tests/event-finance.test.cjs` |
+| Item 2 Plain-English labels | IMPLEMENTED_TESTED (unit pending Shell) | Portfolio payment labels; Gmail/SMS coverage copy humanized; Overview keeps Ledger-recorded receipts |
+| Item 3 Compact CRM layout | IMPLEMENTED_TESTED (browser pending Shell) | Accordion workspace, KPI autofit, filters |
+| Item 4 Timezone / 1899 ROS | IMPLEMENTED_TESTED (unit pending Shell) | `public/v2/js/event-datetime.js` + `tests/event-datetime.test.mjs` |
+| Item 5 Pipeline attribution drawer | IMPLEMENTED_TESTED (browser pending Shell) | Collapsed drawer at bottom of Pipeline |
+| Item 6 Follow-up cadence | IMPLEMENTED_TESTED (unit pending Shell) | `lib/follow-up-cadence.mjs` + browser mirror + tests |
+| Item 7 Business overhead | IMPLEMENTED_TESTED (unit pending Shell) | `lib/business-expenses.mjs` + ledger/operating-picture + Event Finance section |
+| Acceptance fix | IMPLEMENTED (Shell verify blocked) | Restored lifecycle use of `formatDocumentAssociationHtml`; compact doc table + honesty attrs live in `documents.js`; `event-datetime`/`follow-up-cadence` remain before lifecycle in `app.js`; cache-busters bumped |
+| Browser accordion sweep | IMPLEMENTED (Shell verify blocked) | `expandCollapsedRecordSections` helper; evt-lead + delayed evt-active expand before document honesty `innerText`; pipeline CRM drawer starts collapsed then opens before attribution body read; Documents honesty line verified still present in `documents.js` + lifecycle fallback; overflow checks at 1280/375/280/260 unchanged |
+| Full verify | BLOCKED_ENVIRONMENT | Shell tool rejected in this session; owner must run `node .\tests\command-center-browser.test.mjs` (or `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/command-center-browser.test.mjs`) |
 
 Rules:
 

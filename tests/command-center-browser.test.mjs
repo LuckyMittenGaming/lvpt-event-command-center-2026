@@ -1030,6 +1030,53 @@ function overflow() {
   return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
 }
 
+/** Stage 2 record sections that start collapsed; expand before Playwright innerText body reads. */
+const COLLAPSED_RECORD_SECTIONS = [
+  'documents',
+  'communications',
+  'compliance',
+  'quote-payment',
+  'crm-attribution',
+  'post-event'
+];
+
+/**
+ * Assert named workspace accordions start closed, then open them (plus completed-tasks drawers)
+ * so subsequent innerText assertions can see honesty lines and section bodies.
+ */
+async function expandCollapsedRecordSections(eventId, {
+  collapsedSectionIds = COLLAPSED_RECORD_SECTIONS,
+  assertCollapsed = true
+} = {}) {
+  if (assertCollapsed) {
+    for (const sectionId of collapsedSectionIds) {
+      const state = await page.evaluate(({ id, section }) => {
+        const node = document.querySelector(`[data-record-event="${id}"] [data-workspace-section="${section}"]`);
+        if (!node) return { present: false, open: null };
+        return { present: true, open: Boolean(node.open) };
+      }, { id: eventId, section: sectionId });
+      if (!state.present) continue;
+      assert.equal(state.open, false, `${sectionId} on ${eventId} must start collapsed`);
+    }
+    const completedOpen = await page.evaluate((id) => {
+      const node = document.querySelector(`[data-record-event="${id}"] details.workspace-completed-tasks`);
+      if (!node) return null;
+      return Boolean(node.open);
+    }, eventId);
+    if (completedOpen !== null) {
+      assert.equal(completedOpen, false, `Completed Tasks on ${eventId} must start collapsed`);
+    }
+  }
+  await page.evaluate((id) => {
+    document.querySelectorAll(`[data-record-event="${id}"] details.workspace-accordion`).forEach((node) => {
+      node.open = true;
+    });
+    document.querySelectorAll(`[data-record-event="${id}"] details.workspace-completed-tasks`).forEach((node) => {
+      node.open = true;
+    });
+  }, eventId);
+}
+
 async function assertCompactPresentation({ expectCurrency = true } = {}) {
   const report = await page.evaluate(() => {
     const styleHidden = (sel) => {
@@ -1210,7 +1257,7 @@ try {
   assert.equal(await page.locator('#ownerSignInLink').count(), 1);
   await assertCompactPresentation({ expectCurrency: true });
   await assertCommandNavKeyboardFocus();
-  for (const width of [1280, 375, 320, 280]) {
+  for (const width of [1280, 375, 320, 280, 260]) {
     await page.setViewportSize({ width, height: 800 });
     await page.waitForTimeout(150);
     assert.equal(await overflow(), true, `horizontal overflow at ${width}px`);
@@ -1366,6 +1413,8 @@ try {
   });
   assert.equal(await page.locator('[data-record-event="evt-lead"]').getAttribute('data-record-event'), 'evt-lead');
   assert.equal(page.url().includes('sms-review'), false);
+  // Collapsed-by-default Stage 2 sections must start closed; expand before body innerText reads.
+  await expandCollapsedRecordSections('evt-lead');
   const record = await page.locator('[data-record-event="evt-lead"]').innerText();
   assert.match(record, /Synthetic Lead/);
   assert.match(record, /Lead Host/);
@@ -1385,7 +1434,8 @@ try {
   assert.equal(record.includes('user:secret'), false);
   const workspaceSections = [
     'client-contact', 'discovery', 'date-venue', 'goals', 'quote-payment', 'tasks', 'staffing',
-    'compliance', 'documents', 'run-of-show', 'logistics', 'communications', 'post-event', 'reports'
+    'compliance', 'documents', 'run-of-show', 'logistics', 'communications', 'crm-attribution',
+    'post-event', 'reports'
   ];
   for (const sectionId of workspaceSections) {
     const section = page.locator(`[data-record-event="evt-lead"] [data-workspace-section="${sectionId}"]`);
@@ -1401,6 +1451,7 @@ try {
   assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="compliance"]').innerText(), /Certificate of Insurance/);
   assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="post-event"]').innerText(), /Unavailable/);
   assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="quote-payment"]').innerText(), /Not Invoiced/);
+  assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="crm-attribution"]').innerText(), /Unknown \(not recorded\)|Acquisition source/i);
   assert.match(record, /No save control/);
   assert.match(record, /No delete control/);
   assert.equal(await page.locator('[data-record-event="evt-lead"] #saveEditorBtn').count(), 0);
@@ -1492,6 +1543,15 @@ try {
   await page.locator('[data-command-view="overview"]').click();
   await page.locator('[data-command-view="pipeline"]').click();
   await page.waitForTimeout(200);
+  const pipelineDrawerOpen = await page.evaluate(() => {
+    const node = document.querySelector('[data-crm-attribution-drawer]');
+    return node ? Boolean(node.open) : null;
+  });
+  assert.equal(pipelineDrawerOpen, false, 'Pipeline CRM attribution drawer must start collapsed');
+  await page.evaluate(() => {
+    const node = document.querySelector('[data-crm-attribution-drawer]');
+    if (node) node.open = true;
+  });
   const pipelineText = await page.locator('#commandView').innerText();
   assert.match(pipelineText, /Synthetic Lead/);
   assert.match(pipelineText, /Synthetic Awaiting/);
@@ -1499,6 +1559,7 @@ try {
   assert.match(pipelineText, /Cost not recorded/);
   assert.match(pipelineText, /Recorded target/);
   assert.match(pipelineText, /Unpriced/);
+  assert.match(pipelineText, /CRM attribution|Acquisition|Unknown \(not recorded\)/i);
   assert.equal(pipelineText.includes('Synthetic Processing'), false);
   await page.locator('[data-command-view="active"]').click();
   await page.waitForTimeout(200);
@@ -1850,11 +1911,14 @@ try {
   releaseLedger();
   releaseLedger = null;
   await page.waitForFunction(() => (document.querySelector('[data-record-event="evt-active"] [data-record-ledger]')?.innerText || '').includes('$222.00'));
+  // Documents (and other Stage 2 bodies) start collapsed — expand before honesty-line innerText.
+  await expandCollapsedRecordSections('evt-active');
   const delayed = await page.locator('[data-record-event="evt-active"]').innerText();
   assert.match(delayed, /Synthetic Booked/);
   assert.match(delayed, /Floor Lead/);
   assert.match(delayed, /\$222\.00/);
   assert.match(delayed, /2 document rows on this event/);
+  assert.match(delayed, /Document writes stay off/);
   assert.equal(await page.locator('[data-record-event="evt-active"] [data-document-id="doc-active-1"][data-document-link-state="linked"] a[data-document-link="linked"]').count(), 1);
   assert.equal(await page.locator('[data-record-event="evt-active"] [data-document-id="doc-active-1"] a').getAttribute('href'), 'https://example.test/docs/active-floor');
   assert.match(await page.locator('[data-record-event="evt-active"] [data-document-id="doc-active-2"]').innerText(), /Unsupported or invalid source link/);
@@ -1868,7 +1932,7 @@ try {
   assert.equal(delayed.includes('Lead-Only Proposal Packet'), false);
   assert.equal(delayed.includes('3 document rows on this event'), false);
   assert.equal(delayed.includes('Lead Unsupported Link'), false);
-  for (const sectionId of ['client-contact', 'discovery', 'date-venue', 'goals', 'quote-payment', 'tasks', 'staffing', 'compliance', 'run-of-show', 'logistics', 'communications', 'post-event']) {
+  for (const sectionId of ['client-contact', 'discovery', 'date-venue', 'goals', 'quote-payment', 'tasks', 'staffing', 'compliance', 'documents', 'run-of-show', 'logistics', 'communications', 'crm-attribution', 'post-event']) {
     assert.equal(await page.locator(`[data-record-event="evt-active"] [data-workspace-section="${sectionId}"]`).getAttribute('data-event-id'), 'evt-active');
   }
   assert.equal(await page.locator('#eventEditorPanel [data-field="company"]').inputValue(), 'Synthetic Active');
@@ -2444,6 +2508,8 @@ try {
 
   await assertLifecycleViewsAndRecord(1280);
   await assertLifecycleViewsAndRecord(375);
+  await assertLifecycleViewsAndRecord(280);
+  await assertLifecycleViewsAndRecord(260);
 
   // Failure matrix — each contract must fail for the real reason (not mock success).
   await page.setViewportSize({ width: 1280, height: 800 });

@@ -14,6 +14,7 @@ import {
   normalizeLocalReadiness,
   normalizeSourceHealth
 } from '../../../../lib/source-reliability.mjs';
+import { buildBusinessOverhead } from '../../../../lib/business-expenses.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -343,6 +344,14 @@ export async function GET(request: Request) {
     const report = finance.buildLedger({ payments, payouts });
     const exceptions = finance.documentedExceptions();
     const reconciliation = finance.buildFinanceReconciliation(report, exceptions);
+    // Business Expenses tab is optional — missing/empty must not fail the picture.
+    const businessOverhead = buildBusinessOverhead(
+      Object.prototype.hasOwnProperty.call(ledger, 'businessExpenses')
+        ? ledger.businessExpenses
+        : (Object.prototype.hasOwnProperty.call(ledger, 'business_expenses')
+          ? ledger.business_expenses
+          : null)
+    );
     const events = eventRows.map((event) => {
       const mail = Array.isArray(event.emailActivity) ? event.emailActivity as Raw[] : [];
       const staff = Array.isArray(event.staff) ? event.staff as Raw[] : [];
@@ -667,6 +676,7 @@ export async function GET(request: Request) {
       report,
       exceptions,
       reconciliation,
+      businessOverhead,
       events,
       tasks,
       taskConflicts,

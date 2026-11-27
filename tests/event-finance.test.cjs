@@ -1,5 +1,10 @@
 const assert = require('node:assert/strict');
-const { buildLedger, sourceStatus, documentedExceptions, buildFinanceReconciliation } = require('../public/v2/js/event-finance.js');
+const { buildLedger, sourceStatus, documentedExceptions, buildFinanceReconciliation, settlementKind, plainEnglishPaymentLabel } = require('../public/v2/js/event-finance.js');
+assert.equal(settlementKind('Deposit Paid'), 'partial_settled');
+assert.equal(settlementKind('Partial Payment'), 'partial_settled');
+assert.equal(settlementKind('Partially Paid'), 'partial_settled');
+assert.equal(settlementKind('Payment Initiated'), 'initiated_not_settled');
+assert.equal(settlementKind('Paid In Full'), 'ledger_settled');
 
 const niumOws = buildLedger({
   payments: [
@@ -654,5 +659,88 @@ const vendorDuplicateRecon = buildFinanceReconciliation(vendorDuplicateOnce, [])
 assert.equal(vendorDuplicateRecon.comparisons.find((row) => row.field === 'vendorCommitted').matches, true);
 assert.equal(vendorDuplicateRecon.qualifiedEventSums.vendorCommittedCents, 25000);
 assert.equal(vendorDuplicateRecon.global.vendorCommittedCents, 25000);
+
+// Stage 2 — Deposit Paid / Partial Payment rollup (CertaPro & Cowbell)
+const depositPaidPartial = buildLedger({
+  payments: [
+    {
+      paymentId: 'PAY-evt-certapro-painters-20270224',
+      eventId: 'evt-certapro-painters-20270224',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 11281.5,
+      amountPaid: 5640.75,
+      balanceDue: 5640.75,
+      paymentStatus: 'Deposit Paid'
+    },
+    {
+      paymentId: 'PAY-evt-cowbell-cyber-feb18',
+      eventId: 'evt-cowbell-cyber-feb18',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 16560,
+      amountPaid: 8280,
+      balanceDue: 8280,
+      paymentStatus: 'Deposit Paid'
+    },
+    {
+      paymentId: 'PAY-evt-partial-payment-demo',
+      eventId: 'evt-partial-payment-demo',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 1000,
+      amountPaid: 400,
+      balanceDue: 600,
+      paymentStatus: 'Partial Payment'
+    },
+    {
+      paymentId: 'PAY-evt-partially-paid-demo',
+      eventId: 'evt-partially-paid-demo',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 2000,
+      amountPaid: 500,
+      balanceDue: 1500,
+      paymentStatus: 'Partially Paid'
+    },
+    {
+      paymentId: 'PAY-evt-initiated-excluded',
+      eventId: 'evt-initiated-excluded',
+      ledgerRole: 'client_receivable',
+      invoiceTotal: 900,
+      amountPaid: 900,
+      balanceDue: 900,
+      paymentStatus: 'Payment Initiated'
+    }
+  ],
+  payouts: []
+});
+const certa = depositPaidPartial.byEvent.find((row) => row.eventId === 'evt-certapro-painters-20270224');
+const cowbell = depositPaidPartial.byEvent.find((row) => row.eventId === 'evt-cowbell-cyber-feb18');
+const partialPay = depositPaidPartial.byEvent.find((row) => row.eventId === 'evt-partial-payment-demo');
+const partiallyPaid = depositPaidPartial.byEvent.find((row) => row.eventId === 'evt-partially-paid-demo');
+const initiatedExcluded = depositPaidPartial.byEvent.find((row) => row.eventId === 'evt-initiated-excluded');
+assert.equal(depositPaidPartial.payments.find((row) => row.paymentId === 'PAY-evt-certapro-painters-20270224').settlement, 'partial_settled');
+assert.equal(certa.invoiceTotalCents, 1128150);
+assert.equal(certa.collectedCents, 564075);
+assert.equal(certa.outstandingCents, 564075);
+assert.equal(certa.bankVerified, false);
+assert.equal(cowbell.invoiceTotalCents, 1656000);
+assert.equal(cowbell.collectedCents, 828000);
+assert.equal(cowbell.outstandingCents, 828000);
+assert.equal(partialPay.collectedCents, 40000);
+assert.equal(partialPay.outstandingCents, 60000);
+assert.equal(partiallyPaid.collectedCents, 50000);
+assert.equal(partiallyPaid.outstandingCents, 150000);
+assert.equal(initiatedExcluded.collectedCents, 0, 'Payment Initiated stays out of settled receipts');
+assert.equal(initiatedExcluded.invoiceTotalCents, 90000);
+assert.equal(depositPaidPartial.money.verifiedClientReceiptsCents, 564075 + 828000 + 40000 + 50000);
+assert.equal(depositPaidPartial.money.initiatedNotSettledCents, 90000);
+assert.equal(depositPaidPartial.money.drawableCashCents, null);
+assert.equal(depositPaidPartial.payments.every((row) => row.bankVerified === false), true);
+const certaLabel = plainEnglishPaymentLabel({
+  eventId: 'evt-certapro-painters-20270224',
+  payments: depositPaidPartial.payments,
+  rollup: certa
+});
+assert.match(certaLabel.label, /Deposit Paid \(\$5,640\.75\)/);
+assert.match(certaLabel.label, /Balance Remaining \(\$5,640\.75\)/);
+assert.match(certaLabel.footnote, /not bank-verified/i);
 
 console.log('Event finance and source-status tests passed.');

@@ -66,12 +66,26 @@
     document.querySelectorAll('.portfolio-card').forEach((cardEl) => {
       const button = cardEl.querySelector('[data-open-event]');
       const slot = cardEl.querySelector('.portfolio-card-grid div:nth-child(2) strong');
+      const labelEl = cardEl.querySelector('.portfolio-card-grid div:nth-child(2) span');
       if (!button || !slot) return;
       if (!picture || !picture.report) {
         slot.textContent = 'Sheet unavailable';
         return;
       }
-      const row = (picture.report.byEvent || []).find((item) => item.eventId === button.getAttribute('data-open-event'));
+      const eventId = button.getAttribute('data-open-event');
+      const row = (picture.report.byEvent || []).find((item) => item.eventId === eventId);
+      const api = window.LVPTEventFinance;
+      if (api && typeof api.plainEnglishPaymentLabel === 'function') {
+        const labeled = api.plainEnglishPaymentLabel({
+          eventId,
+          payments: picture.report.payments || [],
+          rollup: row || null
+        });
+        if (labelEl) labelEl.textContent = 'Payment';
+        slot.textContent = labeled.label || (row ? money(row.collectedCents) : 'No sheet invoice');
+        return;
+      }
+      if (labelEl) labelEl.textContent = 'Collected (ledger)';
       slot.textContent = row ? money(row.collectedCents) : 'No sheet invoice';
     });
 
@@ -82,7 +96,7 @@
       const labelMoney = (field, cents) => incomplete.has(field) ? 'Incomplete' : money(cents);
       const values = [
         ['Client invoices', labelMoney('clientInvoiceTotal', report.clientInvoiceTotalCents)],
-        ['Ledger collected', labelMoney('verifiedClientReceipts', report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents)],
+        ['Collected (ledger)', labelMoney('verifiedClientReceipts', report.verifiedClientReceiptGaps ? null : report.verifiedClientReceiptsCents)],
         ['Outstanding', labelMoney('openClientExposure', report.openClientExposureCents)],
         ['Forecast margin', money(report.forecastMarginCents)]
       ];

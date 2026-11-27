@@ -568,6 +568,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
 
   function renderCommandView() {
     ensureShell();
+    window.lvptCommandViewGeneration = (window.lvptCommandViewGeneration || 0) + 1;
+    window.lvptActiveCommandView = commandView;
     all('[data-command-view]').forEach(button => button.classList.toggle('active', button.dataset.commandView === commandView));
     const view = $('#commandView');
     recordOpen = false;

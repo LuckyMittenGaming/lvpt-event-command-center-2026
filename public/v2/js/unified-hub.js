@@ -168,7 +168,20 @@
 
   let actionInboxPromise = null;
   let actionInboxResult = null;
+  let communicationsPromise = null;
+  let communicationsResult = null;
   let readGeneration = 0;
+
+  function stillOnCommandView(name, generation) {
+    if ((window.lvptCommandViewGeneration || 0) !== generation) return false;
+    if (document.querySelector('[data-record-event]')) return false;
+    const active = window.lvptActiveCommandView;
+    if (active != null && active !== '' && active !== name) return false;
+    const navActive = document.querySelector('#commandNav [data-command-view].active');
+    if (navActive && navActive.getAttribute('data-command-view') !== name) return false;
+    return true;
+  }
+
   async function loadActionInbox() {
     if (actionInboxResult) return actionInboxResult;
     if (actionInboxPromise) return actionInboxPromise;
@@ -182,10 +195,54 @@
     });
     return actionInboxPromise;
   }
+
+  function isReusableCommunicationsPayload(payload) {
+    if (!payload) return false;
+    const parts = [payload.session, payload.audit, payload.conversations, payload.rcs];
+    for (const part of parts) {
+      if (!part || part.ok !== true || part.status === 401 || part.status === 0) return false;
+    }
+    return Boolean(payload.session.data && payload.session.data.authenticated === true);
+  }
+
+  function failedCommunicationsPayload(reason) {
+    const row = { ok: false, status: 0, data: { reason: reason || 'timeout', message: 'The communications probe did not complete.' } };
+    return { session: row, audit: { ...row }, conversations: { ...row }, rcs: { ...row } };
+  }
+
+  async function loadCommunicationsExtras() {
+    if (communicationsResult && communicationsResult.generation === readGeneration) {
+      return communicationsResult.payload;
+    }
+    if (communicationsPromise) return communicationsPromise;
+    const generation = readGeneration;
+    const request = Promise.all([
+      readJson('/api/sms/staging/session', false, 12000),
+      readJson('/api/sms/staging/audit-health', false, 12000),
+      readJson('/api/sms/staging/conversations', false, 12000),
+      readJson('/api/sms/staging/rcs-collector', false, 12000)
+    ]).then(([session, audit, conversations, rcs]) => {
+      if (communicationsPromise === request) communicationsPromise = null;
+      const payload = { session, audit, conversations, rcs };
+      // Cache only successful authorized probes so a later view entry can retry failures.
+      if (generation === readGeneration && isReusableCommunicationsPayload(payload)) {
+        communicationsResult = { generation, payload };
+      }
+      return payload;
+    }).catch((error) => {
+      if (communicationsPromise === request) communicationsPromise = null;
+      return failedCommunicationsPayload((error && error.message) || 'timeout');
+    });
+    communicationsPromise = request;
+    return request;
+  }
+
   function clearOwnerReads() {
     readGeneration += 1;
     actionInboxPromise = null;
     actionInboxResult = null;
+    communicationsPromise = null;
+    communicationsResult = null;
     if (typeof window.lvptReloadOperatingPicture === 'function') window.lvptReloadOperatingPicture();
   }
   window.lvptClearOwnerReads = clearOwnerReads;
@@ -358,8 +415,10 @@
   }
 
   async function renderFinance(view) {
+    const viewGeneration = window.lvptCommandViewGeneration || 0;
     view.innerHTML = shell('Event finance', 'Invoice by invoice', 'Each Payments row stays separate. Client receipts, vendor bills, and payouts are not added together.', '<p class="muted">Reading the ledger…</p>');
     const result = await loadLedger();
+    if (!stillOnCommandView('finance', viewGeneration)) return;
     view.innerHTML = shell('Event finance', 'Invoice by invoice', 'Each Payments row stays separate. Client receipts, vendor bills, and payouts are not added together.', financeBody(result));
     view.querySelectorAll('[data-view-record]').forEach((button) => button.addEventListener('click', () => {
       if (typeof window.lvptOpenRecord === 'function') window.lvptOpenRecord(button.getAttribute('data-view-record'));
@@ -367,20 +426,24 @@
   }
 
   async function renderCommunications(view) {
+    const viewGeneration = window.lvptCommandViewGeneration || 0;
     view.innerHTML = shell('Communications', 'Gmail and approved SMS', 'The existing review workspace remains the place where a thread is opened. This hub only shows whether that session is healthy.', '<p class="muted">Checking the review session…</p>');
-    const generation = readGeneration;
-    const [session, audit, picture, conversations, rcs] = await Promise.all([
-      readJson('/api/sms/staging/session', false, 12000),
-      readJson('/api/sms/staging/audit-health', false, 12000),
-      loadLedger(),
-      readJson('/api/sms/staging/conversations', false, 12000),
-      readJson('/api/sms/staging/rcs-collector', false, 12000)
+    const ownerGeneration = readGeneration;
+    const [extras, picture] = await Promise.all([
+      loadCommunicationsExtras(),
+      loadLedger()
     ]);
-    if (generation !== readGeneration) return;
+    if (ownerGeneration !== readGeneration) return;
+    if (!stillOnCommandView('communications', viewGeneration)) return;
+    const session = extras.session;
+    const audit = extras.audit;
+    const conversations = extras.conversations;
+    const rcs = extras.rcs;
     let ledger = picture;
     if (session.status === 401) {
       actionInboxResult = null;
       actionInboxPromise = null;
+      communicationsResult = null;
       window.lvptOperatingPictureResult = null;
       window.lvptOperatingPicturePromise = null;
       ledger = { ok: false, status: 401, data: {} };
@@ -428,13 +491,15 @@
   }
 
   async function renderHealth(view) {
+    const viewGeneration = window.lvptCommandViewGeneration || 0;
     view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'A finished job and a fresh source are different. Missing timestamps stay unmarked.', '<p class="muted">Checking sources…</p>');
-    const generation = readGeneration;
+    const ownerGeneration = readGeneration;
     const [picture, inbox] = await Promise.all([
       loadLedger(),
       loadActionInbox()
     ]);
-    if (generation !== readGeneration) return;
+    if (ownerGeneration !== readGeneration) return;
+    if (!stillOnCommandView('health', viewGeneration)) return;
     if (picture.status === 401 || inbox.status === 401) {
       view.innerHTML = shell('Source health', 'What ran, and what is only claimed', 'Sign-in is separate from provider health.', `<p>${badge('AUTH REQUIRED')} Owner session required.</p><p>Provider status was not read. A blocked read is not a disconnected provider and not an empty source. Failed authorization does not invent zero totals.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>`);
       return;
@@ -622,10 +687,12 @@
   }
 
   function renderAction(view) {
+    const viewGeneration = window.lvptCommandViewGeneration || 0;
     view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups. A draft is not a sent message.', '<p class="muted">Reading the sheet, mailbox headers, and SMS metadata…</p>');
-    const generation = readGeneration;
+    const ownerGeneration = readGeneration;
     loadActionInbox().then((result) => {
-      if (generation !== readGeneration) return;
+      if (ownerGeneration !== readGeneration) return;
+      if (!stillOnCommandView('action', viewGeneration)) return;
       if (result.status === 401) {
         view.innerHTML = shell('New leads and action required', 'One inbox', 'Gmail, approved SMS, events, and follow-ups.', '<p class="hub-callout">Owner sign-in required. Action Required was not read. This is not an empty inbox.</p><p><a class="btn primary" href="/sms-review/index.html">Owner sign-in</a></p>');
         return;
@@ -773,6 +840,8 @@
   }
 
   window.lvptRenderUnifiedView = function (view, name) {
+    window.lvptCommandViewGeneration = (window.lvptCommandViewGeneration || 0) + 1;
+    window.lvptActiveCommandView = name;
     if (name === 'finance') renderFinance(view);
     else if (name === 'communications') renderCommunications(view);
     else if (name === 'action') renderAction(view);

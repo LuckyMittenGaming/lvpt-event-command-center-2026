@@ -837,8 +837,15 @@ delete ledgerIncompleteZerosAbsentFields.report.money.incompleteFields;
 let mode = 'unauthorized';
 let pictureGets = 0;
 let eventGets = 0;
+let inboxGets = 0;
+let sessionGets = 0;
+let auditGets = 0;
+let conversationsGets = 0;
+let rcsGets = 0;
 let releaseLedger = null;
 let releaseEvents = null;
+let releaseComms = null;
+const heldCommsSessions = [];
 const posts = [];
 const server = createServer((request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
@@ -951,11 +958,58 @@ await page.route('**/api/**', async (route) => {
     return;
   }
   if (pathname === '/api/sync/action-inbox') {
+    inboxGets += 1;
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(inbox) });
     return;
   }
   if (pathname === '/api/sms/staging/conversations') {
+    conversationsGets += 1;
+    if (mode === 'comms-fail') {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'conversations_unavailable' }) });
+      return;
+    }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, storedMessages: 0, threads: [], sendEnabled: false, messageTextIncluded: false }) });
+    return;
+  }
+  if (pathname === '/api/sms/staging/session') {
+    sessionGets += 1;
+    if (mode === 'delay-comms') {
+      await new Promise((resolve) => {
+        heldCommsSessions.push(resolve);
+        releaseComms = resolve;
+      });
+    }
+    if (mode === 'comms-fail') {
+      try {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'session_unavailable' }) });
+      } catch {
+        /* client may have aborted */
+      }
+      return;
+    }
+    try {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, authenticated: true }) });
+    } catch {
+      /* client may have aborted */
+    }
+    return;
+  }
+  if (pathname === '/api/sms/staging/audit-health') {
+    auditGets += 1;
+    if (mode === 'comms-fail') {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'audit_unavailable' }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, authenticated: true }) });
+    return;
+  }
+  if (pathname === '/api/sms/staging/rcs-collector') {
+    rcsGets += 1;
+    if (mode === 'comms-fail') {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'rcs_unavailable' }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, authenticated: true, live: false, records: [], collectorLabel: 'Not paired' }) });
     return;
   }
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, authenticated: true }) });
@@ -2002,27 +2056,221 @@ try {
   assert.equal(concurrentPicture.every((row) => row && row.ok), true);
   assert.equal(pictureGets, heldPictureGets);
 
-  const reuseBaseline = { events: eventGets, picture: pictureGets };
-  await page.locator('[data-command-view="overview"]').click();
-  await page.locator('[data-command-view="finance"]').click();
-  await page.waitForTimeout(200);
-  await page.locator('[data-command-view="communications"]').click();
-  await page.waitForTimeout(200);
-  await page.locator('[data-command-view="health"]').click();
-  await page.waitForTimeout(200);
+  // R19 / T33 — bounded requests across all ten views, records, delayed paints, explicit refresh.
+  const boundedViews = [
+    ['overview', /Confirmed upcoming|Priority open tasks|Current sheet/i],
+    ['action', /One inbox|Synthetic Lead|Action required/i],
+    ['pipeline', /Synthetic Lead|Pipeline/i],
+    ['active', /Synthetic Booked|Active/i],
+    ['archive', /Synthetic Past|Past/i],
+    ['proposals', /Proposal Library|Recorded on the sheet/i],
+    ['followup', /Send proposal|Follow-Up|follow/i],
+    ['finance', /Invoice by invoice|Event finance/i],
+    ['communications', /Gmail|Owner session|Communications/i],
+    ['health', /Source health|What ran/i]
+  ];
+
+  const reuseBaseline = {
+    events: eventGets,
+    picture: pictureGets,
+    inbox: inboxGets,
+    session: sessionGets,
+    audit: auditGets,
+    conversations: conversationsGets,
+    rcs: rcsGets
+  };
+  for (const [viewId, marker] of boundedViews) {
+    await page.locator(`[data-command-view="${viewId}"]`).click();
+    await page.waitForFunction((id) => {
+      const active = document.querySelector(`#commandNav [data-command-view="${id}"].active`);
+      return Boolean(active);
+    }, viewId);
+    await page.waitForFunction((pattern) => new RegExp(pattern, 'i').test(document.querySelector('#commandView')?.innerText || ''), marker.source);
+  }
+  // Second pass must reuse shared sheet / operating-picture / action-inbox / communications caches.
+  for (const [viewId] of boundedViews) {
+    await page.locator(`[data-command-view="${viewId}"]`).click();
+    await page.waitForTimeout(120);
+  }
   await page.evaluate(() => Promise.all([
     window.lvptLoadOperatingPicture(),
     window.lvptLoadOperatingPicture(),
     window.lvptLoadSheetSnapshot()
   ]));
-  assert.equal(eventGets, reuseBaseline.events, 'authorized sheet snapshot must stay in memory across views');
-  assert.equal(pictureGets, reuseBaseline.picture, 'authorized operating-picture must stay in memory across views');
+  assert.equal(eventGets, reuseBaseline.events, 'authorized sheet snapshot must stay in memory across all ten views');
+  assert.equal(pictureGets, reuseBaseline.picture, 'authorized operating-picture must stay in memory across all ten views');
+  assert.equal(inboxGets, reuseBaseline.inbox + 1, 'action-inbox must load once then reuse across action/health revisits');
+  assert.equal(sessionGets, reuseBaseline.session + 1, 'communications session probe must not repeat on revisit');
+  assert.equal(auditGets, reuseBaseline.audit + 1, 'communications audit probe must not repeat on revisit');
+  assert.equal(conversationsGets, reuseBaseline.conversations + 1, 'communications conversations probe must not repeat on revisit');
+  assert.equal(rcsGets, reuseBaseline.rcs + 1, 'communications rcs probe must not repeat on revisit');
+
+  const recordBaseline = { events: eventGets, picture: pictureGets, inbox: inboxGets };
+  await page.locator('[data-command-view="overview"]').click();
+  await page.evaluate(() => window.lvptOpenRecord('evt-lead'));
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
+  await page.evaluate(() => document.querySelector('[data-back-list]')?.click());
+  await page.waitForFunction(() => !document.querySelector('[data-record-event]'));
+  await page.evaluate(() => window.lvptOpenRecord('evt-active'));
+  await page.waitForFunction(() => document.querySelector('[data-record-event="evt-active"]'));
+  await page.evaluate(() => document.querySelector('[data-back-list]')?.click());
+  await page.waitForFunction(() => !document.querySelector('[data-record-event]'));
+  assert.equal(eventGets, recordBaseline.events, 'opening and closing records must not re-read the sheet snapshot');
+  assert.equal(pictureGets, recordBaseline.picture, 'opening and closing records must not re-read operating-picture');
+  assert.equal(inboxGets, recordBaseline.inbox, 'opening and closing records must not re-read action-inbox');
+
+  // Delayed hub paint must not replace a later selected view.
+  mode = 'delay-ledger';
+  releaseLedger = null;
+  const delayedViewPictureBefore = pictureGets;
+  await page.evaluate(() => {
+    window.lvptOperatingPictureResult = null;
+    window.lvptOperatingPicturePromise = null;
+  });
+  await page.locator('[data-command-view="finance"]').click();
+  for (let attempt = 0; attempt < 50 && !releaseLedger; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseLedger, 'expected finance view to hold a delayed operating-picture read after cache eviction');
+  assert.ok(pictureGets > delayedViewPictureBefore);
+  await page.waitForFunction(() => /Reading the ledger/i.test(document.querySelector('#commandView')?.innerText || ''));
+  await page.locator('[data-command-view="pipeline"]').click();
+  await page.waitForFunction(() => /Synthetic Lead|Pipeline/i.test(document.querySelector('#commandView')?.innerText || ''));
+  const pipelineBeforeRelease = await page.locator('#commandView').innerText();
+  assert.match(pipelineBeforeRelease, /Synthetic Lead/);
+  assert.equal(/Invoice by invoice/i.test(pipelineBeforeRelease), false);
+  mode = 'ready';
+  releaseLedger();
+  releaseLedger = null;
+  await page.waitForTimeout(300);
+  const pipelineAfterRelease = await page.locator('#commandView').innerText();
+  assert.match(pipelineAfterRelease, /Synthetic Lead|Pipeline/i);
+  assert.equal(/Invoice by invoice/i.test(pipelineAfterRelease), false, 'late finance paint must not replace the current pipeline view');
+  assert.equal(await page.locator('[data-command-view="pipeline"].active').count(), 1);
+
+  // Rapid record selection while a delayed ledger response is outstanding.
+  mode = 'delay-ledger';
+  releaseLedger = null;
+  await page.evaluate(() => {
+    window.lvptOperatingPictureResult = null;
+    window.lvptOperatingPicturePromise = null;
+    window.__lvptDelayedRecordPicture = window.lvptReloadOperatingPicture();
+  });
+  for (let attempt = 0; attempt < 50 && !releaseLedger; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(releaseLedger, 'expected delayed picture while rapidly selecting records');
+  await page.evaluate(() => {
+    window.lvptOpenRecord('evt-active');
+    window.lvptOpenRecord('evt-lead');
+  });
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-record-event]');
+    return node && node.getAttribute('data-record-event') === 'evt-lead';
+  });
+  mode = 'ready';
+  releaseLedger();
+  releaseLedger = null;
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-record-event="evt-lead"]');
+    return node && /\$111/.test(node.innerText || '') && !/\$222/.test(node.innerText || '');
+  });
+  const rapidDelayed = await page.locator('[data-record-event="evt-lead"]').innerText();
+  assert.equal(rapidDelayed.includes('Synthetic Booked'), false);
+  assert.equal(rapidDelayed.includes('Floor Lead'), false);
+  assert.equal(rapidDelayed.includes('$222'), false);
+  // Prefer an explicit view switch over Back: rapid openRecord pushes multiple history entries.
+  await page.locator('[data-command-view="overview"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-record-event]'));
 
   const idleEvents = eventGets;
   const idlePicture = pictureGets;
   await page.waitForTimeout(600);
   assert.equal(eventGets, idleEvents, 'no automatic sheet retry loop');
   assert.equal(pictureGets, idlePicture, 'no automatic operating-picture retry loop');
+
+  // Transient communications secondary-read failure must not cache; revisit retries then reuses success.
+  mode = 'ready';
+  await page.evaluate(() => window.lvptClearOwnerReads());
+  await page.waitForFunction(() => window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok);
+  mode = 'comms-fail';
+  const failCommsSessionBefore = sessionGets;
+  const failCommsAuditBefore = auditGets;
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForFunction(() => {
+    const text = document.querySelector('#commandView')?.innerText || '';
+    return /AUTH REQUIRED/i.test(text) && !/Checking the review session/i.test(text);
+  });
+  assert.ok(sessionGets > failCommsSessionBefore, 'failed communications session probe must perform a request');
+  assert.ok(auditGets > failCommsAuditBefore, 'failed communications audit probe must perform a request');
+  const afterCommsFail = { session: sessionGets, audit: auditGets, conversations: conversationsGets, rcs: rcsGets };
+  await page.locator('[data-command-view="overview"]').click();
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForFunction(() => {
+    const text = document.querySelector('#commandView')?.innerText || '';
+    return /AUTH REQUIRED/i.test(text) && !/Checking the review session/i.test(text);
+  });
+  assert.ok(sessionGets > afterCommsFail.session, 'failed communications probes must not cache; revisit retries');
+  assert.ok(auditGets > afterCommsFail.audit, 'failed audit probe must retry on revisit');
+  const afterCommsFailRetry = { session: sessionGets, audit: auditGets };
+  mode = 'ready';
+  await page.locator('[data-command-view="overview"]').click();
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForFunction(() => {
+    const text = document.querySelector('#commandView')?.innerText || '';
+    return /AUTHENTICATED/i.test(text) && /Owner session/i.test(text) && !/Checking the review session/i.test(text);
+  });
+  assert.ok(sessionGets > afterCommsFailRetry.session, 'successful communications read must run after a transient failure');
+  assert.match(await page.locator('#commandView').innerText(), /AUTHENTICATED/);
+  const afterCommsRecover = { session: sessionGets, audit: auditGets, conversations: conversationsGets, rcs: rcsGets };
+  await page.locator('[data-command-view="overview"]').click();
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForTimeout(200);
+  assert.equal(sessionGets, afterCommsRecover.session, 'successful authorized communications probes must reuse in memory');
+  assert.equal(auditGets, afterCommsRecover.audit, 'successful audit probe must reuse in memory');
+  assert.equal(conversationsGets, afterCommsRecover.conversations, 'successful conversations probe must reuse in memory');
+  assert.equal(rcsGets, afterCommsRecover.rcs, 'successful rcs probe must reuse in memory');
+
+  // clearOwnerReads during a delayed communications request must not let the older completion null a newer in-flight request.
+  mode = 'ready';
+  await page.evaluate(() => window.lvptClearOwnerReads());
+  await page.waitForFunction(() => window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok);
+  mode = 'delay-comms';
+  releaseComms = null;
+  heldCommsSessions.length = 0;
+  const delayedCommsSessionBefore = sessionGets;
+  await page.locator('[data-command-view="communications"]').click();
+  for (let attempt = 0; attempt < 50 && heldCommsSessions.length < 1; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(heldCommsSessions.length, 1, 'expected the first delayed communications session request to be held');
+  assert.equal(sessionGets, delayedCommsSessionBefore + 1);
+  await page.waitForFunction(() => /Checking the review session/i.test(document.querySelector('#commandView')?.innerText || ''));
+  const olderHeld = heldCommsSessions[0];
+  await page.evaluate(() => window.lvptClearOwnerReads());
+  await page.locator('[data-command-view="pipeline"]').click();
+  await page.waitForFunction(() => /Synthetic Lead|Pipeline/i.test(document.querySelector('#commandView')?.innerText || ''));
+  await page.locator('[data-command-view="communications"]').click();
+  for (let attempt = 0; attempt < 50 && heldCommsSessions.length < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(heldCommsSessions.length, 2, 'clearOwnerReads must allow a newer delayed communications request without sharing the older promise');
+  assert.equal(sessionGets, delayedCommsSessionBefore + 2, 'older and newer delayed communications reads must each count once');
+  mode = 'ready';
+  olderHeld();
+  await page.waitForTimeout(250);
+  assert.match(await page.locator('#commandView').innerText(), /Checking the review session|Communications|Gmail/i);
+  assert.equal(/Invoice by invoice/i.test(await page.locator('#commandView').innerText()), false, 'older delayed communications completion must not stale-paint another view');
+  assert.equal(await page.locator('[data-command-view="communications"].active').count(), 1);
+  const newerHeld = heldCommsSessions[1];
+  newerHeld();
+  await page.waitForFunction(() => {
+    const text = document.querySelector('#commandView')?.innerText || '';
+    return /Owner session|AUTHENTICATED|Gmail and approved SMS/i.test(text)
+      && !/Checking the review session/i.test(text);
+  });
+  assert.match(await page.locator('#commandView').innerText(), /Owner session/);
+  const afterDelayedComms = sessionGets;
+  await page.locator('[data-command-view="overview"]').click();
+  await page.locator('[data-command-view="communications"]').click();
+  await page.waitForTimeout(200);
+  assert.equal(sessionGets, afterDelayedComms, 'newer successful communications result must remain reusable after the older delayed request settles');
 
   mode = 'events-fail';
   const failEventsBaseline = eventGets;

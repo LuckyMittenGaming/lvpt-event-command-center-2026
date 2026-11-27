@@ -255,6 +255,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   let recordOpen = false;
   const statusApi = () => window.LVPTEventStatus;
   const crmApi = () => window.LVPTCrmAttribution;
+  const reportsApi = () => window.LVPTOperationalReports;
   const HISTORICAL_PROPOSAL_STATUS = 'Historical reference, not verified';
   const proposals = [
     { id:'proposal-nium', client:'NIUM', title:'NIUM VIP Casino Lounge', project:'lvpt-nium-proposal', url:'https://lvpt-nium-proposal.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-07-16', eventId:'evt-nium-2026', tags:['Palms Place','Casino Night','Custom Assets','Transportation'], notes:'Enterprise proposal with venue comparisons, custom chips/cards/felts, premium catering, open bar and transportation.' },
@@ -609,6 +610,32 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     if (cents == null || !Number.isFinite(cents)) return 'Unpriced';
     return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   }
+  function buildScopedOperationalReport(options) {
+    const api = reportsApi();
+    if (!api || typeof api.buildOperationalReport !== 'function') return null;
+    const pictureState = overviewPictureState();
+    const picture = pictureState.ready ? pictureState.data : null;
+    return api.buildOperationalReport({
+      events: Array.isArray(events) ? events : [],
+      eventId: options && options.eventId ? options.eventId : '',
+      ledger: picture && picture.report ? picture.report : null,
+      jobs: picture && Object.prototype.hasOwnProperty.call(picture, 'jobs') ? picture.jobs : null,
+      exceptions: picture && Object.prototype.hasOwnProperty.call(picture, 'exceptions') ? picture.exceptions : null,
+      conversion: options && options.conversion ? options.conversion : null,
+      today: todayString(),
+      authenticated: true
+    });
+  }
+  function operationalReportPanel(report) {
+    if (!report) {
+      return '<section class="hub-callout" data-operational-report="unavailable"><strong>Operational report</strong><p class="muted">Scoped operational report model is unavailable in this session.</p></section>';
+    }
+    const conversion = report.conversion || {};
+    const freshness = report.freshness || {};
+    const finance = report.finance || {};
+    const quotes = report.quotes || {};
+    return `<section class="hub-callout" data-operational-report="${escapeHtml(report.scope.kind)}" data-report-scope="${escapeHtml(report.scope.eventId || 'portfolio')}"><strong>Operational report</strong><p data-report-scope-label>${escapeHtml(report.scope.label)}</p><p class="muted">${escapeHtml(report.scope.note)}</p><p data-report-freshness>${escapeHtml(freshness.label || 'Source freshness unavailable')}. ${escapeHtml(freshness.note || '')}</p><p data-report-confidence>${escapeHtml((report.financialConfidence && report.financialConfidence.note) || 'Unknown amounts remain unknown. Target quotes are not double-counted.')}</p><div class="lifecycle-summary"><div><span>Pipeline</span><strong>${escapeHtml(String(report.pipeline.pipeline))}</strong></div><div><span>Booked / historical</span><strong>${escapeHtml(`${report.bookedHistorical.bookedCount} / ${report.bookedHistorical.historicalCount}`)}</strong></div><div><span>Priced quotes</span><strong>${escapeHtml(quotes.pricedLineItemCents == null ? 'Unknown' : moneyCents(quotes.pricedLineItemCents))}</strong><p class="muted">Targets separate: ${escapeHtml(quotes.recordedTargetCents == null ? 'None recorded' : moneyCents(quotes.recordedTargetCents))}</p></div><div><span>Receivables</span><strong>${escapeHtml((finance.receivables && finance.receivables.label) || 'Unknown')}</strong><p class="muted">${escapeHtml((finance.receivables && finance.receivables.confidence) || 'unavailable')}</p></div><div><span>Vendor obligations</span><strong>${escapeHtml((finance.vendorObligations && finance.vendorObligations.label) || 'Unknown')}</strong></div><div><span>Open tasks</span><strong>${escapeHtml(String(report.tasks.openCount))}</strong></div><div><span>Exceptions</span><strong>${escapeHtml(report.exceptions.available ? String(report.exceptions.count) : 'Unavailable')}</strong></div><div><span>Conversion</span><strong>${escapeHtml(conversion.rateLabel || 'Conversion rate: Unavailable')}</strong><p class="muted">${escapeHtml(conversion.reason || '')}</p></div></div><p class="muted">${escapeHtml(report.csvExportReason || 'CSV export omitted.')}</p></section>`;
+  }
   function summarizeQuotes(items) {
     let pricedCents = 0;
     let priced = 0;
@@ -672,7 +699,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     }).join('');
     const listHtml = (rows) => rows.map((event) => `<li><button type="button" class="btn small" data-open-event="${escapeHtml(event.id)}">${escapeHtml(event.eventName || 'Untitled event')}</button> <span>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${escapeHtml(event.eventDate)}</span></li>`).join('');
     const missingNote = detail && detail.mode === 'missing' ? '<p class="hub-warning">That task is not in the signed-in snapshot. Another event was not opened.</p>' : '';
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. A task opens here. View associated event opens one record.')}<div class="command-view-body"><div id="overviewLedger">${overviewLedgerInner()}</div>${dailyOverview()}${summarizeQuotes(events)}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong><p class="muted">Sheet snapshot · Events. Tentative opportunities.</p></div><div><span>Active</span><strong>${count('active')}</strong><p class="muted">Sheet snapshot · confirmed and in progress.</p></div><div><span>Past</span><strong>${count('past')}</strong><p class="muted">Sheet snapshot · dated past. A past date is not completion.</p></div><div><span>Needs review</span><strong>${count('review')}</strong><p class="muted">Sheet snapshot · unverified outcomes.</p></div></div>${missingNote}<h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Confirmed upcoming</h3><p class="muted">Evidence: Booked / payment-processing on the sheet snapshot. Kept apart from dated inquiries.</p><ul>${listHtml(confirmed) || '<li>No confirmed upcoming event.</li>'}</ul><h3>Dated inquiries and proposals</h3><p class="muted">Evidence: pipeline lane with a recognized date on the sheet snapshot.</p><ul>${listHtml(tentative) || '<li>No dated inquiry or proposal.</li>'}</ul><p class="muted">Booked and payment-processing events are confirmed. A past date does not complete an event. Unknown outcomes stay in Needs review. Unanswered mail is not inferred here.</p></div></div>`;
+    const operational = operationalReportPanel(buildScopedOperationalReport({}));
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Overview', 'Current sheet', 'Global sheet snapshot. Dates are calendar dates in America/Los_Angeles. A task opens here. View associated event opens one record.')}<div class="command-view-body"><div id="overviewLedger">${overviewLedgerInner()}</div>${dailyOverview()}${summarizeQuotes(events)}${operational}<div class="lifecycle-summary top-gap"><div><span>Pipeline</span><strong>${count('pipeline')}</strong><p class="muted">Sheet snapshot · Events. Tentative opportunities.</p></div><div><span>Active</span><strong>${count('active')}</strong><p class="muted">Sheet snapshot · confirmed and in progress.</p></div><div><span>Past</span><strong>${count('past')}</strong><p class="muted">Sheet snapshot · dated past. A past date is not completion.</p></div><div><span>Needs review</span><strong>${count('review')}</strong><p class="muted">Sheet snapshot · unverified outcomes.</p></div></div>${missingNote}<h3>Priority open tasks</h3><ul>${taskHtml || '<li>No open dated task on the sheet.</li>'}</ul><h3>Confirmed upcoming</h3><p class="muted">Evidence: Booked / payment-processing on the sheet snapshot. Kept apart from dated inquiries.</p><ul>${listHtml(confirmed) || '<li>No confirmed upcoming event.</li>'}</ul><h3>Dated inquiries and proposals</h3><p class="muted">Evidence: pipeline lane with a recognized date on the sheet snapshot.</p><ul>${listHtml(tentative) || '<li>No dated inquiry or proposal.</li>'}</ul><p class="muted">Booked and payment-processing events are confirmed. A past date does not complete an event. Unknown outcomes stay in Needs review. Unanswered mail is not inferred here.</p></div></div>`;
     bindEventOpeners(view);
     bindLedgerRetry(view);
   }
@@ -787,7 +815,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
       workspaceSection(eventId, 'communications', 'Communications', `${communicationRows(event)}<div class="lifecycle-summary top-gap">${recordedLine('Gmail keywords', setup.gmailKeywords)}${recordedLine('Communication notes', setup.communicationNotes)}</div>`),
       workspaceSection(eventId, 'crm-attribution', 'CRM attribution', `<div class="lifecycle-summary" data-crm-record-attribution>${recordedLine('Acquisition source', acquisitionLabel)}${recordedLine('Recorded lead source', acquired.leadSource || '')}${recordedLine('UTM source', acquired.utmSource || '')}${recordedLine('UTM campaign', acquired.utmCampaign || '')}<div><span>Communication channel</span><strong>Not inferred from acquisition. Channel evidence stays on Communications / Action Required.</strong></div></div>`),
       workspaceSection(eventId, 'post-event', 'Post-event obligations', `<div class="lifecycle-summary">${recordedLine('Client feedback', post.clientFeedback)}${recordedLine('What went well', post.whatWentWell)}${recordedLine('Pain points', post.painPoints)}${recordedLine('Changes next time', post.changesForNextTime)}${recordedLine('Review requested', reviewRequested)}${recordedLine('Review received', reviewReceived)}${recordedLine('Rebooking likelihood', post.rebookingLikelihood)}</div><p class="muted">A past event date does not close open tasks, vendor bills, or payouts by itself.</p>`),
-      workspaceSection(eventId, 'reports', 'Reports', `<p class="muted">Print/report output is limited to this validated event id (${escapeHtml(eventId)}). Overall portfolio reports stay off this record.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`),
+      workspaceSection(eventId, 'reports', 'Reports', `${operationalReportPanel(buildScopedOperationalReport({ eventId }))}<p class="muted">Print/report output is limited to this validated event id (${escapeHtml(eventId)}). Overall portfolio reports stay off this record. Unknown amounts remain unknown. Target quotes are not added to priced totals. CSV export is omitted.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`),
       `<p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record. No delete control is on this record.</p>`
     ].join('');
   }

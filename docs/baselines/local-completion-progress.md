@@ -414,11 +414,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING / gap fill) |
+| Status | **IMPLEMENTED_TESTED** (T34) |
+| Date/time | 2026-11-26 21:30 -05:00 |
 | Dependencies | R06, R08, R10 |
-| Evidence | V2 reports surfaces present |
-| Remaining blocker | Cross-event contamination must remain impossible |
-| Next task | Verify report identity binding |
+| Files inspected | `public/v2/js/reports.js`, `public/v2/js/lifecycle-command-center.js`, `public/v2/js/event-finance.js`, `public/v2/js/event-status.js`, `public/v2/js/dashboard-upgrades.js`, `tests/command-center-browser.test.mjs`, `remaining-spec.md` R20 |
+| Files changed | `public/v2/js/reports.js`, `public/v2/js/lifecycle-command-center.js`, `tests/operational-reports.test.mjs` (new), `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/operational-reports.test.mjs,tests/event-finance.test.cjs,tests/command-center-browser.test.mjs` |
+| Exit codes | operational-reports **0**; event-finance **0**; command-center-browser **0**; verify Targeted **PASS** |
+| Evidence | Added `LVPTOperationalReports.buildOperationalReport` covering pipeline, acquisition, priced quotes vs recorded targets, booked/historical, receivables, vendor obligations, open tasks, exceptions, source freshness, and conversion with cohort-denominator gating. Selected-event scope isolates one event id (no substitution / no cross-event leak). Unknown amounts stay Unknown; targets not added to priced totals. CSV export omitted with explicit reason. Overview + record Reports panels render scope, freshness, and financial confidence. Not LIVE_VERIFIED. |
+| Remaining blocker | None for R20 local synthetic verification. Live authenticated print acceptance remains owner ops. |
+| Next task | R21 / consolidated end-to-end regression |
 
 ### R21 — Consolidated end-to-end regression
 
@@ -536,7 +541,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED); R19/T32+T33 **IMPLEMENTED_TESTED** (shared request + cache lifecycle + bounded ten-view switching; synthetic browser) |
-| Next authorized task | T34 — Complete scoped operational reports |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED); R19/T32+T33 **IMPLEMENTED_TESTED** (shared request + cache lifecycle + bounded ten-view switching; synthetic browser); R20/T34 **IMPLEMENTED_TESTED** (scoped operational reports; CSV omitted) |
+| Next authorized task | R21 — Consolidated end-to-end regression |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

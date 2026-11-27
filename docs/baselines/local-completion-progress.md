@@ -494,11 +494,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | BLOCKED_OWNER |
+| Status | IMPLEMENTED_TESTED (T40 partial protocol prep); live acceptance BLOCKED_OWNER; live duplicate-replay BLOCKED_OWNER |
+| Date/time | 2026-11-26 |
 | Dependencies | R14 |
-| Evidence | Historical metadata ≠ heartbeat |
-| Remaining blocker | Approved handset current `last_success_at` |
-| Next task | Checklist only until owner evidence |
+| Files inspected | `remaining-spec.md` R25, `SMS-STAGING-SETUP.md` Android v0.5 steps (cursor advances on ack; Sync now; idempotent note), `docs/android-sms-operational-checklist.md`, `app/api/sms/staging/ingest/route.ts`, `app/api/sms/staging/_lib.ts`, `lib/sms-bridge.mjs`, `lib/sms-scan-health.mjs`, `lib/source-reliability.mjs`, `SMS-REVIEW-README.md` (no replay UI) |
+| Files changed | `docs/android-sms-operational-checklist.md`, `docs/command-center-completion-matrix.md`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/sms-scan-health.test.mjs,tests/source-reliability.test.mjs` |
+| Exit codes | Targeted verify **0** (sms-scan-health 0; source-reliability 0) |
+| Evidence | Partial owner protocol: discovered v0.5 UI steps for handset/bridge, Sync now → current `last_success_at`, controlled approved ingest observation, stable IDs, encryption, displayed freshness. Allowlist evidence = owner inspection of existing approved-contact configuration + synthetic rejection (`allowedNumbers` / `invalid_or_unapproved_messages`; sms-scan-health). **Live unapproved-number probe removed/prohibited** — do not submit unapproved contact data during acceptance. **Gap vs fully executable protocol:** no authorized owner duplicate-replay action discovered (no APK source UI, no documented resend/curl). Sync now must not be treated as replaying acknowledged messages. Server `ignore-duplicates` / `on_conflict` remains LOCAL_SYNTHETIC_PASS only; live duplicate evidence BLOCKED_OWNER / PENDING_OWNER_EVIDENCE. Historical imports cannot satisfy. No collection/ingestion launched; no fabricated heartbeat. Marker `COMMAND_CENTER_R25_ANDROID_COLLECTION_ACCEPTANCE_READY`. |
+| Remaining blocker | Approved handset current `last_success_at` + controlled approved ingest; authorized live duplicate-replay mechanism undiscovered; preview heartbeat reader still null |
+| Next task | Owner executes discovered UI steps only; do not invent replay/heartbeat; escalate duplicate-replay discovery to bridge branch docs when available |
 
 ### R26 — Verify current RCS collection
 

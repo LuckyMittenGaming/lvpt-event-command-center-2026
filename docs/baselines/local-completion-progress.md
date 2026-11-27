@@ -18,12 +18,12 @@ Rules:
 | Field | Value |
 | --- | --- |
 | Branch | `ai-build/command-center-loop` |
-| HEAD | `d49ae61f9317cbb01e25c42c157c9cb7244fc2a1` (T41 R26 protocol committed; T42 docs uncommitted) |
+| HEAD | `34f6342a3026fa23f5f00c6cbf0129069fcfb2fe` |
 | Upstream | `origin/feature/command-center-completion-20261124` |
 | Candidate included | `292103fc14480adbe84ae9c2404e4fed54ac1bf9` (ancestor of HEAD) |
 | Preview alias mapping | **UNKNOWN** this session (historical URLs in `AGENTS.md` only) |
 | Deployment protection | **UNKNOWN** this session |
-| Working tree | T42 R27 calendar operational acceptance docs; untracked `.orchestrator/` |
+| Working tree | T44 R29 automation-ownership docs; untracked `.orchestrator/` |
 | Node | PATH `v24.22.1` (**owner-approved** for all local verification); Program Files `v24.19.0`; CI remains Node 22 |
 | npm | 11.17.0 |
 | Chrome | Program Files Chrome 158 resolved by harness; `LVPT_CHROME_PATH` supported |
@@ -554,11 +554,16 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | BLOCKED_OWNER |
+| Status | **IMPLEMENTED_TESTED** (T44 ownership/restore doc); live restore remains **BLOCKED_OWNER** / schedule **DISABLED** |
+| Date/time | 2026-11-26 |
 | Dependencies | R24 |
-| Evidence | Approvals DISABLED in matrix/acceptance |
-| Remaining blocker | R24 gates + owner approval |
-| Next task | Keep schedule off |
+| Files inspected | `remaining-spec.md` R29, `AGENTS.md` §12, `docs/LVPT_CURSOR_HANDOFF.md`, `docs/STEP_50_CONTROLLED_GMAIL_ROLLOUT.md`, `docs/gmail-operational-acceptance.md`, `docs/calendar-operational-acceptance.md`, `docs/baselines/lvpt-unified-hub-audit.md`, `docs/command-center-completion-matrix.md`, `docs/command-center-staging-acceptance.md` |
+| Files changed | `docs/automation-ownership.md` (NEW), `docs/command-center-completion-matrix.md`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/sms-reply-send-runtime.test.cjs,tests/sms-reply-queue-navigation.test.cjs`; `Test-Path .\docs\automation-ownership.md` |
+| Exit codes | Targeted verify **0** (both node tests 0); `Test-Path` **True** |
+| Evidence | Ownership inventory: Morning/Evening Client Review + Morning Executive Inbox Brief DOCUMENTED_EXTERNAL/NOT_VERIFIED (no Cursor ChatGPT access). Four-times-daily cadence 6:00 AM / 12:00 PM / 7:00 PM / 12:00 AM ET documented and left DISABLED. Sole Calendar writer `runLVPTSafeTaskSync`; retired `runLVPTTaskSync` forbidden. Restore gates: R24 LIVE_VERIFIED + explicit owner authorization. Preserved: no-auto-send, intent dedup, failure visibility, schedule≠delivery/execution. No competing automation; no scheduled-task mutation. Marker `COMMAND_CENTER_R29_AUTOMATION_OWNERSHIP_DOCUMENTED`. |
+| Remaining blocker | R24 live acceptance PENDING_OWNER_EVIDENCE + separate owner restore authorization; ChatGPT last-success inventory NOT_VERIFIED |
+| Next task | Keep four-times-daily schedule DISABLED; do not create competing crons; proceed to R30 prep only as authorized |
 
 ### R30 — Controlled production release preparation
 
@@ -586,7 +591,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED); R19/T32+T33 **IMPLEMENTED_TESTED** (shared request + cache lifecycle + bounded ten-view switching; synthetic browser); R20/T34 **IMPLEMENTED_TESTED** (scoped operational reports; CSV omitted); R21/T35+T36 **IMPLEMENTED_TESTED** (T35 baseline `final-local-regression.md` preserved; T36 Full gate in `t36-full-local-regression.md`; local synthetic development ready; not LIVE_VERIFIED); R22/T37 checklist **IMPLEMENTED_TESTED** (authenticated staging remains BLOCKED_OWNER); R23/T38 procedure **IMPLEMENTED_TESTED** (live observations PENDING_AUTHORIZED_READ); R24/T39 protocol **IMPLEMENTED_TESTED** (live controlled send PENDING_OWNER_EVIDENCE; schedule DISABLED); R25/T40 protocol **IMPLEMENTED_TESTED** (Android current collection PENDING_OWNER_EVIDENCE; live duplicate-replay BLOCKED_OWNER); R26/T41 protocol **IMPLEMENTED_TESTED** (RCS current collection PENDING_OWNER_EVIDENCE; unpaired/unavailable BLOCKED_OWNER); R27/T42 protocol **IMPLEMENTED_TESTED** (Calendar execution PENDING_OWNER_EVIDENCE; writer not executed); R28/T43 plan **IMPLEMENTED_TESTED** (editing activation PROCEDURE_READY; production writes DISABLED / BLOCKED_OWNER) |
-| Next authorized task | Owner R22 signed-in preview (BLOCKED_OWNER); R23–R27 live evidence fill-in only with written authorization — keep send/mark-read off; R28 live capability activation only with per-CAP owner approval — Cursor must not pair RCS, launch collectors, execute TaskSync, clasp push, or enable production event writes |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30+T31 **IMPLEMENTED_TESTED** (auth/session invalidation + private-asset exposure audit; historical deployments NOT VERIFIED); R19/T32+T33 **IMPLEMENTED_TESTED** (shared request + cache lifecycle + bounded ten-view switching; synthetic browser); R20/T34 **IMPLEMENTED_TESTED** (scoped operational reports; CSV omitted); R21/T35+T36 **IMPLEMENTED_TESTED** (T35 baseline `final-local-regression.md` preserved; T36 Full gate in `t36-full-local-regression.md`; local synthetic development ready; not LIVE_VERIFIED); R22/T37 checklist **IMPLEMENTED_TESTED** (authenticated staging remains BLOCKED_OWNER); R23/T38 procedure **IMPLEMENTED_TESTED** (live observations PENDING_AUTHORIZED_READ); R24/T39 protocol **IMPLEMENTED_TESTED** (live controlled send PENDING_OWNER_EVIDENCE; schedule DISABLED); R25/T40 protocol **IMPLEMENTED_TESTED** (Android current collection PENDING_OWNER_EVIDENCE; live duplicate-replay BLOCKED_OWNER); R26/T41 protocol **IMPLEMENTED_TESTED** (RCS current collection PENDING_OWNER_EVIDENCE; unpaired/unavailable BLOCKED_OWNER); R27/T42 protocol **IMPLEMENTED_TESTED** (Calendar execution PENDING_OWNER_EVIDENCE; writer not executed); R28/T43 plan **IMPLEMENTED_TESTED** (editing activation PROCEDURE_READY; production writes DISABLED / BLOCKED_OWNER); R29/T44 ownership doc **IMPLEMENTED_TESTED** (four-times-daily approvals remain DISABLED; restore BLOCKED_OWNER) |
+| Next authorized task | Owner R22 signed-in preview (BLOCKED_OWNER); R23–R27 live evidence fill-in only with written authorization — keep send/mark-read off; R28 live capability activation only with per-CAP owner approval; R29 schedule restore only after R24 LIVE_VERIFIED + explicit owner authorization — Cursor must not pair RCS, launch collectors, execute TaskSync, clasp push, enable production event writes, or enable ChatGPT approval slots |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

@@ -1,9 +1,13 @@
 import { appsScriptRequest, syncConfigured, syncEnvironment } from '../_lib';
+import { denyPrivateRead } from '../_owner-read';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
+
   if (!syncConfigured()) {
     return Response.json({
       configured: false,

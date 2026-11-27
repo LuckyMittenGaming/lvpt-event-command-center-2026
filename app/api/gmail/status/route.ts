@@ -1,9 +1,13 @@
 import { gmailConfigured, gmailEnvironment } from '../_lib';
+import { denyPrivateRead } from '../sync/_owner-read';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = denyPrivateRead(request);
+  if (denied) return denied;
+
   const configured = gmailConfigured();
   return Response.json({
     configured,

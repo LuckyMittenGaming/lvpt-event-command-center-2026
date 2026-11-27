@@ -1851,11 +1851,45 @@ try {
   assert.match(privateReportBeforeAuthLoss, /Send proposal/);
   assert.equal(privateReportBeforeAuthLoss.includes('Synthetic Booked'), false);
   assert.equal(privateReportBeforeAuthLoss.includes('Active-Only Floor Diagram'), false);
+  // Seed private in-memory caches, then expire/unauthorized the session and prove they clear.
+  const cacheBeforeAuthLoss = await page.evaluate(() => ({
+    picture: Boolean(window.lvptOperatingPictureResult && window.lvptOperatingPictureResult.ok),
+    snapshotReady: window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'ready',
+    eventCount: window.lvptSheetSnapshot && Array.isArray(window.lvptSheetSnapshot.events)
+      ? window.lvptSheetSnapshot.events.length
+      : 0
+  }));
+  assert.equal(cacheBeforeAuthLoss.picture, true);
+  assert.equal(cacheBeforeAuthLoss.snapshotReady, true);
+  assert.equal(cacheBeforeAuthLoss.eventCount > 0, true);
+
   mode = 'unauthorized';
   await page.locator('#refreshSheetBtn').click();
   await page.waitForFunction(() => window.lvptSheetSnapshot && window.lvptSheetSnapshot.state === 'auth-required');
   assert.match(await page.locator('#snapshotBanner').innerText(), /Owner sign-in required/);
-  const cleared = await page.locator('body').innerText();
+  const privateStateAfterAuthLoss = await page.evaluate(() => {
+    const snap = window.lvptSheetSnapshot || {};
+    const storageBlob = [
+      ...Object.keys(localStorage || {}).map((key) => `${key}=${localStorage.getItem(key) || ''}`),
+      ...Object.keys(sessionStorage || {}).map((key) => `${key}=${sessionStorage.getItem(key) || ''}`)
+    ].join('\n');
+    return {
+      snapshotState: snap.state || '',
+      snapshotEvents: Array.isArray(snap.events) ? snap.events.length : -1,
+      pictureResult: window.lvptOperatingPictureResult,
+      picturePromise: window.lvptOperatingPicturePromise,
+      storageBlob,
+      body: document.body ? document.body.innerText : ''
+    };
+  });
+  assert.equal(privateStateAfterAuthLoss.snapshotState, 'auth-required');
+  assert.equal(privateStateAfterAuthLoss.snapshotEvents, 0);
+  assert.equal(privateStateAfterAuthLoss.pictureResult, null);
+  assert.equal(privateStateAfterAuthLoss.storageBlob.includes('Synthetic Lead'), false);
+  assert.equal(privateStateAfterAuthLoss.storageBlob.includes('Lead Client Co'), false);
+  assert.equal(privateStateAfterAuthLoss.storageBlob.includes('Lead-Only Proposal Packet'), false);
+  assert.equal(privateStateAfterAuthLoss.storageBlob.includes('$111'), false);
+  const cleared = privateStateAfterAuthLoss.body;
   assert.equal(cleared.includes('Synthetic Lead'), false);
   assert.equal(cleared.includes('Lead Client Co'), false);
   assert.equal(cleared.includes('Floor Lead'), false);
@@ -1869,9 +1903,12 @@ try {
   }
   assert.equal(cleared.includes('Post-Event & After-Action Report'), false);
   assert.match(await page.locator('#eventEditorPanel').innerText(), /No event selected/);
+  // Unauthorized refresh must not mutate providers — GET-only private reads, no send/write posts.
   assert.equal(posts.some((path) => path === '/api/sync/events' && false), false);
   assert.equal(posts.includes('/api/sync/events'), false);
   assert.equal(posts.includes('/api/gmail/send'), false);
+  assert.equal(posts.includes('/api/sync/documents'), false);
+  assert.equal(posts.includes('/api/sms/staging/reply-send'), false);
   console.log('Command Center browser regression passed.');
 } finally {
   await browser.close();

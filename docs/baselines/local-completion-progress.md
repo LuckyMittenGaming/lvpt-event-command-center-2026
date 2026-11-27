@@ -354,11 +354,41 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Status | NOT_STARTED (planned VERIFY_EXISTING / gap fill) |
+| Status | **IN_PROGRESS** (T30 **IMPLEMENTED_TESTED** after owner-authorized status-route remediation; T31 pending) |
+| Date/time | 2026-11-26 20:45 -05:00 |
 | Dependencies | R03–R17 where applicable |
-| Evidence | `owner-read-guard` tests; roster archived out of public |
-| Remaining blocker | `docs/command-center-security-acceptance.md` and private-asset exposure test absent |
-| Next task | Audit + tests; do not weaken auth for green tests |
+| Files inspected (T30) | `lib/owner-read-guard.mjs`, `lib/sms-review-session.mjs`, `app/api/sync/_owner-read.ts`, `app/api/sms/staging/_review-auth.ts`, `app/api/sms/staging/session/route.ts`, **all 31** `app/api/**/route.ts` files (inventory below), `public/v2/js/sheet-snapshot.js`, `public/v2/js/unified-hub.js`, `public/v2/js/authoritative-finance.js`, `lib/rcs-staging.mjs` (ingest auth) |
+| Files changed (T30) | `app/api/sync/status/route.ts`, `app/api/gmail/status/route.ts`, `tests/owner-read-guard.test.mjs`, `tests/sms-review-session.test.mjs`, `tests/command-center-browser.test.mjs`, `docs/baselines/local-completion-progress.md` |
+| Exact test commands | `powershell.exe -NoProfile -File .\scripts\verify-command-center.ps1 -Mode Targeted -TestFiles tests/owner-read-guard.test.mjs,tests/sms-review-session.test.mjs,tests/command-center-browser.test.mjs`; `npm.cmd run test:staging-safety` |
+| Exit codes | Targeted verify **0**; staging-safety **0** |
+| Evidence (T30) | Decision + handler-level coverage for `events` and both status routes. Owner decision authorized `denyPrivateRead` on `sync/status` and `gmail/status`: unauthenticated/forged/expired/Origin-only/foreign-Origin → 401/403 with **zero** Apps Script calls, **zero** `gmailConfigured`/`accountEmail` reads, and no email/`@` leakage in denial bodies. Authorized positive controls still return configured status (sync calls mocked `status` once; gmail returns synthetic email once). Signing primitives unchanged; existing owner-read guard reused (not redesigned). Browser cache-clear assertions retained. |
+| Remaining blocker | T31 — `docs/command-center-security-acceptance.md` and `tests/private-asset-exposure.test.mjs` still absent |
+| Next task | T31 — Audit private assets and document exposure risks |
+| Owner-auth defects | Previously open `sync/status` and `gmail/status` gaps **remediated** under explicit owner authorization (2026-11-26) using existing `denyPrivateRead`. No remaining T30 auth defects open. |
+
+#### T30 private-route inventory (read-only)
+
+| Route | Guard | Provider risk if unauth | Test coverage |
+| --- | --- | --- | --- |
+| `sync/events` GET | `denyPrivateRead` | Apps Script `listEvents` | T30 handler mock counters + static order; browser 401 |
+| `sync/events` POST | `authorizeAppRequest`; bulk disabled | none (no Apps Script) | T30 handler mock; `event-mutation-contract` |
+| `sync/action-inbox` GET | preview_only then `denyPrivateRead` | Apps Script + Supabase SMS | static order; `action-inbox` / acceptance |
+| `sync/operating-picture` GET | preview_only then `denyPrivateRead` | Apps Script + SMS meta | static order; acceptance/browser |
+| `sync/ledger` GET | `authorizeAppRequest` (sync key, not review cookie) | Apps Script ledger | acceptance financial; distinct auth model |
+| `sync/documents` POST/DELETE | `authorizeAppRequest` | Apps Script upload/delete | staging-safety / mutation hold |
+| `sync/automation` GET/POST | `authorizeAppRequest` | Apps Script automation | static inventory marker |
+| `sync/status` GET | `denyPrivateRead` (owner-authorized 2026-11-26) | Apps Script `status` after auth | T30 handler mock counters + static order |
+| `sms/staging/conversations` GET | `denyPrivateRead` + same-origin | Supabase SMS + optional sheet | static order; acceptance |
+| `sms/staging/rcs-collector` GET | `denyPrivateRead` + same-origin | Supabase RCS | static order; browser |
+| `sms/staging/session` GET/POST/DELETE | `hasReviewSession` / `allowedReviewMutation` + token hash on login | none on GET; cookie mint on POST | `sms-review-session` static + unit |
+| `sms/staging/review`, `audit-health`, `inbox-review`, `inbox-thread`, `gmail-evidence`, `reconcile` | `authorizedReviewer` (session **or** SMS sync token) | Gmail/Supabase as applicable | SMS review suite (existing) |
+| `sms/staging/draft-context`, `reply-recipient` | `hasReviewSession` | Apps Script / Gmail readers | SMS reply/send suite |
+| `sms/staging/reply-send`, `reply-decisions`, `reply-personalized-draft`, `personalized-draft`, `action-decisions`, `inbox-diagnostics`, `ai-smoke-test`, `decisions` | `hasReviewSession` + `allowedReviewMutation` on mutating verbs | provider/AI as applicable | SMS reply/send/review suites |
+| `sms/staging/ingest` POST | `authorized` (SMS sync token) | encrypted SMS write | SMS intelligence / staging |
+| `sms/staging/rcs-ingest` POST | `ingestRcs` → `x-lvpt-rcs-sync-token` | RCS staging write | `rcs-staging` tests |
+| `gmail/search` GET | `authorizeSyncRequest` | Gmail API | gmail ingest tests |
+| `gmail/send` POST | hard-closed 403 | none | negative canary / send disabled |
+| `gmail/status` GET | `denyPrivateRead` (owner-authorized 2026-11-26) | account email only after auth | T30 handler mock counters + static order; denial leaks no email |
 
 ### R19 — Verify performance and shared data requests
 
@@ -496,7 +526,7 @@ Rules:
 
 | Field | Value |
 | --- | --- |
-| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health) |
-| Next authorized task | R18/T30 — Audit authorization and session invalidation |
+| Last completed task | R00; R01/T3 **IMPLEMENTED_TESTED**; R02/T4+T5 **IMPLEMENTED_TESTED**; R03/T6+T7 **VERIFIED_EXISTING**; R04/T8+T9 **IMPLEMENTED_TESTED**; R05/T10+T11 **IMPLEMENTED_TESTED**; R06/T12+T13 **IMPLEMENTED_TESTED**; R07/T14 **IMPLEMENTED_TESTED**; R08/T15+T16 **IMPLEMENTED_TESTED**; R09/T17 **IMPLEMENTED_TESTED**; R10/T18+T19 **IMPLEMENTED_TESTED**; R11/T20+T21 **IMPLEMENTED_TESTED**; R12/T22+T23 **IMPLEMENTED_TESTED**; R13/T24 **IMPLEMENTED_TESTED**; R14/T25 **IMPLEMENTED_TESTED** (Android SMS offline readiness; ops UNVERIFIED); R15/T26 **IMPLEMENTED_TESTED** (RCS collector offline readiness; ops UNVERIFIED); R16/T27 **VERIFIED_EXISTING** (safe TaskSync stubs; action-inbox behavior unchanged; live writer not executed); R17/T28+T29 **IMPLEMENTED_TESTED** (normalized source-health through operating-picture + actionable hub health); R18/T30 **IMPLEMENTED_TESTED** (auth/session invalidation audit; signing primitives unchanged) |
+| Next authorized task | R18/T31 — Audit private assets and document exposure risks |
 | Stop conditions currently active | Repository-execution (`node tests/*`, `npm run`, `npx`) unconditionally denied (trusted isolation executor unimplemented; markers do not unlock); paid/worker launch denied (`insufficient-isolation` + $0 budget); do not re-escalate local Node 24 vs CI Node 22 |
 | Forbidden until owner approval | Production deploy, clasp push, Calendar writes, customer sends, git commit/push by local agent, paid API spend; worker must not modify `scripts/local-agent-policy.{json,mjs}` |

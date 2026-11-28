@@ -21,6 +21,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const libSource = readFileSync(join(root, 'lib/event-mutation-contract.mjs'), 'utf8');
 const coreSource = readFileSync(join(root, 'public/v2/js/core.js'), 'utf8');
 const eventsRoute = readFileSync(join(root, 'app/api/sync/events/route.ts'), 'utf8');
+const eventOverrideRoute = readFileSync(join(root, 'app/api/sync/event-override/route.ts'), 'utf8');
+const businessExpenseRoute = readFileSync(join(root, 'app/api/sync/business-expense/route.ts'), 'utf8');
 const matrix = readFileSync(join(root, 'docs/command-center-completion-matrix.md'), 'utf8');
 const contractDoc = readFileSync(join(root, 'docs/event-mutation-contract.md'), 'utf8');
 const eventsPostSource = eventsRoute.slice(eventsRoute.indexOf('export async function POST'));
@@ -56,12 +58,16 @@ function seedStore() {
   ], { clock: () => '2026-11-25T18:00:00.000Z' });
 }
 
-// --- Production remains disabled; no bulk replacement ---
+// --- Stage 3: granular owner overrides in code; bulk writes permanently disabled ---
 assert.equal(PRODUCTION_MUTATIONS_ENABLED, false);
 assert.equal(isProductionEditingDisabled(), true);
 assert.match(coreSource, /function saveEvents\(message\)\{\s*if\(message\) toast\('This preview is read only/);
-assert.match(matrix, /Event writes\s*\|\s*DISABLED/);
+assert.match(matrix, /Event writes\s*\|\s*GRANULAR OWNER OVERRIDES \(code\)\s*\/\s*BULK DISABLED/);
+assert.match(matrix, /BULK DISABLED/);
 assert.match(matrix, /bulk_event_mutation_disabled/);
+assert.match(matrix, /\/api\/sync\/event-override/);
+assert.match(matrix, /\/api\/sync\/business-expense/);
+assert.match(matrix, /denyPrivateRead/);
 assert.match(eventsRoute, /writesPerformed:\s*false/);
 assert.match(eventsPostSource, /authorizeAppRequest/);
 assert.match(eventsPostSource, /bulk_event_mutation_disabled/);
@@ -73,9 +79,16 @@ assert.doesNotMatch(eventsPostSource, /event-mutation-contract/);
 assert.doesNotMatch(libSource, /clasp push|appsScriptRequest\s*\(/);
 assert.doesNotMatch(libSource, /from ['"].*apps-script/);
 assert.match(libSource, /PRODUCTION_MUTATIONS_ENABLED = false/);
-assert.match(contractDoc, /Production editing remains disabled/i);
 assert.match(contractDoc, /bulk_event_mutation_disabled/);
 assert.match(contractDoc, /bulk snapshot/i);
+assert.match(contractDoc, /BULK DISABLED|bulk writes remain permanently disabled/i);
+// POST /api/sync/event-override and /api/sync/business-expense: owner session via denyPrivateRead (401 unauthenticated)
+assert.match(eventOverrideRoute, /denyPrivateRead/);
+assert.match(businessExpenseRoute, /denyPrivateRead/);
+assert.ok(eventOverrideRoute.indexOf('denyPrivateRead') < eventOverrideRoute.indexOf('appsScriptRequest'));
+assert.ok(businessExpenseRoute.indexOf('denyPrivateRead') < businessExpenseRoute.indexOf('appsScriptRequest'));
+assert.doesNotMatch(eventOverrideRoute, /export async function DELETE/);
+assert.doesNotMatch(businessExpenseRoute, /export async function DELETE/);
 
 const bulk = rejectBulkSnapshotReplacement({ events: [{ id: 'x' }] });
 assert.equal(bulk.ok, false);

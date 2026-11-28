@@ -1,9 +1,23 @@
 # Local completion progress
 
 Persistent automation resume record for `remaining-spec.md` tasks R00–R31.
-Updated: 2026-11-27 (America/New_York; browser-test accordion expand sweep for Stage 2 collapsed sections).
+Updated: 2026-11-28 (America/New_York; Stage 3 pre-R28 assertion alignment).
 Companion reconciliation: `docs/baselines/local-baseline-reconciliation.md`.
 Final handoff: `docs/COMMAND_CENTER_FINAL_HANDOFF.md`.
+
+## Stage 3 (2026-11-27 / assertion align 2026-11-28)
+
+| Task ID | Status | Evidence |
+| --- | --- | --- |
+| Item 1 Granular sheet writes | IMPLEMENTED (Shell verify blocked) | `lib/granular-sheet-writes.mjs`; `POST /api/sync/event-override`; `POST /api/sync/business-expense`; both use `denyPrivateRead` (401); bulk keys 403; `POST /api/sync/events` bulk still disabled; proposed Apps Script in `apps-script/proposed/GranularSheetWrites.gs` (no clasp push) |
+| Item 2 Master Controls + note modal | IMPLEMENTED (Shell verify blocked) | `public/v2/js/master-controls.js` + Event Detail Master Controls + optional note modal + Change History accordion |
+| Item 3 Pipeline DnD + follow-up actions | IMPLEMENTED (Shell verify blocked) | Draggable pipeline cards, mobile Move select, Mark Contacted / Snooze 7/14/30 via same note modal → event-override |
+| Item 4 Business expense quick-add | IMPLEMENTED (Shell verify blocked) | Event Finance Business Overhead `+ Add Business Expense` → `/api/sync/business-expense` |
+| Item 5 GmailAutoTriage | IMPLEMENTED (Shell verify blocked) | `apps-script/GmailAutoTriage.gs` + `lib/gmail-auto-triage.mjs`; dryRun default true; no send/delete; label hierarchy + signal extraction |
+| Tests | IMPLEMENTED (Shell verify blocked) | `tests/granular-sheet-writes.test.mjs`, `tests/gmail-auto-triage.test.mjs`; browser asserts updated for Master Controls; added to `test:staging-safety` |
+| Pre-R28 assertion align | IMPLEMENTED (Shell verify blocked) | `tests/event-mutation-contract.test.mjs` matrix regex → Stage 3 `GRANULAR OWNER OVERRIDES (code) / BULK DISABLED` + override/expense `denyPrivateRead` static checks; `docs/event-mutation-contract.md` aligned. Acceptance/browser/staging-safety had no remaining `Event writes \| DISABLED` / `No save control` conflicts. 401/bulk/no-delete/no-send/financial-honesty asserts preserved. |
+| Contracts preserved | CODE REVIEW | bulk disable intact; bankVerified/drawable cash unchanged on expense response (`false`/`null`); no auto Gmail/SMS send; no clasp push; no production deploy |
+| Full verify | BLOCKED_ENVIRONMENT | Shell tool rejected this session; owner must run `node .\tests\event-mutation-contract.test.mjs` and `npx.cmd --no-install tsc --noEmit` |
 
 ## Stage 2 polish (2026-11-27)
 

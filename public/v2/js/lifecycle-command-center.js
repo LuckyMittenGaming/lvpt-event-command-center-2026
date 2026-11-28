@@ -259,6 +259,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   const dateTimeApi = () => window.LVPTEventDateTime;
   const financeApi = () => window.LVPTEventFinance;
   const cadenceApi = () => window.LVPTFollowUpCadence;
+  const masterApi = () => window.LVPTMasterControls;
   const HISTORICAL_PROPOSAL_STATUS = 'Historical reference, not verified';
   const proposals = [
     { id:'proposal-nium', client:'NIUM', title:'NIUM VIP Casino Lounge', project:'lvpt-nium-proposal', url:'https://lvpt-nium-proposal.vercel.app/', status:HISTORICAL_PROPOSAL_STATUS, updated:'2026-07-16', eventId:'evt-nium-2026', tags:['Palms Place','Casino Night','Custom Assets','Transportation'], notes:'Enterprise proposal with venue comparisons, custom chips/cards/felts, premium catering, open bar and transportation.' },
@@ -1020,7 +1021,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
       workspaceSection(eventId, 'crm-attribution', 'CRM attribution', `<div class="kpi-autofit prop-rows" data-crm-record-attribution>${recordedLine('Acquisition source', acquisitionLabel)}${recordedLine('Recorded lead source', acquired.leadSource || '')}${recordedLine('UTM source', acquired.utmSource || '')}${recordedLine('UTM campaign', acquired.utmCampaign || '')}<div data-span="full"><span>Communication channel</span><strong>Not inferred from acquisition. Channel evidence stays on Communications / Action Required.</strong></div></div>`, { open: false }),
       workspaceSection(eventId, 'post-event', 'Post-event obligations', `${kpi(`${recordedLine('Client feedback', post.clientFeedback, { full: true })}${recordedLine('What went well', post.whatWentWell, { full: true })}${recordedLine('Pain points', post.painPoints, { full: true })}${recordedLine('Changes next time', post.changesForNextTime, { full: true })}${recordedLine('Review requested', reviewRequested)}${recordedLine('Review received', reviewReceived)}${recordedLine('Rebooking likelihood', post.rebookingLikelihood)}`)}<p class="muted">A past event date does not close open tasks, vendor bills, or payouts by itself.</p>`, { open: false, missing: postMissing }),
       workspaceSection(eventId, 'reports', 'Financial Summary & Operational Report', `${operationalReportPanel(buildScopedOperationalReport({ eventId }))}<p class="muted">Print/report output is limited to this validated event id (${escapeHtml(eventId)}). Overall portfolio reports stay off this record. Unknown amounts remain unknown. Target quotes are not added to priced totals. CSV export is omitted.</p><p><button type="button" class="btn small" data-print-record>Print this record</button></p>`, { open: true }),
-      `<p class="muted">Task completion, edits, proposal changes, and document writes stay off until a granular write is approved. No save control is on this record. No delete control is on this record.</p>`
+      masterApi() ? masterApi().changeHistoryAccordion(event) : '',
+      `<p class="muted">Task completion, proposal changes, and document writes stay off until separately approved. Master Controls allow owner-only single-field overrides with Change Log audit. No delete control is on this record.</p>`
     ].join('');
   }
   function renderRecord(view, eventId) {
@@ -1047,7 +1049,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
       : '<p class="muted">No completed tasks on this event.</p>';
     const tasksBody = `<ul data-open-tasks>${openTaskHtml}</ul>${completedTaskHtml}`;
     const headerDate = event.eventDate ? dateLabel(event.eventDate, event) : 'Date unavailable';
-    const html = `<div class="command-view-shell">${viewHeader('Read-only record', event.eventName || 'Untitled event', 'One event. The sheet is not changed from this page.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status unavailable')} · ${escapeHtml(headerDate)} · ${escapeHtml(event.venue || 'Venue unavailable')}</p>${workspaceSection(event.id, 'tasks', 'Open Tasks', tasksBody, { open: true, count: openTasks.length })}${workspaceSection(event.id, 'staffing', 'Staffing', `<p data-record-staff>${staff}</p>`, { open: true, count: Array.isArray(event.staff) ? event.staff.length : 0 })}${workspaceSection(event.id, 'invoices', 'Invoices', `<div data-record-ledger>${recordLedgerInner(event.id)}</div>`, { open: true })}${recordSections(event)}</article></div></div>`;
+    const controls = masterApi() ? masterApi().masterControlsBar(event) : '';
+    const html = `<div class="command-view-shell">${viewHeader('Event record', event.eventName || 'Untitled event', 'One event. Master Controls write a single audited field at a time.', '<button type="button" class="btn" data-back-list>Back to list</button>')}<div class="command-view-body"><article class="record-detail" data-record-event="${escapeHtml(event.id)}" data-record-generation="${generation}"><h2>${escapeHtml(event.eventName || 'Untitled event')}</h2><p>${escapeHtml(event.status || 'Status unavailable')} · ${escapeHtml(headerDate)} · ${escapeHtml(event.venue || 'Venue unavailable')}</p>${controls}${workspaceSection(event.id, 'tasks', 'Open Tasks', tasksBody, { open: true, count: openTasks.length })}${workspaceSection(event.id, 'staffing', 'Staffing', `<p data-record-staff>${staff}</p>`, { open: true, count: Array.isArray(event.staff) ? event.staff.length : 0 })}${workspaceSection(event.id, 'invoices', 'Invoices', `<div data-record-ledger>${recordLedgerInner(event.id)}</div>`, { open: true })}${recordSections(event)}</article></div></div>`;
     if (window.lvptRecordGeneration !== generation) return;
     view.innerHTML = html;
     if (typeof renderEditor === 'function') renderEditor();
@@ -1066,6 +1069,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     bindEventOpeners(view);
     bindLedgerRetry(view);
     bindWorkspaceFilters(view);
+    bindMasterControls(view, event.id);
     view.querySelector('[data-print-record]')?.addEventListener('click', () => {
       const recordEvent = eventById(event.id);
       if (!recordEvent) {
@@ -1097,45 +1101,48 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
   function followUpDueCard(item) {
     const title = item.ruleName || 'Follow-up';
     const company = item.company || item.eventId || 'Event';
-    return `<article class="followup-item" data-follow-up-rule="${escapeHtml(item.ruleId || '')}" data-event-id="${escapeHtml(item.eventId || '')}"><div class="followup-icon">!</div><div><h3>${escapeHtml(title)}</h3><p><strong>${escapeHtml(company)}</strong> · ${escapeHtml(item.reasonForContact || '')}</p><p class="muted">${escapeHtml(item.suggestedAngle || '')}</p></div><div class="followup-item-meta"><strong>Follow-Up Due</strong>${item.dueDate ? dateLabel(item.dueDate) : 'Review'}${item.eventId ? `<div class="review-actions"><button type="button" class="btn small" data-open-event="${escapeHtml(item.eventId)}">Open Record</button></div>` : ''}</div></article>`;
+    const actions = item.eventId && masterApi() ? masterApi().followUpActionsHtml(item.eventId) : '';
+    return `<article class="followup-item" data-follow-up-rule="${escapeHtml(item.ruleId || '')}" data-event-id="${escapeHtml(item.eventId || '')}"><div class="followup-icon">!</div><div><h3>${escapeHtml(title)}</h3><p><strong>${escapeHtml(company)}</strong> · ${escapeHtml(item.reasonForContact || '')}</p><p class="muted">${escapeHtml(item.suggestedAngle || '')}</p>${actions}</div><div class="followup-item-meta"><strong>Follow-Up Due</strong>${item.dueDate ? dateLabel(item.dueDate) : 'Review'}${item.eventId ? `<div class="review-actions"><button type="button" class="btn small" data-open-event="${escapeHtml(item.eventId)}">Open Record</button></div>` : ''}</div></article>`;
   }
   function followUpDueSection(items) {
     if (!items.length) return '';
-    return `<section class="followup-due-lane" data-follow-up-due><h3>Follow-Up Due</h3><p class="muted">Read-only cadence suggestions. No send controls.</p><div class="followup-grid">${items.map(followUpDueCard).join('')}</div></section>`;
+    return `<section class="followup-due-lane" data-follow-up-due><h3>Follow-Up Due</h3><p class="muted">Cadence suggestions with Mark Contacted / Snooze. No send controls.</p><div class="followup-grid">${items.map(followUpDueCard).join('')}</div></section>`;
   }
   function followUpDuePipelineColumn(items) {
-    if (!items.length) return '';
     const cards = items.map((item) => {
       const title = item.ruleName || 'Follow-up';
       const next = item.suggestedAngle || item.reasonForContact || 'Review cadence';
+      const actions = item.eventId && masterApi() ? masterApi().followUpActionsHtml(item.eventId) : '';
       const openAttr = item.eventId
-        ? ` data-open-event="${escapeHtml(item.eventId)}" data-event-id="${escapeHtml(item.eventId)}"`
+        ? ` data-event-id="${escapeHtml(item.eventId)}"`
         : '';
-      return `<button type="button" class="pipeline-card"${openAttr} data-follow-up-rule="${escapeHtml(item.ruleId || '')}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(item.reasonForContact || 'Follow-up due')}</p><p class="muted">${escapeHtml(item.company || item.eventId || '')}</p><div class="pipeline-card-meta"><span>${item.dueDate ? escapeHtml(dateLabel(item.dueDate)) : 'Review'}</span></div><p class="pipeline-card-next">Angle: ${escapeHtml(next)}</p></button>`;
+      return `<div class="pipeline-card pipeline-card--static"${openAttr} data-follow-up-rule="${escapeHtml(item.ruleId || '')}" data-pipeline-lane="follow_up_due"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(item.reasonForContact || 'Follow-up due')}</p><p class="muted">${escapeHtml(item.company || item.eventId || '')}</p><div class="pipeline-card-meta"><span>${item.dueDate ? escapeHtml(dateLabel(item.dueDate)) : 'Review'}</span>${item.eventId ? `<button type="button" class="btn small" data-open-event="${escapeHtml(item.eventId)}">Open</button>` : ''}</div><p class="pipeline-card-next">Angle: ${escapeHtml(next)}</p>${actions}</div>`;
     }).join('');
-    return `<section class="pipeline-column" data-follow-up-due-column><div class="pipeline-column-head"><h3>Follow-Up Due</h3><span class="pipeline-column-count">${items.length}</span></div><div class="pipeline-cards">${cards}</div></section>`;
+    return `<section class="pipeline-column" data-pipeline-lane="follow_up_due" data-follow-up-due-column><div class="pipeline-column-head"><h3>Follow-Up Due</h3><span class="pipeline-column-count">${items.length}</span></div><div class="pipeline-cards" data-pipeline-dropzone="follow_up_due">${cards || '<div class="command-empty">None</div>'}</div></section>`;
   }
   function renderPipeline(view) {
     if (snapshotBlocks(view, 'Sales Pipeline', 'Present & Future Opportunities')) return;
     const items = events.filter((event) => isPipeline(event) || laneOf(event).lane === 'review');
     const groups = [
-      { label: 'New & Discovery', match: (event) => laneOf(event).stage === 'open' && /^(new lead|needs discovery)$/i.test(laneOf(event).normalized || laneOf(event).raw) },
-      { label: 'Quote & Proposal', match: (event) => laneOf(event).stage === 'open' && /^(quote needed|proposal sent)$/i.test(laneOf(event).normalized || laneOf(event).raw) },
-      { label: 'Invoice, not booked', match: (event) => laneOf(event).stage === 'invoice_sent' || laneOf(event).stage === 'invoice_awaiting_deposit' },
-      { label: 'Needs review', match: (event) => laneOf(event).lane === 'review' }
+      { key: 'new_discovery', label: 'New & Discovery', match: (event) => laneOf(event).stage === 'open' && /^(new lead|needs discovery)$/i.test(laneOf(event).normalized || laneOf(event).raw) },
+      { key: 'quote_proposal', label: 'Quote & Proposal', match: (event) => laneOf(event).stage === 'open' && /^(quote needed|proposal sent)$/i.test(laneOf(event).normalized || laneOf(event).raw) },
+      { key: 'invoiced_not_booked', label: 'Invoiced / Not Booked', match: (event) => laneOf(event).stage === 'invoice_sent' || laneOf(event).stage === 'invoice_awaiting_deposit' },
+      { key: 'needs_review', label: 'Needs Review', match: (event) => laneOf(event).lane === 'review' }
     ];
     const columns = groups.map((group) => {
       const matches = items.filter(group.match);
-      return `<section class="pipeline-column"><div class="pipeline-column-head"><h3>${escapeHtml(group.label)}</h3><span class="pipeline-column-count">${matches.length}</span></div><div class="pipeline-cards">${matches.map(pipelineCard).join('') || '<div class="command-empty">None</div>'}</div></section>`;
+      return `<section class="pipeline-column" data-pipeline-lane="${escapeHtml(group.key)}"><div class="pipeline-column-head"><h3>${escapeHtml(group.label)}</h3><span class="pipeline-column-count">${matches.length}</span></div><div class="pipeline-cards" data-pipeline-dropzone="${escapeHtml(group.key)}">${matches.map(pipelineCard).join('') || '<div class="command-empty">None</div>'}</div><label class="pipeline-mobile-move muted">Move selected<select class="input" data-pipeline-move-select data-lane="${escapeHtml(group.key)}"><option value="">Move card…</option>${items.map((event) => `<option value="${escapeHtml(event.id)}">${escapeHtml(event.eventName || event.id)}</option>`).join('')}</select></label></section>`;
     }).join('');
     const dueItems = followUpDueItems(items);
     const attribution = crmApi()
       ? crmApi().formatAttributionPanel(crmApi().summarizeEventAcquisition(events), escapeHtml)
       : '<p class="muted">CRM attribution model unavailable.</p>';
     const attributionDrawer = `<details class="crm-attribution-drawer" data-crm-attribution-drawer><summary>CRM attribution</summary><div class="workspace-accordion-body">${attribution}</div></details>`;
-    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Booked events are listed in Active, not in a handoff column. Dates use America/Los_Angeles.')}<div class="command-view-body">${summarizeQuotes(items)}<p><a class="btn small" href="#" data-command-jump="active">Open Active events</a></p>${followUpDueSection(dueItems)}<div class="pipeline-board top-gap">${columns}${followUpDuePipelineColumn(dueItems)}</div>${attributionDrawer}</div></div>`;
+    view.innerHTML = `<div class="command-view-shell">${viewHeader('Sales Pipeline','Present & Future Opportunities','Drag cards across lanes or use the Move select on mobile. Booked events stay in Active.')}<div class="command-view-body">${summarizeQuotes(items)}<p><a class="btn small" href="#" data-command-jump="active">Open Active events</a></p>${followUpDueSection(dueItems)}<div class="pipeline-board top-gap">${columns}${followUpDuePipelineColumn(dueItems)}</div>${attributionDrawer}</div></div>`;
     view.querySelector('[data-command-jump="active"]')?.addEventListener('click', (clickEvent) => { clickEvent.preventDefault(); setCommandView('active'); });
     bindEventOpeners(view);
+    bindPipelineInteractions(view);
+    bindFollowUpActions(view);
   }
 
   function pipelineCard(event) {
@@ -1145,7 +1152,121 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const title = String(event.eventName || event.contactName || 'Untitled event').trim();
     const next = String(event.nextAction || '').trim().slice(0, 90) || 'No next action recorded';
     const acquired = crmApi() ? crmApi().acquisitionChannelLines(event) : { kind: 'unknown', acquisitionText: 'Acquisition: Unknown (not recorded)' };
-    return `<button type="button" class="pipeline-card" data-open-event="${escapeHtml(event.id)}" data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(laneOf(event).stage)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate, event)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span>${moneyAwareHtml(value)}</span></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${sheetLinked ? ' · Proposal linked' : ''}</p></button>`;
+    return `<div class="pipeline-card" draggable="true" tabindex="0" data-pipeline-card data-event-id="${escapeHtml(event.id)}" data-stage="${escapeHtml(laneOf(event).stage)}" data-acquisition-kind="${escapeHtml(acquired.kind)}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(laneOf(event).raw || 'Status not recorded')} · ${dateLabel(event.eventDate, event)}</p><p class="muted" data-crm-acquisition>${escapeHtml(acquired.acquisitionText)}</p><div class="pipeline-card-meta"><span>${moneyAwareHtml(value)}</span><button type="button" class="btn small" data-open-event="${escapeHtml(event.id)}">Open</button></div><p class="pipeline-card-next">Next: ${escapeHtml(next)}${sheetLinked ? ' · Proposal linked' : ''}</p></div>`;
+  }
+
+  async function refreshAfterOverride() {
+    if (typeof window.lvptReloadSheetSnapshot === 'function') {
+      await window.lvptReloadSheetSnapshot(true);
+    } else if (typeof pullCloudEvents === 'function') {
+      await pullCloudEvents(false);
+    }
+    renderCommandView();
+  }
+
+  async function commitOverride(eventId, field, value) {
+    const api = masterApi();
+    if (!api) {
+      toast('Master Controls unavailable.');
+      return false;
+    }
+    const event = eventById(eventId);
+    if (!event) {
+      toast('Event is not in the signed-in snapshot.');
+      return false;
+    }
+    const oldValue = api.currentValue(event, field);
+    if (String(oldValue) === String(value)) return false;
+    try {
+      const outcome = await api.confirmAndSaveOverride({
+        eventId,
+        field,
+        value,
+        oldValue,
+        actor: localStorage.getItem('lvptCurrentActor') || 'Owner'
+      });
+      if (outcome.cancelled) return false;
+      api.applyLocalOverride(event, field, value, outcome.result && outcome.result.note, outcome.result);
+      toast(outcome.result && outcome.result.diff ? outcome.result.diff : 'Override saved');
+      await refreshAfterOverride();
+      return true;
+    } catch (error) {
+      toast(error && error.message ? error.message : 'Override failed');
+      return false;
+    }
+  }
+
+  function bindMasterControls(scope, eventId) {
+    const root = Array.from(scope.querySelectorAll('[data-master-controls]')).find((node) => node.getAttribute('data-event-id') === eventId);
+    if (!root || !masterApi()) return;
+    root.querySelectorAll('[data-master-field]').forEach((input) => {
+      const field = input.getAttribute('data-master-field');
+      const handler = async () => {
+        const value = input.value;
+        const ok = await commitOverride(eventId, field, value);
+        if (!ok) {
+          const event = eventById(eventId);
+          if (event) input.value = masterApi().currentValue(event, field);
+        }
+      };
+      input.addEventListener('change', handler);
+    });
+  }
+
+  function bindPipelineInteractions(scope) {
+    scope.querySelectorAll('[data-pipeline-card]').forEach((card) => {
+      card.addEventListener('dragstart', (event) => {
+        event.dataTransfer.setData('text/plain', card.getAttribute('data-event-id') || '');
+        event.dataTransfer.effectAllowed = 'move';
+        card.classList.add('is-dragging');
+      });
+      card.addEventListener('dragend', () => card.classList.remove('is-dragging'));
+    });
+    scope.querySelectorAll('[data-pipeline-dropzone]').forEach((zone) => {
+      zone.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        zone.classList.add('is-drop-target');
+      });
+      zone.addEventListener('dragleave', () => zone.classList.remove('is-drop-target'));
+      zone.addEventListener('drop', async (event) => {
+        event.preventDefault();
+        zone.classList.remove('is-drop-target');
+        const eventId = event.dataTransfer.getData('text/plain');
+        const lane = zone.getAttribute('data-pipeline-dropzone');
+        if (!eventId || !lane) return;
+        await commitOverride(eventId, 'pipelineStage', lane);
+      });
+    });
+    scope.querySelectorAll('[data-pipeline-move-select]').forEach((select) => {
+      select.addEventListener('change', async () => {
+        const eventId = select.value;
+        const lane = select.getAttribute('data-lane');
+        select.value = '';
+        if (!eventId || !lane) return;
+        await commitOverride(eventId, 'pipelineStage', lane);
+      });
+    });
+  }
+
+  function bindFollowUpActions(scope) {
+    scope.querySelectorAll('[data-followup-action]').forEach((button) => {
+      button.addEventListener('click', async (clickEvent) => {
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+        const wrap = button.closest('[data-followup-actions]');
+        const eventId = wrap && wrap.getAttribute('data-event-id');
+        if (!eventId || !masterApi()) return;
+        const action = button.getAttribute('data-followup-action');
+        if (action === 'mark-contacted') {
+          await commitOverride(eventId, 'followUpSnoozeUntil', masterApi().snoozeDate(1));
+          return;
+        }
+        if (action === 'snooze') {
+          const days = Number(button.getAttribute('data-days') || 7);
+          await commitOverride(eventId, 'followUpSnoozeUntil', masterApi().snoozeDate(days));
+        }
+      });
+    });
   }
 
   function renderPortfolio(view, mode) {
@@ -1315,6 +1436,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (() => {
     const action='';
     view.innerHTML=`<div class="command-view-shell">${viewHeader('Email Intelligence','Client Follow-Up','Open tasks recorded on the sheet. A past event date does not complete a task. Schedule review is off in this preview.',action)}<div class="command-view-body">${followUpDueSection(dueItems)}<p class="muted">Needs attention: ${items.length}. These are recorded tasks, not a generated follow-up list.</p><div class="followup-grid">${items.map(followUpCard).join('')||'<div class="command-empty">No open sheet task is due within seven days.</div>'}</div></div></div>`;
     bindEventOpeners(view);
+    bindFollowUpActions(view);
     all('[data-review-item]').forEach(button=>button.addEventListener('click',()=>reviewAutomationItem(button.dataset.reviewItem,button.dataset.reviewStatus)));
   }
 

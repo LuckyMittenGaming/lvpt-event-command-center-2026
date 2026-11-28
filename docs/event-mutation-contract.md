@@ -1,7 +1,7 @@
 # Event mutation contract (isolated)
 
-Status: **Isolated development only** (R09)  
-Production editing remains disabled. Activation is a separate owner decision (R28).
+Status: **Isolated development library** (R09) plus Stage 3 code paths for owner-session granular overrides.  
+Bulk snapshot writes remain permanently disabled. Live Apps Script single-row writers stay pending owner clasp-wire/canary (R28).
 
 Capability-specific activation plans (create/edit, task complete/reopen, follow-ups, quotes, proposal links, document associations, post-event), permissions, canary, audit, and rollback gates: `docs/event-editing-release-plan.md`.
 
@@ -88,7 +88,7 @@ Rejected shapes:
 PRODUCTION_MUTATIONS_ENABLED = false
 ```
 
-Completion matrix row **Event writes | DISABLED** remains authoritative for the live UI and release posture. This contract does not change that row.
+Completion matrix row **Event writes | GRANULAR OWNER OVERRIDES (code) / BULK DISABLED** is authoritative: Master Controls / `POST /api/sync/event-override` and `POST /api/sync/business-expense` are owner-session granular paths (`denyPrivateRead` → 401 unauthenticated); `POST /api/sync/events` bulk writes remain permanently disabled (`403 bulk_event_mutation_disabled`). This isolated library does not re-enable bulk `saveAllEvents`.
 
 ## Mapping to R28 capabilities
 

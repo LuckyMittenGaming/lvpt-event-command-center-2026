@@ -425,7 +425,10 @@
         : '—';
       return `<tr data-expense-id="${esc(row.expenseId || '')}" data-business-overhead="1"><td>${esc(row.date || '—')}</td><td>${esc(row.vendor || '—')}</td><td>${esc(row.category || '—')}</td><td>${esc(row.description || '—')}</td><td class="money-nowrap">${esc(dollars(row.amountCents))}</td><td>${esc(row.paymentMethod || '—')}</td><td>${esc(row.status || '—')}</td><td>${receipt}</td><td>${esc(row.notes || '')}</td></tr>`;
     }).join('');
-    const overheadSection = `<section class="hub-callout" data-business-overhead-section><strong>Business Overhead (Spent on Business)</strong><p class="muted">${esc(overhead.note || 'Business overhead stays separate from Direct Event Costs and Event Gross Profit.')}</p><div class="lifecycle-summary hub-metrics"><div><span>Overhead total</span><strong class="money-nowrap">${esc(overheadTotal)}</strong></div><div><span>Rows</span><strong>${esc(String(overheadRows.length))}</strong></div><div><span>Coverage</span><strong>${esc(overhead.coverage || 'unavailable')}</strong></div><div><span>Direct Event Costs</span><strong>Separate lens</strong></div></div><div class="hub-table-wrap"><table class="hub-table" data-finance-table="business-overhead"><thead><tr><th>Date</th><th>Vendor</th><th>Category</th><th>Description</th><th>Amount</th><th>Method</th><th>Status</th><th>Receipt</th><th>Notes</th></tr></thead><tbody>${overheadTable || '<tr><td colspan="9">No business expense rows returned. This is not Direct Event Costs.</td></tr>'}</tbody></table></div></section>`;
+    const expenseQuickAdd = window.LVPTMasterControls && typeof window.LVPTMasterControls.businessExpenseFormHtml === 'function'
+      ? window.LVPTMasterControls.businessExpenseFormHtml()
+      : '';
+    const overheadSection = `<section class="hub-callout" data-business-overhead-section><strong>Business Overhead (Spent on Business)</strong><p class="muted">${esc(overhead.note || 'Business overhead stays separate from Direct Event Costs and Event Gross Profit.')}</p><div class="lifecycle-summary hub-metrics"><div><span>Overhead total</span><strong class="money-nowrap">${esc(overheadTotal)}</strong></div><div><span>Rows</span><strong>${esc(String(overheadRows.length))}</strong></div><div><span>Coverage</span><strong>${esc(overhead.coverage || 'unavailable')}</strong></div><div><span>Direct Event Costs</span><strong>Separate lens</strong></div></div>${expenseQuickAdd}<div class="hub-table-wrap"><table class="hub-table" data-finance-table="business-overhead"><thead><tr><th>Date</th><th>Vendor</th><th>Category</th><th>Description</th><th>Amount</th><th>Method</th><th>Status</th><th>Receipt</th><th>Notes</th></tr></thead><tbody>${overheadTable || '<tr><td colspan="9">No business expense rows returned. This is not Direct Event Costs.</td></tr>'}</tbody></table></div></section>`;
 
     return `<div class="hub-warning">Read-only Google Sheets ledger. Paid In Full here is not a bank confirmation. Payment Initiated is not money received. A refund stays out of settled receipts. Unclassified rows stay out of both revenue and expenses. Client receipts, vendor bills, and owner draws stay in separate totals. Forecast margin does not subtract owner draws. Ledger contribution is not bank-verified and is not drawable cash. ${esc(report.money.drawableCashReason || 'Drawable cash is unavailable.')}${esc(incompleteNote)}${esc(marginNote)}${esc(reconcileNote)}</div><div class="lifecycle-summary hub-metrics">${cards}</div>${overheadSection}<h3>Client invoices</h3><p class="muted">Invoice-by-invoice client ledger. Same-amount invoices stay independent. Source id is the Payments payment_id.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="client-invoices"><thead><tr><th>Event</th><th>Source id</th><th>Invoice</th><th>Ledger status</th><th>Meaning</th><th>Due date</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th><th>Record</th></tr></thead><tbody>${clientTable || '<tr><td colspan="10">No client invoice rows returned.</td></tr>'}</tbody></table></div><h3>Vendor obligations</h3><p class="muted">Vendor-by-vendor obligations. Vendor bills are not client revenue. Due dates stay on the source row.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="vendor-obligations"><thead><tr><th>Event</th><th>Source id</th><th>Vendor</th><th>Ledger status</th><th>Meaning</th><th>Due date</th><th>Invoice</th><th>Ledger paid</th><th>Balance</th><th>Record</th></tr></thead><tbody>${vendorTable || '<tr><td colspan="10">No vendor obligation rows returned.</td></tr>'}</tbody></table></div><h3>Owner distributions</h3><p class="muted">Owner draws stay separate from operating expenses. Planned is not paid.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="owner-distributions"><thead><tr><th>Event</th><th>Source id</th><th>Label / payee</th><th>Type / status</th><th>Meaning</th><th>Due date</th><th>Amount</th><th>Ledger paid</th><th>Record</th></tr></thead><tbody>${(ownerPaymentTable + ownerPayoutTable) || '<tr><td colspan="9">No owner distribution rows returned.</td></tr>'}</tbody></table></div><h3>Vendor payouts, kept separate</h3><p class="muted">Payout overlaps stay reviewable. A matching amount does not merge a payout into a vendor bill.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="vendor-payouts"><thead><tr><th>Event</th><th>Source id</th><th>Payee</th><th>Type</th><th>Status</th><th>Treatment</th><th>Payment link</th><th>Due date</th><th>Amount</th><th>Record</th></tr></thead><tbody>${vendorPayoutTable || '<tr><td colspan="10">No vendor payout rows returned.</td></tr>'}</tbody></table></div>${otherPaymentRows.length ? `<h3>Fee, tax, and unclassified rows</h3><div class="hub-table-wrap"><table class="hub-table" data-finance-table="other-payments"><thead><tr><th>Event</th><th>Source id</th><th>Role</th><th>Ledger status</th><th>Meaning</th><th>Due date</th><th>Invoice</th><th>Record</th></tr></thead><tbody>${otherTable}</tbody></table></div>` : ''}<h3>Per-event reconciliation</h3><p class="muted">Qualified event totals come from the shared ledger model. Incomplete event rows stay incomplete.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="event-reconciliation"><thead><tr><th>Event</th><th>State</th><th>Client invoices</th><th>Collected</th><th>Outstanding</th><th>Vendor committed</th><th>Owner paid</th><th>Owner planned</th><th>Record</th></tr></thead><tbody>${eventReconcileTable || '<tr><td colspan="9">No per-event reconciliation rows returned.</td></tr>'}</tbody></table></div><h3>Global reconciliation</h3><p class="muted">Global totals must equal the sum of qualified per-event totals. Exceptions are never hidden to force a match.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="global-reconciliation"><thead><tr><th>Field</th><th>Status</th><th>Global</th><th>Qualified event sum</th><th>Note</th></tr></thead><tbody>${globalTable}</tbody></table></div><h3>Linked exceptions</h3><p class="muted">Documented exceptions stay source-linked and out of fabricated totals.</p><div class="hub-table-wrap"><table class="hub-table" data-finance-table="linked-exceptions"><thead><tr><th>Exception</th><th>Event</th><th>Source</th><th>Amount</th><th>Totals</th><th>Detail</th><th>Record</th></tr></thead><tbody>${exceptionTable || '<tr><td colspan="7">No linked exceptions were returned.</td></tr>'}</tbody></table></div><p class="muted">Payout source: ${esc(data.payoutSourceStatus)}. ${report.counts.payoutsExcludedAsDuplicateExpense} payout row(s) share a payment id and were not counted twice. ${report.counts.amountOverlapsNotMerged} same-amount row(s) stayed separate.${duplicateNote} Server time ${esc(data.serverTime || 'not provided')}. writesPerformed ${esc(String(data.writesPerformed === true))}.</p>`;
   }
@@ -462,6 +465,51 @@
     view.querySelectorAll('[data-view-record]').forEach((button) => button.addEventListener('click', () => {
       if (typeof window.lvptOpenRecord === 'function') window.lvptOpenRecord(button.getAttribute('data-view-record'));
     }));
+    bindBusinessExpenseQuickAdd(view);
+  }
+
+  function bindBusinessExpenseQuickAdd(view) {
+    const openBtn = view.querySelector('[data-open-business-expense]');
+    const dialog = view.querySelector('#lvptBusinessExpenseModal');
+    const form = view.querySelector('[data-business-expense-form]');
+    if (!openBtn || !dialog || !form || !window.LVPTMasterControls) return;
+    let pendingExpense = null;
+    openBtn.addEventListener('click', () => {
+      pendingExpense = null;
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+    });
+    form.addEventListener('submit', (event) => {
+      const submitter = event.submitter;
+      if (!submitter || submitter.value !== 'save') {
+        pendingExpense = null;
+        return;
+      }
+      const data = new FormData(form);
+      pendingExpense = {
+        date: String(data.get('date') || ''),
+        vendor: String(data.get('vendor') || ''),
+        category: String(data.get('category') || 'Misc'),
+        description: String(data.get('description') || ''),
+        amount: String(data.get('amount') || ''),
+        paymentMethod: String(data.get('paymentMethod') || ''),
+        receiptUrl: String(data.get('receiptUrl') || ''),
+        notes: String(data.get('notes') || ''),
+        actor: localStorage.getItem('lvptCurrentActor') || 'Owner'
+      };
+    });
+    dialog.addEventListener('close', async () => {
+      const payload = pendingExpense;
+      pendingExpense = null;
+      if (!payload || dialog.returnValue !== 'save') return;
+      try {
+        await window.LVPTMasterControls.saveBusinessExpense(payload);
+        toast('Business expense recorded');
+        renderFinance(view);
+      } catch (error) {
+        toast(error && error.message ? error.message : 'Business expense save failed');
+      }
+    });
   }
 
   async function renderCommunications(view) {

@@ -1452,8 +1452,10 @@ try {
   assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="post-event"]').innerText(), /Unavailable/);
   assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="quote-payment"]').innerText(), /Not Invoiced/);
   assert.match(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="crm-attribution"]').innerText(), /Unknown \(not recorded\)|Acquisition source/i);
-  assert.match(record, /No save control/);
   assert.match(record, /No delete control/);
+  assert.match(record, /Master Controls/);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-master-controls]').count(), 1);
+  assert.equal(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="change-history"]').count(), 1);
   assert.equal(await page.locator('[data-record-event="evt-lead"] #saveEditorBtn').count(), 0);
   assert.equal(await page.locator('[data-record-event="evt-lead"] #deleteEventBtn').count(), 0);
   assert.equal(await page.locator('[data-record-event="evt-lead"] [data-complete-task]').count(), 0);
@@ -1643,7 +1645,8 @@ try {
   assert.match(fromFinance, /Discovery and setup/);
   assert.match(fromFinance, /\$111\.00/);
   assert.equal(fromFinance.includes('$222'), false);
-  assert.match(fromFinance, /No save control/);
+  assert.match(fromFinance, /Master Controls/);
+  assert.match(fromFinance, /No delete control/);
   assert.equal(page.url().includes('sms-review'), false);
   await page.goBack();
   await page.waitForFunction(() => !document.querySelector('[data-record-event]') && /Invoice by invoice|Event finance/i.test(document.querySelector('#commandView')?.innerText || ''));
@@ -1861,7 +1864,8 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-record-event="evt-lead"]'));
   assert.equal(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="client-contact"]').getAttribute('data-event-id'), 'evt-lead');
   assert.equal(await page.locator('[data-record-event="evt-lead"] [data-workspace-section="logistics"]').getAttribute('data-event-id'), 'evt-lead');
-  assert.match(await page.locator('[data-record-event="evt-lead"]').innerText(), /No save control/);
+  assert.match(await page.locator('[data-record-event="evt-lead"]').innerText(), /Master Controls/);
+  assert.match(await page.locator('[data-record-event="evt-lead"]').innerText(), /No delete control/);
   assert.equal(await overflow(), true);
   assert.equal(await page.locator('#commandNav').isVisible(), true);
   await page.locator('[data-back-list]').click();

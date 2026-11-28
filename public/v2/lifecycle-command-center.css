@@ -54,4 +54,28 @@
 .crm-attribution-drawer>summary::-webkit-details-marker{display:none}
 .followup-due-lane{margin:14px 0;min-width:0}
 .record-detail,.workspace-accordion,.pipeline-board,.portfolio-card-grid,.comm-filter-bar,.doc-filter-bar,.table-scroll{max-width:100%}
-@media(max-width:720px){.prop-rows{grid-template-columns:1fr}.kpi-autofit{grid-template-columns:1fr}}
+@media(max-width:720px){.prop-rows{grid-template-columns:1fr}.kpi-autofit{grid-template-columns:1fr}.master-controls-grid{grid-template-columns:1fr}.pipeline-mobile-move{display:block}}
+
+/* Stage 3 — Master Controls, pipeline DnD, note modal, business expense */
+.master-controls{margin:12px 0;padding:12px;border:1px solid rgba(250,204,21,.28);border-radius:16px;background:linear-gradient(145deg,rgba(250,204,21,.08),rgba(0,0,0,.28));min-width:0;max-width:100%}
+.master-controls-head{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.master-controls-head strong{color:#fde68a;font-size:13px;letter-spacing:.04em}
+.master-controls-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0}
+.master-controls-grid label{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#a1a1aa}
+.master-controls-grid .input{width:100%;min-width:0}
+.master-controls-grid [data-span="full"]{grid-column:1/-1}
+.change-history-list{margin:0;padding-left:18px}
+.change-history-list li{margin:6px 0;font-size:12px;line-height:1.45;overflow-wrap:break-word}
+.pipeline-card[draggable="true"]{cursor:grab}
+.pipeline-card.is-dragging{opacity:.55}
+.pipeline-cards.is-drop-target{outline:2px dashed rgba(250,204,21,.65);outline-offset:2px;border-radius:12px}
+.pipeline-mobile-move{display:none;margin-top:8px}
+.pipeline-mobile-move .input{margin-top:4px}
+.followup-quick-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;min-width:0}
+.lvpt-note-modal .lvpt-note-card,.lvpt-expense-modal .modal-card{max-width:min(520px,94vw);width:100%}
+.lvpt-note-diff{margin:0 0 12px;padding:10px 12px;border:1px solid rgba(250,204,21,.22);border-radius:12px;background:rgba(0,0,0,.28);font-weight:850;overflow-wrap:break-word}
+.lvpt-note-label{display:block;margin:0 0 6px;font-size:12px;color:#a1a1aa}
+.lvpt-note-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.business-expense-quickadd{margin:10px 0;min-width:0}
+@media(max-width:520px){.master-controls-grid{grid-template-columns:1fr}.lvpt-note-actions .btn{width:100%}}
+@media(max-width:280px){.master-controls{padding:10px;border-radius:12px}.followup-quick-actions .btn{width:100%}}
